@@ -13,8 +13,10 @@ await bootstrap(config, { name: 'Sample Parent', email: 'parent@example.test', p
 const db = new Database(config.dbPath, { fileMustExist: true });
 const auth = createAuth(db, { ...config, allowSignUp: true });
 const kid = await auth.api.signUpEmail({ body: { name: 'Sample Kid', email: 'kid@example.test', password: 'synthetic-kid-password' } });
+const other = await auth.api.signUpEmail({ body: { name: 'Other Kid', email: 'other@example.test', password: 'synthetic-other-password' } });
 const household = db.prepare('SELECT id FROM household').get() as { id: string };
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(kid.user.id, household.id, 'kid');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(other.user.id, household.id, 'kid');
 db.close();
 const child = spawn('pnpm', ['exec', 'vite', 'dev', '--host', '127.0.0.1', '--port', '4173', '--strictPort'], {
   stdio: 'inherit', env: { ...process.env, DATABASE_PATH: config.dbPath, AUTH_SECRET: config.secret, AUTH_ORIGIN: config.origin }
