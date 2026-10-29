@@ -14,12 +14,12 @@ it('blocks protected updates, deletion and malformed input; verifies a safe bran
     mkdirSync(join(dir, 'scripts')); mkdirSync(join(dir, '.githooks')); mkdirSync(join(dir, 'bin'));
     copyFileSync(resolve('.githooks/pre-push'), join(dir, '.githooks/pre-push'));
     copyFileSync(resolve('scripts/pre-push-guard.mjs'), join(dir, 'scripts/pre-push-guard.mjs'));
-    writeFileSync(join(dir, 'scripts/verify-before-push.sh'), '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+    writeFileSync(join(dir, 'scripts/verify-before-push.sh'), '#!/bin/sh\ntest -z "${GIT_DIR+x}"\n', { mode: 0o755 });
     writeFileSync(join(dir, 'bin/mise'), '#!/bin/sh\nshift 2\nexec "$@"\n', { mode: 0o755 });
     chmodSync(join(dir, '.githooks/pre-push'), 0o755);
     git('add', '.githooks', 'scripts', 'bin'); git('commit', '-m', 'fixture');
     const current = git('rev-parse', 'HEAD').stdout.trim();
-    const run = (input: string) => spawnSync('sh', ['.githooks/pre-push', 'origin', 'example'], { cwd: dir, input, encoding: 'utf8', env: { ...process.env, PATH: `${join(dir, 'bin')}:${process.env.PATH}` } });
+    const run = (input: string) => spawnSync('sh', ['.githooks/pre-push', 'origin', 'example'], { cwd: dir, input, encoding: 'utf8', env: { ...process.env, GIT_DIR: join(dir, '.git'), PATH: `${join(dir, 'bin')}:${process.env.PATH}` } });
     expect(run(`refs/heads/feature/test ${current} refs/heads/main ${zero}\n`).status).not.toBe(0);
     expect(run(`(delete) ${zero} refs/heads/feature/test ${current}\n`).status).not.toBe(0);
     expect(run('malformed\n').status).not.toBe(0);
