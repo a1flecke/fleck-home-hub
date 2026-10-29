@@ -18,7 +18,7 @@ try {
   if (!/never merge or approve/i.test(shared) || !/force-push/i.test(shared)) problems.push('Missing shared merge or force-push policy');
   if (!/^pnpm@\d+\.\d+\.\d+$/.test(pkg.packageManager)) problems.push('packageManager must pin pnpm');
   if (config.share !== 'disabled') problems.push('OpenCode sharing must be disabled');
-  if (!Array.isArray(config.permissions) || config.permissions.some(x => x.action === 'shell' && x.resource === '*' && x.effect === 'allow')) problems.push('OpenCode cannot broadly allow shell commands');
+  if (!Array.isArray(config.permissions) || !config.permissions.some(x => x.action === 'shell' && x.resource === '*' && x.effect === 'ask') || config.permissions.some(x => x.effect === 'allow' && (x.action === 'shell' || /[*?]/.test(x.action)))) problems.push('OpenCode project shell rules must default to ask; wildcard action allows are forbidden');
   for (const resource of ['shell:gh pr merge *', 'shell:git push --force *']) if (!config.policies?.some(x => x.action === 'tool.use' && x.resource === resource && x.effect === 'deny')) problems.push(`Missing hard deny: ${resource}`);
   for (const [path, text] of surfaces) {
     if (path.startsWith('.opencode/commands/') && !text.includes('AGENTS.md')) problems.push(`${path}: missing shared policy reference`);

@@ -23,6 +23,16 @@ it('detects policy drift and nonexistent commands', () => {
     policy.permissions[0].effect = 'allow';
     writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
     expect(run().status).not.toBe(0);
+    policy.permissions[0].effect = 'ask';
+    policy.permissions.push({ action: 'shell', resource: 'git *', effect: 'allow' });
+    writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
+    expect(run().status).not.toBe(0);
+    policy.permissions[1].action = '*';
+    writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
+    expect(run().status).not.toBe(0);
+    policy.permissions = [];
+    writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
+    expect(run().status).not.toBe(0);
     writeFileSync(join(root, '.opencode/opencode.jsonc'), '{');
     expect(run().status).not.toBe(0);
   } finally { rmSync(root, { recursive: true, force: true }); }

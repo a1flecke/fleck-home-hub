@@ -33,6 +33,9 @@ test('parent and child sessions enforce access at the API', async ({ page }) => 
   await expect(page.getByText('Parent dashboard')).toBeVisible({ timeout: 5000 });
   const dashboard = await page.reload();
   expect(dashboard?.headers()['cache-control']).toContain('no-store');
+  const dataResponse = await page.request.get('/dashboard/__data.json');
+  expect(dataResponse.status()).toBe(200);
+  expect(dataResponse.headers()['cache-control']).toContain('no-store');
   await expect(page.getByText('Add a chore', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
@@ -40,7 +43,7 @@ test('parent and child sessions enforce access at the API', async ({ page }) => 
   await page.getByLabel('Email').fill('kid@example.test');
   await page.getByLabel('Password').fill('synthetic-kid-password');
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByText('Your day')).toBeVisible({ timeout: 5000 });
+  await expect(page.getByText('Your day', { exact: true })).toBeVisible({ timeout: 5000 });
   await expect(page.getByText('Add a chore', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
