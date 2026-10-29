@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+cd "$(git rev-parse --show-toplevel)"
+mise exec -- node scripts/pre-push-guard.mjs
+exec ./scripts/verify-before-push.sh

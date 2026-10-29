@@ -1,0 +1,73 @@
+[tools]
+node = "24.13.1"
+pnpm = "12.16.1"
+gitleaks = "8.30.1"
+zizmor = "1.30.1"
+
+[settings]
+lockfile = true
+lockfile_platforms = ["macos-arm64", "linux-x64"]
+
+[tasks.install]
+description = "Install the locked project dependencies"
+run = "pnpm install --frozen-lockfile"
+
+[tasks.dev]
+description = "Start the development server on localhost"
+run = "pnpm run dev"
+
+[tasks.build]
+description = "Build the production application"
+run = "pnpm run build"
+
+[tasks.typecheck]
+description = "Check Svelte and TypeScript"
+run = "pnpm run typecheck"
+
+[tasks.test]
+description = "Run unit and integration tests"
+run = "pnpm run test"
+
+[tasks.e2e]
+description = "Run browser tests"
+run = "pnpm run e2e"
+
+[tasks.parity]
+description = "Check pnpm version parity"
+run = "node scripts/check-tool-versions.mjs"
+
+[tasks.bootstrap-account]
+description = "Provision a new database from private JSON on standard input"
+run = "pnpm exec tsx scripts/bootstrap-account.ts"
+
+[tasks.lint]
+description = "Lint project sources"
+run = "pnpm run lint"
+
+[tasks.agent-policy]
+description = "Check shared agent policy invariants"
+run = "node scripts/check-agent-policy-parity.mjs"
+
+[tasks.verify]
+description = "Run complete pre-PR verification"
+run = "./scripts/verify-pr.sh"
+
+[tasks.doctor]
+description = "Check development environment readiness"
+run = "./scripts/doctor.sh"
+
+[tasks.add-kid]
+description = "Provision a child account from private JSON on standard input"
+run = "pnpm exec tsx scripts/add-kid.ts"
+
+[tasks.backup]
+description = "Back up the SQLite database to a new destination"
+run = "pnpm exec tsx scripts/backup-db.ts"
+
+[tasks.start]
+description = "Start the production build on localhost by default"
+run = "./scripts/start.sh"
+
+[tasks.migrate]
+description = "Migrate an existing database"
+run = "pnpm exec tsx scripts/migrate.ts"
