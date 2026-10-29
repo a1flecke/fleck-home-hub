@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "deny": ["Read(.env)", "Read(.env.*)", "Read(**/*.sqlite)", "Read(**/*.db)", "Read(~/.config/opencode/service.json)"],
+    "ask": ["Bash(tailscale:*)", "Edit(~/.config/opencode/**)", "Write(~/.config/opencode/**)"]
+  },
+  "hooks": {
+    "PreToolUse": [{ "matcher": "Bash", "hooks": [{ "type": "command", "command": "mise exec -- node \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard.mjs\"", "timeout": 10 }] }]
+  }
+}
