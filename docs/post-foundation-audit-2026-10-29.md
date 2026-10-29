@@ -17,4 +17,4 @@ This is an interim audit, not a production-readiness certification. The live mai
 - The project relies on native sandbox and global OpenCode policies for protections that project-level pattern matching cannot reliably provide. The global configuration and credentials were not inspected or changed.
 - HTTPS cookies depend on the configured authentication origin. CSP, HSTS, rate limiting, actual tailnet restrictions, device behavior, service restart behavior and complete disaster recovery still require further assessment.
 
-The application is not yet ready for a real household pilot. The chores and financial ledger, independent review boundary, actual-device verification, and end-to-end operational recovery remain outstanding.
+This audit predates the chores feature. An independent review boundary, actual-device verification, and end-to-end operational recovery remain outstanding; this document does not certify readiness for a real household pilot.
