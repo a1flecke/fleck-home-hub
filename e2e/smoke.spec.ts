@@ -1,5 +1,14 @@
 import { expect, test } from '@playwright/test';
 
+test('sign-in cannot submit before hydration', async ({ browser }) => {
+  const context = await browser.newContext({ javaScriptEnabled: false });
+  try {
+    const page = await context.newPage();
+    await page.goto('/sign-in');
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+  } finally { await context.close(); }
+});
+
 test('shared display and sign-in are usable on a narrow screen', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   const manifest = await page.request.get('/manifest.webmanifest');

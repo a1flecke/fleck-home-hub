@@ -1,13 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   let { data, form } = $props();
-  let message = $state('');
   const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-  async function signOut() {
-    const response = await fetch('/api/auth/sign-out', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
-    if (response.ok) window.location.assign('/');
-    else message = 'Unable to sign out. Please try again.';
-  }
 </script>
 <svelte:head><title>My day · Fleck Home Hub</title></svelte:head>
 <main class="mx-auto max-w-4xl px-5 py-8">
@@ -55,6 +49,5 @@
       </article>
     {/each}
   </section>
-  {#if message}<p role="status" class="mt-4">{message}</p>{/if}
-  <button onclick={signOut} class="mt-8 rounded-xl border border-teal-700 px-4 py-3 text-teal-700">Sign out</button>
+  <form method="POST" action={resolve('/sign-out')}><button class="mt-8 rounded-xl border border-teal-700 px-4 py-3 text-teal-700">Sign out</button></form>
 </main>
