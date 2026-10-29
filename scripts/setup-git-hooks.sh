@@ -9,6 +9,10 @@ if [ -n "$existing" ] && [ "$existing" != .githooks ]; then
   exit 1
 fi
 if [ "$(git config --local --get extensions.worktreeConfig || true)" != true ]; then
+  if git config --local --get core.worktree >/dev/null 2>&1 || [ "$(git config --local --bool --get core.bare || true)" = true ]; then
+    echo 'setup-git-hooks: shared core.worktree or bare configuration requires manual worktree migration; no changes made' >&2
+    exit 1
+  fi
   echo 'setup-git-hooks: enabling Git worktree-specific configuration in this repository'
   git config --local extensions.worktreeConfig true
 fi

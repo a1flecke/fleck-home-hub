@@ -26,3 +26,17 @@ it('configures hooks per worktree and refuses to overwrite another hook path', (
     expect(git(linked, 'config', '--worktree', '--get', 'core.hooksPath').stdout.trim()).toBe('/tmp/unrelated-hooks');
   } finally { rmSync(base, { recursive: true, force: true }); }
 });
+
+it('refuses to enable worktree configuration when shared core.worktree needs migration', () => {
+  const root = mkdtempSync(join(tmpdir(), 'hub-hooks-config-'));
+  const git = (...args: string[]) => spawnSync('git', args, { cwd: root, encoding: 'utf8' });
+  try {
+    expect(git('init', '-b', 'main').status).toBe(0);
+    expect(git('config', '--local', 'core.worktree', root).status).toBe(0);
+    mkdirSync(join(root, '.githooks'));
+    const result = spawnSync('sh', [resolve('scripts/setup-git-hooks.sh')], { cwd: root, encoding: 'utf8' });
+    expect(result.status).not.toBe(0);
+    expect(git('config', '--local', '--get', 'core.worktree').stdout.trim()).toBe(root);
+    expect(git('config', '--local', '--get', 'extensions.worktreeConfig').stdout.trim()).not.toBe('true');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});
