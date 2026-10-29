@@ -15,4 +15,13 @@ describe('Claude PreToolUse hook', () => {
     expect(result.status).toBe(0);
     expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe('ask');
   });
+  it('requires review for Git context changes and refuses hook bypasses', () => {
+    for (const command of ['git -C /tmp/example commit -m example', 'cd /tmp/example && git commit -m example', 'git -c core.hooksPath=/dev/null commit -m example']) {
+      const result = run(event(command));
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe('ask');
+    }
+    expect(run(event('git commit --no-verify -m example')).status).toBe(2);
+    expect(run(event('git -C /tmp/example status; rm -rf /tmp/example')).status).toBe(2);
+  });
 });

@@ -9,6 +9,9 @@ describe('task dispatcher', () => {
   it('rejects an arbitrary executable', () => expect(run('sh').status).not.toBe(0));
   it('rejects flags and extra arguments', () => expect(run('build', '--help').status).not.toBe(0));
   it('rejects traversal', () => expect(run('test', '../package.json').status).not.toBe(0));
+  it.each(['tests/dispatcher.test.ts;id', 'tests/dispatcher.test.ts$(id)', 'tests/../tests/dispatcher.test.ts', 'tests/dispatcher.test.ts\n--help'])(
+    'rejects shell metacharacters and traversal in %s', path => expect(run('test', path).status).not.toBe(0)
+  );
   it('rejects a nonexistent test path', () => expect(run('test', 'tests/nonexistent.test.ts').status).not.toBe(0));
   it('prints usage without executing arbitrary commands', () => expect(run().stderr).toContain('Usage:'));
   it('passes only the selected existing test to mise', () => {

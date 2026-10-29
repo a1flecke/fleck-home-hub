@@ -34,9 +34,10 @@ export async function authorizeRequest(auth: ReturnType<typeof createAuth>, data
   return authorize(row ?? null, householdId, action);
 }
 
-export async function parentAction(auth: ReturnType<typeof createAuth>, database: Database.Database, request: Request, householdId: string) {
+export async function parentAction(auth: ReturnType<typeof createAuth>, database: Database.Database, request: Request, householdId: string, trustedOrigin: string) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
+  if (request.headers.get('origin') !== trustedOrigin) return new Response(null, { status: 403 });
   if (!await authorizeRequest(auth, database, request.headers, householdId, 'manage')) return new Response(null, { status: 403 });
   return new Response(null, { status: 204 });
 }
