@@ -1,0 +1,14 @@
+# Ownership requests review; GitHub rules must require code-owner approval to enforce it.
+/.github/ @a1flecke
+/.opencode/ @a1flecke
+/.claude/ @a1flecke
+/.githooks/ @a1flecke
+/AGENTS.md @a1flecke
+/CLAUDE.md @a1flecke
+/src/lib/server/ @a1flecke
+/drizzle/ @a1flecke
+/scripts/ @a1flecke
+/mise.toml @a1flecke
+/mise.lock @a1flecke
+/package.json @a1flecke
+/pnpm-lock.yaml @a1flecke
