@@ -1,8 +1,10 @@
 # Architecture
 
-Fleck Home Hub is a modular monolith. Routes and Svelte components call server-side application logic; domain policies do not import presentation or database modules. Infrastructure provides SQLite, Better Auth and external integrations. Only create interfaces for real extension points. Calendar, notifications, meals/groceries, expenses and weather are future domains, not implemented services.
+Fleck Home Hub is a modular monolith. Routes and Svelte components call server-side application logic; domain policies do not import presentation or database modules. Infrastructure provides SQLite, Better Auth and external integrations. Only create interfaces for real extension points. Notifications, meals/groceries, expenses and weather are future domains, not implemented services.
 
 Identity uses Better Auth sessions and a `membership` row mapping a user to a household and role. Protected requests resolve the session server-side and check membership for the requested household. A missing session, membership, configuration or database denies access. The shared display currently renders synthetic data only; it has no financial information. Network access through Tailscale is not authorization.
+
+The calendar stores household-local event dates and wall times, optional recurring weekdays and cancelled occurrences. Household members may read it; only parents may manage events and the to-schedule inbox. Scheduling an inbox item creates its event and closes the item in one transaction. See [calendar.md](calendar.md) for DST limitations and the migration procedure.
 
 A child's chore completion is a submission pending parent verification. A parent may verify it or return it for rework. A SQLite immediate transaction checks household membership and the state transition, writes an actor/timestamp audit record, and on paid verification inserts one credit with a unique chore association. The ledger stores integer cents, rejects updates and deletes, and preserves the amount at verification. Pending rewards are calculated separately from verified credits; balances are sums of ledger entries. Repeated approvals are rejected.
 

@@ -17,6 +17,6 @@ export const handle: Handle = async ({ event, resolve }) => {
   response.headers.set('x-content-type-options', 'nosniff');
   response.headers.set('x-frame-options', 'DENY');
   response.headers.set('referrer-policy', 'same-origin');
-  if (event.url.pathname === '/dashboard' || event.url.pathname.startsWith('/api/')) response.headers.set('cache-control', 'no-store');
+  if (event.url.pathname === '/dashboard' || event.url.pathname.startsWith('/calendar') || event.url.pathname.startsWith('/api/')) response.headers.set('cache-control', 'no-store');
   return response;
 };
