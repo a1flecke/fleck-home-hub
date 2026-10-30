@@ -20,6 +20,38 @@ const cents = (text: string) => {
 };
 const money = (amount: number) => `$${(amount / 100).toFixed(2)}`;
 
+test('dashboard preserves form edits made before hydration', async ({ page, browser }) => {
+  await signIn(page, 'parent');
+  const context = await browser.newContext({ storageState: await page.context().storageState() });
+  let release!: () => void;
+  let blocked!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const requested = new Promise<void>(resolve => { blocked = resolve; });
+  try {
+    const delayed = await context.newPage();
+    await delayed.route('**/src/routes/dashboard/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await delayed.goto('/dashboard', { waitUntil: 'commit' });
+    await requested;
+    await delayed.getByText('Payday schedule', { exact: true }).click();
+    const payday = delayed.locator('form[action="?/payday"]');
+    await payday.getByLabel('First payday').fill('2099-01-01');
+    await payday.getByLabel('Frequency').selectOption('14');
+    await delayed.getByText('Household time zone', { exact: true }).click();
+    const timezone = delayed.locator('form[action="?/timezone"]');
+    await timezone.getByLabel('Time zone (for example, America/Chicago)').fill('Asia/Tokyo');
+    await delayed.getByText('Add a recurring chore', { exact: true }).click();
+    const recurring = delayed.locator('form[action="?/series"]').first();
+    await recurring.getByLabel('Starts on').fill('2099-02-01');
+    release();
+    await delayed.waitForLoadState('networkidle');
+    await expect(payday.getByLabel('First payday')).toHaveValue('2099-01-01');
+    await expect(payday.getByLabel('Frequency')).toHaveValue('14');
+    await expect(timezone.getByLabel('Time zone (for example, America/Chicago)')).toHaveValue('Asia/Tokyo');
+    await expect(recurring.getByLabel('Starts on')).toHaveValue('2099-02-01');
+    expect(await payday.evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ anchor: '2099-01-01', cadence: '14' });
+  } finally { release(); await context.close(); }
+});
+
 test('a verified chore can be partially paid and the child sees the remaining amount', async ({ page, browser }, testInfo) => {
   const title = `Payment chore ${testInfo.repeatEachIndex}`;
   await page.setViewportSize({ width: 375, height: 812 });
@@ -50,6 +82,26 @@ test('a verified chore can be partially paid and the child sees the remaining am
   await signIn(page, 'parent');
   await chore.getByRole('button', { name: 'Verify' }).click();
   await expect(chore.getByText('Approved! You earned $5.00!')).toBeVisible();
+  const delayedContext = await browser.newContext({ storageState: await page.context().storageState() });
+  let releasePayment!: () => void;
+  let paymentBlocked!: () => void;
+  const paymentGate = new Promise<void>(resolve => { releasePayment = resolve; });
+  const paymentRequested = new Promise<void>(resolve => { paymentBlocked = resolve; });
+  try {
+    const delayed = await delayedContext.newPage();
+    await delayed.route('**/src/routes/dashboard/+page.svelte*', async route => { paymentBlocked(); await paymentGate; await route.continue(); });
+    await delayed.goto('/dashboard', { waitUntil: 'commit' });
+    await paymentRequested;
+    const earnings = delayed.getByRole('article', { name: 'Earnings for Payout Kid' });
+    await earnings.getByText('Record a payment', { exact: true }).click();
+    await earnings.getByLabel('Payment amount').fill('2.00');
+    await earnings.getByLabel('Payment date').fill('2026-11-01');
+    releasePayment();
+    await delayed.waitForLoadState('networkidle');
+    await expect(earnings.getByLabel('Payment amount')).toHaveValue('2.00');
+    await expect(earnings.getByLabel('Payment date')).toHaveValue('2026-11-01');
+    expect(await earnings.locator('form[action="?/payout"]').evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ amount: '2.00', date: '2026-11-01' });
+  } finally { releasePayment(); await delayedContext.close(); }
   const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   let owedBefore: number, paidBefore: number, childId: string, payoutId: string;
   try {
