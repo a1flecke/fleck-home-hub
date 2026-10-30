@@ -15,12 +15,13 @@ async function signOut(page: Page) {
 
 async function create(page: Page, title: string) {
   await page.getByText('Add a chore', { exact: true }).click();
-  await page.getByLabel('Chore title').fill(title);
-  await page.getByLabel('Assigned child').selectOption({ label: 'Sample Kid' });
-  await page.getByLabel('Due date').fill('2026-11-01');
-  await page.getByLabel('Reward in dollars').fill('2.00');
-  await page.getByRole('button', { name: 'Add chore' }).click();
-  await expect(page.getByText(title)).toBeVisible();
+  const form = page.locator('form[action="?/create"]');
+  await form.getByLabel('Chore title', { exact: true }).fill(title);
+  await form.getByRole('combobox', { name: 'Assigned child', exact: true }).selectOption({ label: 'Sample Kid' });
+  await form.getByLabel('Due date', { exact: true }).fill('2026-11-01');
+  await form.getByLabel('Reward in dollars', { exact: true }).fill('2.00');
+  await form.getByRole('button', { name: 'Add chore', exact: true }).click();
+  await expect(page.getByRole('article').filter({ hasText: title })).toBeVisible();
 }
 
 test('child submits and parent verifies a paid chore', async ({ page }, testInfo) => {
@@ -122,12 +123,13 @@ test('server rejects anonymous, child and cross-origin mutations and hides other
   await signIn(page, 'parent');
   await expect(page.getByText('Forged chore')).toHaveCount(0);
   await page.getByText('Add a chore', { exact: true }).click();
-  await page.getByLabel('Chore title').fill(title);
-  await page.getByLabel('Assigned child').selectOption({ label: 'Other Kid' });
-  await page.getByLabel('Due date').fill('2026-11-01');
-  await page.getByRole('button', { name: 'Add chore' }).click();
+  const form = page.locator('form[action="?/create"]');
+  await form.getByLabel('Chore title', { exact: true }).fill(title);
+  const kidId = await form.getByRole('combobox', { name: 'Assigned child', exact: true }).locator('option', { hasText: 'Sample Kid' }).getAttribute('value');
+  await form.getByRole('combobox', { name: 'Assigned child', exact: true }).selectOption({ label: 'Other Kid' });
+  await form.getByLabel('Due date', { exact: true }).fill('2026-11-01');
+  await form.getByRole('button', { name: 'Add chore', exact: true }).click();
   await expect(page.getByRole('heading', { name: title, exact: true })).toBeVisible();
-  const kidId = await page.getByLabel('Assigned child').locator('option', { hasText: 'Sample Kid' }).getAttribute('value');
   const forged = await page.request.post(url, { form: body, headers: { origin: 'https://attacker.example.test' } });
   expect(forged.status()).toBe(403);
   await signOut(page);
@@ -135,4 +137,64 @@ test('server rejects anonymous, child and cross-origin mutations and hides other
   await expect(page.getByRole('heading', { name: title, exact: true })).toHaveCount(0);
   const child = await page.request.post(url, { form: { ...body, assignee: kidId! }, headers: { origin: 'http://127.0.0.1:4173' } });
   expect(child.status()).not.toBe(200);
+});
+
+test('a recurring occurrence is submitted and verified independently', async ({ page }, testInfo) => {
+  const title = `Daily feeding ${testInfo.repeatEachIndex}`;
+  await page.setViewportSize({ width: 375, height: 812 });
+  await signIn(page, 'parent');
+  await page.getByText('Add a recurring chore', { exact: true }).click();
+  const form = page.locator('form[action="?/series"]').first();
+  await form.getByLabel('Recurring chore title').fill(title);
+  await form.getByLabel('Recurring assigned child').selectOption({ label: 'Sample Kid' });
+  for (const day of ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']) await form.getByLabel(day, { exact: true }).check();
+  await form.getByLabel('Recurring reward in dollars').fill('2.00');
+  await form.getByRole('button', { name: 'Add recurring chore' }).click();
+  await expect(page.getByText('Recurring chore saved.')).toBeVisible();
+  const series = page.getByRole('article').filter({ hasText: title }).filter({ hasText: 'Skip occurrence' });
+  const seriesId = await series.locator('form[action="?/seriesControl"] input[name="id"]').first().inputValue();
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const occurrence = page.getByRole('article').filter({ hasText: title }).filter({ hasText: `Due ${today}` });
+  await expect(occurrence).toHaveCount(1);
+  const scheduledDates = await page.getByRole('article').filter({ hasText: title }).filter({ hasText: 'To do' }).locator('p').filter({ hasText: 'Due ' }).allTextContents();
+  expect(scheduledDates.map(text => text.match(/\d{4}-\d{2}-\d{2}/)?.[0])).toEqual([...scheduledDates.map(text => text.match(/\d{4}-\d{2}-\d{2}/)?.[0])].sort());
+  await page.screenshot({ path: testInfo.outputPath('recurring-parent-mobile.png'), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.screenshot({ path: testInfo.outputPath('recurring-parent-desktop.png'), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await signOut(page);
+  await signIn(page, 'kid');
+  const childChange = await page.request.post('/dashboard?/seriesControl', { form: { id: seriesId, action: 'ended' }, headers: { origin: 'http://127.0.0.1:4173' } });
+  expect(childChange.status()).not.toBe(200);
+  const childCreate = await page.request.post('/dashboard?/series', { form: { title: 'Forged recurring', assignee: 'forged', startDate: today, weekday: '1' }, headers: { origin: 'http://127.0.0.1:4173' } });
+  expect(childCreate.status()).not.toBe(200);
+  const forgedOrigin = await page.request.post('/dashboard?/seriesControl', { form: { id: seriesId, action: 'ended' }, headers: { origin: 'https://attacker.example.test' } });
+  expect(forgedOrigin.status()).toBe(403);
+  await occurrence.getByRole('button', { name: 'Mark complete' }).click();
+  await expect(occurrence.getByText('Waiting for parent verification')).toBeVisible();
+  await signOut(page);
+  await signIn(page, 'parent');
+  await occurrence.getByRole('button', { name: 'Verify' }).click();
+  await expect(occurrence.getByText('Approved! You earned $2.00!')).toBeVisible();
+  await signOut(page);
+  await signIn(page, 'kid');
+  await expect(occurrence.getByText('Approved! You earned $2.00!')).toBeVisible();
+});
+
+test('recurring chores can be created before JavaScript runs', async ({ page, browser }, testInfo) => {
+  const title = `No script recurring ${testInfo.repeatEachIndex}`;
+  await signIn(page, 'parent');
+  const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    const noScript = await context.newPage();
+    await noScript.goto('/dashboard');
+    await noScript.getByText('Add a recurring chore', { exact: true }).click();
+    const form = noScript.locator('form[action="?/series"]').first();
+    await form.getByLabel('Recurring chore title').fill(title);
+    await form.getByLabel('Recurring assigned child').selectOption({ label: 'Sample Kid' });
+    for (const day of ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']) await form.getByLabel(day, { exact: true }).check();
+    await form.getByRole('button', { name: 'Add recurring chore' }).click();
+    await expect(noScript.getByText('Recurring chore saved.')).toBeVisible();
+    await expect(noScript.getByRole('article').filter({ hasText: title }).filter({ hasText: 'Skip occurrence' })).toBeVisible();
+  } finally { await context.close(); }
 });
