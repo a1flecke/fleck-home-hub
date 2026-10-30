@@ -147,6 +147,7 @@ test('a recurring occurrence is submitted and verified independently', async ({ 
   const form = page.locator('form[action="?/series"]').first();
   await form.getByLabel('Recurring chore title').fill(title);
   await form.getByLabel('Recurring assigned child').selectOption({ label: 'Sample Kid' });
+  const assignee = await form.getByLabel('Recurring assigned child').inputValue();
   for (const day of ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']) await form.getByLabel(day, { exact: true }).check();
   await form.getByLabel('Recurring reward in dollars').fill('2.00');
   await form.getByRole('button', { name: 'Add recurring chore' }).click();
@@ -165,9 +166,11 @@ test('a recurring occurrence is submitted and verified independently', async ({ 
   await signOut(page);
   await signIn(page, 'kid');
   const childChange = await page.request.post('/dashboard?/seriesControl', { form: { id: seriesId, action: 'ended' }, headers: { origin: 'http://127.0.0.1:4173' } });
-  expect(childChange.status()).not.toBe(200);
-  const childCreate = await page.request.post('/dashboard?/series', { form: { title: 'Forged recurring', assignee: 'forged', startDate: today, weekday: '1' }, headers: { origin: 'http://127.0.0.1:4173' } });
-  expect(childCreate.status()).not.toBe(200);
+  expect(childChange.status()).toBe(400);
+  expect(await childChange.json()).toMatchObject({ type: 'failure', status: 400 });
+  const childCreate = await page.request.post('/dashboard?/series', { form: { title: 'Forged recurring', assignee, startDate: today, weekday: '1' }, headers: { origin: 'http://127.0.0.1:4173' } });
+  expect(childCreate.status()).toBe(400);
+  expect(await childCreate.json()).toMatchObject({ type: 'failure', status: 400 });
   const forgedOrigin = await page.request.post('/dashboard?/seriesControl', { form: { id: seriesId, action: 'ended' }, headers: { origin: 'https://attacker.example.test' } });
   expect(forgedOrigin.status()).toBe(403);
   await occurrence.getByRole('button', { name: 'Mark complete' }).click();
