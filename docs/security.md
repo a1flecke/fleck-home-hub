@@ -2,6 +2,8 @@
 
 Use HTTPS through a private tailnet, a unique random `AUTH_SECRET`, and a private database path. Parent and kid roles are checked by the server for each household. Public signup is disabled; local host access is required to run the account-provisioning commands. Shared displays show synthetic data only. The manifest does not implement offline synchronization.
 
+SvelteKit sends a Content Security Policy for rendered pages restricting scripts, styles and connections to the application's origin, blocking objects and framing, and restricting form targets. SvelteKit adds nonces or hashes for its own generated inline content. HTTP localhost does not receive HSTS; HTTPS termination and HSTS policy remain deployment decisions requiring verification on the actual host and tailnet.
+
 The native agent sandbox and approvals are primary controls. Claude's hook adds narrow checks, and malformed payloads exit 2, but command matching is not a shell parser and hook startup failures can be nonblocking. Git hooks are local safeguards, not an authoritative boundary; install them in each worktree. CI and configured branch protection must enforce checks independently. Never trust arbitrary command runners or use the project approval policy to weaken global restrictions.
 
 Threats still requiring operational care include a stolen unlocked phone or session cookie, revoked tailnet access without session revocation, compromised host, filesystem access to the database or backups, and an unattended shared display. Sessions are revocable, but there is no account-management UI or MFA yet. Protect the Mac, backups, and all devices. Do not use production household data until operational controls and remote behavior are verified.
