@@ -14,6 +14,8 @@ For editable forms, test an invalid submission and correction through the browse
 
 When projecting existing records into a shared view, test the entire server response for excluded private fields and non-shared records, not just visible cards. Exercise source-record state changes such as cancellation, skips and revocation so the projection follows the same domain rules as the original view.
 
+For automatically updated views, avoid timed full-page refreshes that interrupt reading or keyboard focus. Provide a way to pause updates and a usable native refresh fallback, and test data freshness with a controlled clock. Test network failure and recovery rather than assuming a framework refresh API rejects its promise when a load fails.
+
 After sign-in, assert the authenticated page or session is ready before taking storage state or sending dependent requests. When testing SvelteKit form actions through an API client, assert the action response type and application status as well as HTTP status: redirects can be encoded in a successful HTTP response. Use valid, authorized fixtures for negative authorization tests so input validation or an anonymous redirect cannot masquerade as an authorization check.
 
 Use mise as the tool-version authority: `MISE_LOCKED_SCOPES=project mise install --locked`, `mise run install`, `mise run dev`, `mise run lint`, `mise run typecheck`, `mise run test`, `mise run build`, `mise run e2e`, and `mise run parity`. The scope applies locked mode to project tools without requiring unrelated global tools to be in the project lockfile. Global tools can still be installed without this lock check; see the development guide. Run focused tests first and the complete required checks before delivery. Report checks that did not run.
