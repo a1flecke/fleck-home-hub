@@ -17,6 +17,16 @@ test('shared display and sign-in are usable on a narrow screen', async ({ page }
   const home = await page.goto('/');
   expect(home?.headers()['x-content-type-options']).toBe('nosniff');
   expect(home?.headers()['x-frame-options']).toBe('DENY');
+  expect(home?.headers()['content-security-policy']).toContain("default-src 'self'");
+  expect(home?.headers()['content-security-policy']).toContain("object-src 'none'");
+  expect(home?.headers()['strict-transport-security']).toBeUndefined();
+  await page.evaluate(() => {
+    const script = document.createElement('script');
+    script.textContent = 'document.body.setAttribute("data-csp-test", "executed")';
+    document.body.append(script);
+  });
+  await expect(page.locator('body')).not.toHaveAttribute('data-csp-test', 'executed');
+  expect(await page.locator('body > div').evaluate(element => getComputedStyle(element).display)).toBe('contents');
   await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
   await expect(page.getByText('This preview contains example data only.')).toBeVisible();
   await page.getByRole('link', { name: 'Sign in' }).click();
