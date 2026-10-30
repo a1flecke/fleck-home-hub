@@ -1,5 +1,73 @@
 import { expect, test } from '@playwright/test';
 
+test('pausing and resuming discards a refresh started before the pause', async ({ page }) => {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('kid@example.test');
+  await page.getByLabel('Password').fill('synthetic-kid-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
+  await page.clock.install();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let started!: () => void;
+  const requested = new Promise<void>(resolve => { started = resolve; });
+  await page.route('**/display/data', async route => {
+    const response = await route.fetch();
+    const body = await response.json();
+    started();
+    await held;
+    await route.fulfill({ response, json: { ...body, today: '2000-01-01' } }).catch(() => {});
+  });
+  await page.goto('/display');
+  await expect(page.getByRole('button', { name: 'Pause automatic updates' })).toBeEnabled();
+  await page.clock.fastForward(60_000);
+  await requested;
+  await page.getByRole('button', { name: 'Pause automatic updates' }).click();
+  await page.getByRole('button', { name: 'Resume automatic updates' }).click();
+  const response = page.waitForResponse('**/display/data');
+  release();
+  await response;
+  await page.clock.runFor(100);
+  await expect(page.getByRole('button', { name: 'Pause automatic updates' })).toBeVisible();
+  await expect(page.getByText('2000-01-01', { exact: false })).toHaveCount(0);
+});
+
+test('a stalled refresh reports a connection problem and later recovers', async ({ page }) => {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('kid@example.test');
+  await page.getByLabel('Password').fill('synthetic-kid-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
+  await page.clock.install();
+  let release!: () => void;
+  const held = new Promise<void>(resolve => { release = resolve; });
+  let started!: () => void;
+  const requested = new Promise<void>(resolve => { started = resolve; });
+  let requests = 0;
+  await page.route('**/display/data', async route => {
+    requests++;
+    if (requests === 1) {
+      started();
+      await held;
+      await route.abort().catch(() => {});
+    } else {
+      await route.continue();
+    }
+  });
+  try {
+    await page.goto('/display');
+    await expect(page.getByRole('button', { name: 'Pause automatic updates' })).toBeEnabled();
+    await page.clock.fastForward(60_000);
+    await requested;
+    await page.clock.runFor(15_000);
+    await expect(page.getByRole('status')).toContainText('Unable to update the display');
+    const response = page.waitForResponse('**/display/data');
+    await page.clock.fastForward(60_000);
+    await response;
+    await expect(page.getByRole('status')).toHaveCount(0);
+  } finally { release(); }
+});
+
 test('a parent explicitly shares an event and changes appear on the family display', async ({ page }, testInfo) => {
   const title = `Synthetic shared event ${testInfo.repeatEachIndex}`;
   const updated = `Updated synthetic event ${testInfo.repeatEachIndex}`;
