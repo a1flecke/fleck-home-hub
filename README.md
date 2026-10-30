@@ -1,6 +1,6 @@
 # Fleck Home Hub
 
-A self-hosted household hub built with SvelteKit, SQLite and Better Auth. The initial shared display uses example data. Parent and child accounts have household-scoped server authorization; full household features are future work.
+A self-hosted household hub built with SvelteKit, SQLite and Better Auth. Parent and child accounts have household-scoped chores, verified earnings, and recorded payments. The shared display still uses example data; other household features are future work. Payment records do not transfer money.
 
 **Not production-ready yet.** Read [security](docs/security.md) and [deployment](docs/deployment.md) before using real data. Remote Tailscale access, iOS installation, reboot and sleep behavior require the documented manual validation.
 

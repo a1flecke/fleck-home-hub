@@ -7,6 +7,7 @@ import { backupDatabase } from '../src/lib/server/backup';
 import { bootstrap, addKid } from '../src/lib/server/bootstrap';
 import { createAuth, migrate } from '../src/lib/server/identity';
 import { createChore, changeChore } from '../src/lib/server/chores';
+import { balance, recordPayout, reversePayout } from '../src/lib/server/payouts';
 
 it('makes a consistent recoverable backup without overwriting an existing file', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'hub-backup-'));
@@ -44,6 +45,9 @@ it('restores authentication, membership and verified earnings after a failed mig
     const chore = createChore(db, parentId, household, { title: 'Synthetic chore', assigneeId: kidId, dueDate: '2026-10-30', rewardCents: 250 });
     changeChore(db, kidId, household, chore, 'submit');
     changeChore(db, parentId, household, chore, 'verify');
+    const corrected = recordPayout(db, parentId, household, { childId: kidId, amountCents: 50, date: '2026-10-30', note: '', requestId: 'synthetic-corrected' });
+    reversePayout(db, parentId, household, corrected, 'Recorded in error');
+    recordPayout(db, parentId, household, { childId: kidId, amountCents: 100, date: '2026-10-30', note: '', requestId: 'synthetic-payment' });
     await backupDatabase(source, backup);
     db.exec('ALTER TABLE user ADD COLUMN unreviewed_schema_change TEXT');
     await expect(migrate(db)).rejects.toThrow();
@@ -64,6 +68,8 @@ it('restores authentication, membership and verified earnings after a failed mig
       { user_id: kidId, role: 'kid' }, { user_id: parentId, role: 'parent' }
     ]);
     expect(db.prepare('SELECT child_id, amount_cents FROM earning WHERE chore_id = ?').get(chore)).toEqual({ child_id: kidId, amount_cents: 250 });
+    expect(balance(db, household, kidId)).toEqual({ earned: 250, paid: 100, owed: 150 });
+    expect(db.prepare('SELECT count(*) AS count FROM payout_reversal').get()).toEqual({ count: 1 });
     expect(db.pragma('integrity_check', { simple: true })).toBe('ok');
   } finally {
     db?.close();

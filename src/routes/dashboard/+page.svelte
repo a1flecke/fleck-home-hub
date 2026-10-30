@@ -12,10 +12,24 @@
   {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}</p>{/if}
   {#if data.balances.length}
     <section class="mt-6 rounded-2xl bg-amber-50 p-5"><h2 class="text-xl font-bold">Earnings</h2>
-      {#each data.balances as balance (balance.id)}<div class="mt-3"><strong>{balance.name}</strong><p>Waiting for verification: {money(balance.pending)}</p><p>Verified earnings owed: {money(balance.earned)}</p></div>{/each}
+      {#if data.payday}<p class="mt-2">Next payday: {data.payday.next}</p>{/if}
+      {#each data.balances as balance (balance.id)}<article aria-label={`Earnings for ${balance.name}`} class="mt-4"><h3 class="font-bold">{balance.name}</h3><p>Waiting for verification: {money(balance.pending)}</p><p>Verified earnings owed: {money(balance.owed)}</p><p>Paid so far: {money(balance.paid)}</p><p>Total verified earnings: {money(balance.earned)}</p>
+        {#if data.role === 'parent' && balance.owed > 0}
+          <details class="mt-3"><summary class="cursor-pointer font-semibold">Record a payment</summary><p class="mt-2 text-sm">Record money you have already paid; this does not transfer money.</p>
+            <form method="POST" action="?/payout" class="mt-3 grid gap-3"><input type="hidden" name="child" value={balance.id} /><input type="hidden" name="requestId" value={balance.requestId} />
+              <label>Payment amount<input name="amount" type="number" min="0.01" max={(balance.owed / 100).toFixed(2)} step="0.01" required value={(balance.owed / 100).toFixed(2)} class="mt-1 block w-full rounded-lg border p-3" /></label>
+              <label>Payment date<input name="date" type="date" value={data.today} required class="mt-1 block w-full rounded-lg border p-3" /></label>
+              <label>Payment note<input name="note" maxlength="1000" class="mt-1 block w-full rounded-lg border p-3" /></label>
+              <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Record payment</button>
+            </form>
+          </details>
+        {/if}
+        {#if balance.payouts.length}<div class="mt-3"><h4 class="font-semibold">Payment history</h4>{#each balance.payouts as payment (payment.id)}<div class="mt-2"><p>{payment.paidDate} · {money(payment.amountCents)}{payment.reversalReason ? ' · Corrected' : ''}</p>{#if payment.note}<p>{payment.note}</p>{/if}{#if payment.reversalReason}<p>Correction: {payment.reversalReason}</p>{:else if data.role === 'parent'}<details><summary class="cursor-pointer">Correct this payment</summary><p class="mt-2 text-sm">This reverses the whole record and restores the amount owed; it does not transfer money.</p><form method="POST" action="?/reversePayout" class="mt-2 grid gap-2"><input type="hidden" name="id" value={payment.id} /><label>Correction reason<input name="reason" required maxlength="1000" class="mt-1 block w-full rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Record correction</button></form></details>{/if}</div>{/each}</div>{/if}
+      </article>{/each}
     </section>
   {/if}
   {#if data.role === 'parent'}
+    <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer font-bold">Payday schedule</summary><p class="mt-2 text-sm">A reminder only; no money is transferred automatically.</p><form method="POST" action="?/payday" class="mt-3 grid gap-3"><label>First payday<input name="anchor" type="date" value={data.payday?.anchor ?? data.today} required class="mt-1 block w-full rounded-lg border p-3" /></label><label>Frequency<select name="cadence" class="mt-1 block w-full rounded-lg border p-3"><option value="7" selected={data.payday?.cadence !== 14}>Weekly</option><option value="14" selected={data.payday?.cadence === 14}>Every two weeks</option></select></label><button class="rounded-xl border border-teal-700 px-4 py-3">Save payday</button></form></details>
     <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer text-xl font-bold">Add a chore</summary>
       {#if data.children.length}
         <form method="POST" action="?/create" class="mt-4 grid gap-3">
