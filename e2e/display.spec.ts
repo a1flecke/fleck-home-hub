@@ -7,6 +7,8 @@ test('a parent explicitly shares an event and changes appear on the family displ
   const anonymous = await page.request.get('/display', { maxRedirects: 0 });
   expect(anonymous.status()).toBe(303);
   expect(anonymous.headers().location).toBe('/sign-in');
+  const anonymousData = await page.request.get('/display/data', { maxRedirects: 0 });
+  expect(anonymousData.status()).toBe(303);
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill('parent@example.test');
   await page.getByLabel('Password').fill('synthetic-parent-password');
@@ -16,16 +18,39 @@ test('a parent explicitly shares an event and changes appear on the family displ
   expect(await created.json()).toMatchObject({ type: 'success', status: 200 });
   const initialDisplay = await page.goto('/display');
   expect(await initialDisplay?.text()).not.toContain(title);
+  await expect(page.locator('meta[http-equiv="refresh" i]')).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Refresh display' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Family display' })).toBeVisible();
   const todaySection = page.getByRole('region', { name: "Today's events" });
   await expect(page.locator('body')).not.toContainText(title);
   await page.getByRole('link', { name: 'Choose what to share' }).click();
   const sharing = page.getByRole('region', { name: 'Choose what to share' });
   const event = sharing.getByRole('article').filter({ hasText: title });
+  const id = await event.locator('input[name="id"]').inputValue();
   await event.getByRole('button', { name: 'Show on display' }).click();
   await expect(event.getByRole('button', { name: 'Remove from display' })).toBeVisible();
+  await page.clock.install();
   await page.getByRole('link', { name: 'View family display' }).click();
   await expect(todaySection.getByText(title)).toBeVisible();
+  const change = await page.request.post('/calendar?/saveEvent', { form: { id, title: updated, date: today, allDay: 'on' }, headers: { origin: 'http://127.0.0.1:4173' } });
+  expect(await change.json()).toMatchObject({ type: 'success', status: 200 });
+  await page.clock.fastForward(60_000);
+  await expect(todaySection.getByText(updated)).toBeVisible();
+  await page.getByRole('button', { name: 'Pause automatic updates' }).click();
+  const pausedChange = await page.request.post('/calendar?/saveEvent', { form: { id, title, date: today, allDay: 'on' }, headers: { origin: 'http://127.0.0.1:4173' } });
+  expect(await pausedChange.json()).toMatchObject({ type: 'success', status: 200 });
+  await page.clock.fastForward(60_000);
+  await expect(todaySection.getByText(updated)).toBeVisible();
+  await page.getByRole('button', { name: 'Resume automatic updates' }).click();
+  await page.clock.fastForward(60_000);
+  await expect(todaySection.getByText(title)).toBeVisible();
+  await page.context().setOffline(true);
+  try {
+    await page.clock.fastForward(60_000);
+    await expect(page.getByRole('status')).toContainText('Unable to update the display');
+  } finally { await page.context().setOffline(false); }
+  await page.clock.fastForward(60_000);
+  await expect(page.getByRole('status')).toHaveCount(0);
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.screenshot({ path: testInfo.outputPath('display-landscape.png'), fullPage: true });
   await page.setViewportSize({ width: 375, height: 812 });
@@ -67,6 +92,10 @@ test('children cannot manage display settings and responses are private', async 
   const display = await page.request.get('/display');
   expect(display.status()).toBe(200);
   expect(display.headers()['cache-control']).toContain('no-store');
+  const data = await page.request.get('/display/data');
+  expect(data.status()).toBe(200);
+  expect(data.headers()['cache-control']).toContain('no-store');
+  expect(await data.text()).not.toContain(title);
   expect((await page.request.get('/display/settings')).status()).toBe(403);
   const change = await page.request.post('/display/settings?/share', { form: { kind: 'event', id, visible: 'yes' }, headers: { origin: 'http://127.0.0.1:4173' } });
   expect(change.status()).toBe(403);
@@ -107,4 +136,20 @@ test('a selected chore shows its current progress without displaying its reward'
   const displayChore = page.getByRole('region', { name: 'Shared chores' }).getByRole('article').filter({ hasText: title });
   await expect(displayChore.getByText('Waiting for a parent')).toBeVisible();
   expect(await response?.text()).not.toContain('$2.00');
+});
+
+test('manual display refresh works without JavaScript', async ({ page, browser }) => {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('kid@example.test');
+  await page.getByLabel('Password').fill('synthetic-kid-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
+  const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
+  try {
+    const display = await context.newPage();
+    await display.goto('/display');
+    await expect(display.getByRole('button', { name: 'Pause automatic updates' })).toBeDisabled();
+    await display.getByRole('link', { name: 'Refresh display' }).click();
+    await expect(display.getByRole('heading', { name: 'Family display' })).toBeVisible();
+  } finally { await context.close(); }
 });
