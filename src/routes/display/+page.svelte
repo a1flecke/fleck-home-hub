@@ -6,21 +6,29 @@
   let ready = $state(false);
   let updating = $state(true);
   let refreshError = $state(false);
+  let generation = 0;
   onMount(() => {
     ready = true;
     let inFlight = false;
+    let controller: AbortController | undefined;
+    let disposed = false;
     const timer = setInterval(() => {
       if (updating && !inFlight) {
         inFlight = true;
-        void fetch(resolve('/display/data'), { cache: 'no-store' }).then(async response => {
-        if (response.redirected || response.status === 401 || response.status === 403) { window.location.assign(resolve('/sign-in')); return; }
-        if (!response.ok) throw new Error('Display refresh failed');
-        current = await response.json();
-        refreshError = false;
-        }).catch(() => { refreshError = true; }).finally(() => { inFlight = false; });
+        const requestGeneration = generation;
+        const active = () => !disposed && updating && requestGeneration === generation;
+        controller = new AbortController();
+        const timeout = setTimeout(() => controller?.abort(), 15_000);
+        void fetch(resolve('/display/data'), { cache: 'no-store', signal: controller.signal }).then(async response => {
+          if (!active()) return;
+          if (response.redirected || response.status === 401 || response.status === 403) { window.location.assign(resolve('/sign-in')); return; }
+          if (!response.ok) throw new Error('Display refresh failed');
+          const next = await response.json();
+          if (active()) { current = next; refreshError = false; }
+        }).catch(() => { if (active()) refreshError = true; }).finally(() => { clearTimeout(timeout); inFlight = false; });
       }
     }, 60_000);
-    return () => clearInterval(timer);
+    return () => { disposed = true; clearInterval(timer); controller?.abort(); };
   });
 </script>
 <svelte:head><title>Family display · Fleck Home Hub</title></svelte:head>
@@ -42,5 +50,5 @@
     </section>
     <section class="rounded-2xl bg-white p-6 shadow-sm"><h2 class="text-2xl font-bold">Tonight's dinner</h2><p class="mt-4">Meal planning is coming soon.</p></section>
   </div>
-  <div class="mt-8 flex flex-wrap gap-3"><a href={resolve('/display')} data-sveltekit-reload class="inline-block rounded-xl border border-teal-700 px-4 py-3">Refresh display</a><button disabled={!ready} onclick={() => { updating = !updating; }} class="rounded-xl border border-teal-700 px-4 py-3 disabled:opacity-50">{updating ? 'Pause automatic updates' : 'Resume automatic updates'}</button>{#if current.canManage}<a href={resolve('/display/settings')} class="inline-block rounded-xl border border-teal-700 px-4 py-3">Choose what to share</a>{/if}</div>
+  <div class="mt-8 flex flex-wrap gap-3"><a href={resolve('/display')} data-sveltekit-reload class="inline-block rounded-xl border border-teal-700 px-4 py-3">Refresh display</a><button disabled={!ready} onclick={() => { updating = !updating; if (!updating) generation++; }} class="rounded-xl border border-teal-700 px-4 py-3 disabled:opacity-50">{updating ? 'Pause automatic updates' : 'Resume automatic updates'}</button>{#if current.canManage}<a href={resolve('/display/settings')} class="inline-block rounded-xl border border-teal-700 px-4 py-3">Choose what to share</a>{/if}</div>
 </main>
