@@ -6,6 +6,6 @@ Events have a household-local date and either all-day status or a same-day start
 
 Dates and times are stored as local calendar values, not converted to UTC. Changing the household time zone changes the interpretation of future entries. A weekly event retains its wall-clock time across daylight-saving changes. There are no instant-based reminders, so ambiguous or nonexistent clock times during DST transitions are displayed as entered and are not resolved to an instant; avoid scheduling such times until explicit DST disambiguation is implemented. Events currently cannot cross midnight.
 
-The inbox stores commitments without dates. A parent can edit or archive an item, or turn it into an event. Scheduling and marking the item scheduled happen in one SQLite transaction. The shared display remains a synthetic preview and does not expose calendar data.
+The inbox stores commitments without dates. A parent can edit or archive an item, or turn it into an event. Scheduling and marking the item scheduled happen in one SQLite transaction. The authenticated shared display can show events explicitly selected by a parent; see [display.md](display.md).
 
 Migration `0004_calendar` adds the calendar tables without changing authentication, chores or financial records. Stop the service and verify a backup before migrating an existing database. `mise run test` and `mise run e2e` use synthetic databases; actual household and device validation remain separate.
