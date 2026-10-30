@@ -10,6 +10,10 @@ When adding forms or controls, inspect neighboring browser tests for page-wide p
 
 For editable forms, test an invalid submission and correction through the browser: preserve the entered values, keep the relevant form available, and provide an actionable error without losing unrelated data. Check the same behavior for native submissions as well as any enhanced path.
 
+When projecting existing records into a shared view, test the entire server response for excluded private fields and non-shared records, not just visible cards. Exercise source-record state changes such as cancellation, skips and revocation so the projection follows the same domain rules as the original view.
+
+For automatically updated views, avoid timed full-page refreshes that interrupt reading or keyboard focus. Provide a way to pause updates and a usable native refresh fallback, and test data freshness with a controlled clock. Test network failure and recovery rather than assuming a framework refresh API rejects its promise when a load fails.
+
 After sign-in, assert the authenticated page or session is ready before taking storage state or sending dependent requests. When testing SvelteKit form actions through an API client, assert the action response type and application status as well as HTTP status: redirects can be encoded in a successful HTTP response. Use valid, authorized fixtures for negative authorization tests so input validation or an anonymous redirect cannot masquerade as an authorization check.
 
 Use mise as the tool-version authority: `mise install --locked`, `mise run install`, `mise run dev`, `mise run lint`, `mise run typecheck`, `mise run test`, `mise run build`, `mise run e2e`, and `mise run parity`. Run focused tests first and the complete required checks before delivery. Report checks that did not run.

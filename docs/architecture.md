@@ -2,7 +2,7 @@
 
 Fleck Home Hub is a modular monolith. Routes and Svelte components call server-side application logic; domain policies do not import presentation or database modules. Infrastructure provides SQLite, Better Auth and external integrations. Only create interfaces for real extension points. Notifications, meals/groceries, expenses and weather are future domains, not implemented services.
 
-Identity uses Better Auth sessions and a `membership` row mapping a user to a household and role. Protected requests resolve the session server-side and check membership for the requested household. A missing session, membership, configuration or database denies access. The shared display currently renders synthetic data only; it has no financial information. Network access through Tailscale is not authorization.
+Identity uses Better Auth sessions and a `membership` row mapping a user to a household and role. Protected requests resolve the session server-side and check membership for the requested household. A missing session, membership, configuration or database denies access. The shared display requires a session and shows only parent-selected event and chore titles and limited status details; descriptions, locations, assignees and finances are excluded. The public landing page remains a synthetic preview. Network access through Tailscale is not authorization.
 
 The calendar stores household-local event dates and wall times, optional recurring weekdays and cancelled occurrences. Household members may read it; only parents may manage events and the to-schedule inbox. Scheduling an inbox item creates its event and closes the item in one transaction. See [calendar.md](calendar.md) for DST limitations and the migration procedure.
 

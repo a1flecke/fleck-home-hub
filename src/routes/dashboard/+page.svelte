@@ -17,7 +17,7 @@
 </script>
 <svelte:head><title>My day · Fleck Home Hub</title></svelte:head>
 <main class="mx-auto max-w-4xl px-5 py-8">
-  <a href={resolve('/')} class="text-teal-700">Family display</a>
+  <a href={resolve('/display')} class="text-teal-700">Family display</a>
   <a href={resolve('/calendar')} class="ml-4 text-teal-700">Family calendar</a>
   <h1 class="mt-6 text-3xl font-bold">{data.role === 'parent' ? `Hello, ${data.name}` : `${data.name}'s My Day`}</h1>
   <p class="mt-2">{data.role === 'parent' ? 'Parent dashboard' : 'Your day'}</p>
