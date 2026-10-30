@@ -1,0 +1,7 @@
+# Shared display
+
+The display requires a normal household member session. Parents choose events and today's chores to share on the separate settings page. Sharing an event applies to its entire series; sharing a chore applies only to that occurrence. A parent can remove either selection, including after the record leaves the display's date range. Existing records are private by default. The display sends only selected titles, dates, times and chore statuses; it excludes descriptions, locations, assignee names, balances and rewards. Skipped and paused unstarted recurring chores are hidden.
+
+The page reloads every 60 seconds to obtain fresh data. If the connection fails, the browser's normal network error is shown; there is no offline cache. Expired or revoked sessions must sign in again. The display uses an ordinary account, not a restricted display token: anyone who can operate that device can also navigate to pages allowed by that account. Keep the device physically secure; do not leave a parent session unattended. A purpose-built restricted, revocable display session is future work.
+
+Migration `0005_display` creates opt-in tables without altering existing records. Stop the service and verify a backup before upgrading. Actual device, tailnet and unattended-use behavior remain unverified. Calendar daylight-saving limitations in [calendar.md](calendar.md) still apply.
