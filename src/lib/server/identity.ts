@@ -14,7 +14,8 @@ function options(database: Database.Database, config: Options) {
     secret: config.secret,
     baseURL: config.origin,
     emailAndPassword: { enabled: true, disableSignUp: !config.allowSignUp },
-    advanced: { useSecureCookies: config.origin.startsWith('https://') }
+    // Do not trust client-supplied proxy headers until a verified proxy boundary exists.
+    advanced: { useSecureCookies: config.origin.startsWith('https://'), ipAddress: { ipAddressHeaders: [] as string[] } }
   };
 }
 
