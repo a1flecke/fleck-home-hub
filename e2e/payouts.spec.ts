@@ -124,6 +124,24 @@ test('a verified chore can be partially paid and the child sees the remaining am
     await noScript.setViewportSize({ width: 1280, height: 900 });
     await noScript.screenshot({ path: testInfo.outputPath('payout-parent-desktop.png'), fullPage: true });
   } finally { await context.close(); }
+  const correctionHydration = await browser.newContext({ storageState: await page.context().storageState() });
+  let releaseCorrection!: () => void;
+  let correctionBlocked!: () => void;
+  const correctionGate = new Promise<void>(resolve => { releaseCorrection = resolve; });
+  const correctionRequested = new Promise<void>(resolve => { correctionBlocked = resolve; });
+  try {
+    const delayed = await correctionHydration.newPage();
+    await delayed.route('**/src/routes/dashboard/+page.svelte*', async route => { correctionBlocked(); await correctionGate; await route.continue(); });
+    await delayed.goto('/dashboard', { waitUntil: 'commit' });
+    await correctionRequested;
+    const entry = delayed.getByRole('article', { name: 'Earnings for Payout Kid' });
+    await entry.getByText('Correct this payment').click();
+    await entry.getByLabel('Correction reason').fill('Synthetic correction');
+    releaseCorrection();
+    await delayed.waitForLoadState('networkidle');
+    await expect(entry.getByLabel('Correction reason')).toBeVisible();
+    expect(await entry.locator('form[action="?/reversePayout"]').evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ id: payoutId, reason: 'Synthetic correction' });
+  } finally { releaseCorrection(); await correctionHydration.close(); }
   await signOut(page);
   await signIn(page, 'payout-kid');
   const childEarnings = page.getByRole('article', { name: 'Earnings for Payout Kid' });
@@ -142,8 +160,27 @@ test('a verified chore can be partially paid and the child sees the remaining am
   await signIn(page, 'parent');
   const correction = page.getByRole('article', { name: 'Earnings for Payout Kid' });
   await correction.getByText('Correct this payment').click();
-  await correction.getByLabel('Correction reason').fill('Recorded by mistake');
+  await correction.getByLabel('Correction reason').fill('   ');
   await correction.getByRole('button', { name: 'Record correction' }).click();
+  await expect(page.getByRole('status')).toContainText('Unable to correct payment');
+  await expect(correction.getByLabel('Correction reason')).toBeVisible();
+  await expect(correction.getByLabel('Correction reason')).toHaveValue('   ');
+  const correctionContext = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
+  try {
+    const noScript = await correctionContext.newPage();
+    await noScript.goto('/dashboard');
+    const entry = noScript.getByRole('article', { name: 'Earnings for Payout Kid' });
+    await entry.getByText('Correct this payment').click();
+    await entry.getByLabel('Correction reason').fill('   ');
+    await entry.getByRole('button', { name: 'Record correction' }).click();
+    await expect(noScript.getByRole('status')).toContainText('Unable to correct payment');
+    await expect(entry.getByLabel('Correction reason')).toBeVisible();
+    await expect(entry.getByRole('textbox', { name: 'Correction reason' })).toHaveValue('   ');
+    await entry.getByRole('textbox', { name: 'Correction reason' }).fill('Recorded by mistake');
+    await entry.getByRole('button', { name: 'Record correction' }).click();
+    await expect(entry.getByText('Correction: Recorded by mistake')).toBeVisible();
+  } finally { await correctionContext.close(); }
+  await page.reload();
   await expect(correction.getByText(/^Verified earnings owed:/)).toHaveText(`Verified earnings owed: ${money(owedBefore)}`);
   await expect(correction.getByText('Correction: Recorded by mistake')).toBeVisible();
 });
