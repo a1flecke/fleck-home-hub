@@ -13,6 +13,57 @@ async function signOut(page: Page) {
   await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
 }
 
+for (const javaScriptEnabled of [true, false]) test(`a stale payment form keeps its details when another payment changes the balance (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }, testInfo) => {
+  const title = `Synthetic stale payment ${javaScriptEnabled} ${testInfo.repeatEachIndex}`;
+  const note = `Synthetic cash payment ${javaScriptEnabled} ${testInfo.repeatEachIndex}`;
+  await signIn(page, 'parent');
+  await page.getByText('Add a chore', { exact: true }).click();
+  const choreForm = page.locator('form[action="?/create"]');
+  await choreForm.getByLabel('Chore title', { exact: true }).fill(title);
+  await choreForm.getByRole('combobox', { name: 'Assigned child', exact: true }).selectOption({ label: 'Other Kid' });
+  await choreForm.getByLabel('Due date', { exact: true }).fill('2026-11-01');
+  await choreForm.getByLabel('Reward in dollars', { exact: true }).fill('5.00');
+  await choreForm.getByRole('button', { name: 'Add chore', exact: true }).click();
+  await expect(page.getByRole('article').filter({ hasText: title })).toBeVisible();
+  await signOut(page);
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('other@example.test');
+  await page.getByLabel('Password').fill('synthetic-other-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: "Other Kid's My Day" })).toBeVisible();
+  const chore = page.getByRole('article').filter({ hasText: title });
+  await chore.getByRole('button', { name: 'Mark complete' }).click();
+  await expect(chore.getByText('Waiting for parent verification')).toBeVisible();
+  await signOut(page);
+  await signIn(page, 'parent');
+  await chore.getByRole('button', { name: 'Verify' }).click();
+  await expect(chore.getByText('Approved! You earned $5.00!')).toBeVisible();
+  const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState() });
+  try {
+    const stale = await context.newPage();
+    await stale.goto('/dashboard');
+    const earnings = stale.getByRole('article', { name: 'Earnings for Other Kid' });
+    const owed = cents(await earnings.getByText(/^Verified earnings owed:/).innerText());
+    await earnings.getByText('Record a payment').click();
+    const form = earnings.locator('form[action="?/payout"]');
+    const child = await form.locator('input[name="child"]').inputValue();
+    await form.getByLabel('Payment amount').fill((owed / 100).toFixed(2));
+    await form.getByLabel('Payment date').fill('2026-11-01');
+    await form.getByLabel('Payment note').fill(note);
+    const competing = await page.request.post('/dashboard?/payout', { form: { child, amount: ((owed - 100) / 100).toFixed(2), date: '2026-11-01', note: 'Other tab', requestId: `stale-test-${javaScriptEnabled}-${testInfo.repeatEachIndex}` }, headers: { origin: 'http://127.0.0.1:4173' } });
+    expect(await competing.json()).toMatchObject({ type: 'success', status: 200 });
+    await form.getByRole('button', { name: 'Record payment' }).click();
+    await expect(stale.getByRole('status')).toContainText('Unable to record payment');
+    await expect(form.getByLabel('Payment note')).toBeVisible();
+    await expect(form.getByLabel('Payment note')).toHaveValue(note);
+    await expect(form.getByLabel('Payment date')).toHaveValue('2026-11-01');
+    await form.getByLabel('Payment amount').fill('1.00');
+    await form.getByRole('button', { name: 'Record payment' }).click();
+    await expect(earnings.getByText(/^Verified earnings owed:/)).toHaveText('Verified earnings owed: $0.00');
+    await expect(earnings.getByText(note, { exact: true })).toBeVisible();
+  } finally { await context.close(); }
+});
+
 const cents = (text: string) => {
   const match = text.match(/\$(\d+)\.(\d{2})/);
   if (!match) throw new Error('Missing balance');
@@ -96,11 +147,12 @@ test('a verified chore can be partially paid and the child sees the remaining am
     await earnings.getByText('Record a payment', { exact: true }).click();
     await earnings.getByLabel('Payment amount').fill('2.00');
     await earnings.getByLabel('Payment date').fill('2026-11-01');
+    await earnings.getByLabel('Payment note').fill('Before hydration');
     releasePayment();
     await delayed.waitForLoadState('networkidle');
     await expect(earnings.getByLabel('Payment amount')).toHaveValue('2.00');
     await expect(earnings.getByLabel('Payment date')).toHaveValue('2026-11-01');
-    expect(await earnings.locator('form[action="?/payout"]').evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ amount: '2.00', date: '2026-11-01' });
+    expect(await earnings.locator('form[action="?/payout"]').evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ amount: '2.00', date: '2026-11-01', note: 'Before hydration' });
   } finally { releasePayment(); await delayedContext.close(); }
   const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   let owedBefore: number, paidBefore: number, childId: string, payoutId: string;
