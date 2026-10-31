@@ -108,11 +108,12 @@ export const actions: Actions = {
     if (request.headers.get('origin') !== origin) return fail(403, { message: 'Request not authorized.' });
     const form = await request.formData();
     const reward = String(form.get('reward') ?? '').trim();
-    if (reward && !/^\d{1,7}(?:\.\d{1,2})?$/.test(reward)) return fail(400, { message: 'Enter a valid reward amount.' });
+    const createError = { title: String(form.get('title') ?? ''), description: String(form.get('description') ?? ''), assignee: String(form.get('assignee') ?? ''), dueDate: String(form.get('dueDate') ?? ''), reward };
+    if (reward && !/^\d{1,7}(?:\.\d{1,2})?$/.test(reward)) return fail(400, { message: 'Enter a valid reward amount.', createError });
     const cents = reward ? Math.round(Number(reward) * 100) : null;
     try {
       createChore(db, session.user.id, membership.householdId, { title: String(form.get('title') ?? ''), description: String(form.get('description') ?? ''), assigneeId: String(form.get('assignee') ?? ''), dueDate: String(form.get('dueDate') ?? ''), rewardCents: cents });
-    } catch { return fail(400, { message: 'Unable to add chore. Check the details and try again.' }); }
+    } catch { return fail(400, { message: 'Unable to add chore. Check the details and try again.', createError }); }
     return { message: 'Chore added.' };
   },
   transition: async ({ request }) => {
