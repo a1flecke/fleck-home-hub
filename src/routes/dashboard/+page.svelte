@@ -1,11 +1,13 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
-  let { data, form } = $props();
+  import Disclosure from '../calendar/Disclosure.svelte';
+  import type { PageData } from './$types';
+  let { data, form }: { data: PageData; form: { message: string; correctionError?: { id: string; reason: string } } | null } = $props();
   let paydayAnchor = $derived(data.payday?.anchor ?? data.today);
   let householdTimezone = $derived(data.timezone);
   let recurringStart = $derived(data.today);
   let balances = $derived.by(() => {
-    let values = $state(data.balances.map(balance => ({ ...balance })));
+    let values = $state(data.balances.map(balance => ({ ...balance, payouts: balance.payouts.map(payment => ({ ...payment, correctionInput: form?.correctionError?.id === payment.id ? form.correctionError.reason : '' })) })));
     return values;
   });
   let recurringSeries = $derived.by(() => {
@@ -36,7 +38,7 @@
             </form>
           </details>
         {/if}
-        {#if balance.payouts.length}<div class="mt-3"><h4 class="font-semibold">Payment history</h4>{#each balance.payouts as payment (payment.id)}<div class="mt-2"><p>{payment.paidDate} · {money(payment.amountCents)}{payment.reversalReason ? ' · Corrected' : ''}</p>{#if payment.note}<p>{payment.note}</p>{/if}{#if payment.reversalReason}<p>Correction: {payment.reversalReason}</p>{:else if data.role === 'parent'}<details><summary class="cursor-pointer">Correct this payment</summary><p class="mt-2 text-sm">This reverses the whole record and restores the amount owed; it does not transfer money.</p><form method="POST" action="?/reversePayout" class="mt-2 grid gap-2"><input type="hidden" name="id" value={payment.id} /><label>Correction reason<input name="reason" required maxlength="1000" class="mt-1 block w-full rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Record correction</button></form></details>{/if}</div>{/each}</div>{/if}
+        {#if balance.payouts.length}<div class="mt-3"><h4 class="font-semibold">Payment history</h4>{#each balance.payouts as payment (payment.id)}<div class="mt-2"><p>{payment.paidDate} · {money(payment.amountCents)}{payment.reversalReason ? ' · Corrected' : ''}</p>{#if payment.note}<p>{payment.note}</p>{/if}{#if payment.reversalReason}<p>Correction: {payment.reversalReason}</p>{:else if data.role === 'parent'}<Disclosure expanded={form?.correctionError?.id === payment.id}><summary class="cursor-pointer">Correct this payment</summary><p class="mt-2 text-sm">This reverses the whole record and restores the amount owed; it does not transfer money.</p><form method="POST" action="?/reversePayout" class="mt-2 grid gap-2"><input type="hidden" name="id" value={payment.id} /><label>Correction reason<input name="reason" required maxlength="1000" bind:value={payment.correctionInput} class="mt-1 block w-full rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Record correction</button></form></Disclosure>{/if}</div>{/each}</div>{/if}
       </article>{/each}
     </section>
   {/if}
