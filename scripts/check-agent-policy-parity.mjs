@@ -15,7 +15,7 @@ try {
     if (existsSync(join(root, dir))) for (const file of readdirSync(join(root, dir)).filter(x => x.endsWith('.md'))) surfaces.push([`${dir}/${file}`, read(`${dir}/${file}`)]);
   }
   if (!claude.includes('AGENTS.md')) problems.push('CLAUDE.md must reference shared policy');
-  if (!/never merge or approve/i.test(shared) || !/force-push/i.test(shared)) problems.push('Missing shared merge or force-push policy');
+  if (!/never merge or approve/i.test(shared) || !/force-push a protected branch/i.test(shared) || !/--force-with-lease=<full-ref>:<reviewed-remote-commit>/.test(shared)) problems.push('Missing shared merge or feature-branch lease policy');
   if (!/^pnpm@\d+\.\d+\.\d+$/.test(pkg.packageManager)) problems.push('packageManager must pin pnpm');
   if (config.share !== 'disabled') problems.push('OpenCode sharing must be disabled');
   if (!Array.isArray(config.permissions) || !config.permissions.some(x => x.action === 'shell' && x.resource === '*' && x.effect === 'ask') || config.permissions.some(x => x.effect === 'allow' && (x.action === 'shell' || /[*?]/.test(x.action)))) problems.push('OpenCode project shell rules must default to ask; wildcard action allows are forbidden');

@@ -8,7 +8,8 @@ try {
   if (event.hook_event_name !== 'PreToolUse' || event.tool_name !== 'Bash' || typeof event.tool_input?.command !== 'string' || typeof event.cwd !== 'string') deny('Invalid Claude hook payload');
   const command = event.tool_input.command;
   if (/\bgit\s+commit\b[^\n]*\s(?:--no-verify|-n)(?:\s|$)/.test(command)) deny('Do not bypass Git verification hooks');
-  if (/\b(?:pkill|killall)\b|\bgh\s+repo\s+delete\b|\bgit\s+reset\s+[^\n]*--hard\b|\bgit\s+clean\b|\bgit\s+push\s+[^\n]*(?:--force|--delete|\s\+|\s:)|\brm\s+-[a-zA-Z]*[rf][a-zA-Z]*/.test(command)) deny('Blocked dangerous operation; use a reviewed safe workflow');
+  if (/\b(?:pkill|killall)\b|\bgh\s+repo\s+delete\b|\bgit\s+reset\s+[^\n]*--hard\b|\bgit\s+clean\b|\bgit\s+push\s+[^\n]*(?:--force(?!-with-lease)|--delete|\s\+|\s:)|\brm\s+-[a-zA-Z]*[rf][a-zA-Z]*/.test(command)) deny('Blocked dangerous operation; use a reviewed safe workflow');
+  if (/\bgit\s+push\b[^\n]*--force-with-lease\b/.test(command)) ask('Feature-branch rewrites require human review and an explicit expected commit');
   if (/\bgit\s+(?:-C|-c|--git-dir|--work-tree)(?:\s|=)/.test(command) || /\bcd\s+[^\n]*\bgit\s+commit\b/.test(command)) ask('Git context or configuration changes require human review');
   if (/\bgit\s+commit\b/.test(command)) {
     const result = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: event.cwd, encoding: 'utf8' });

@@ -19,10 +19,6 @@ try {
     const [localRef, localSha, remoteRef, remoteSha] = fields;
     if (!/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(localSha) || !/^[0-9a-f]{40}([0-9a-f]{24})?$/.test(remoteSha) || localSha.length !== head.length || remoteSha.length !== head.length) throw new Error('Invalid object ID');
     if ((localRef !== `refs/heads/${branch}` && localRef !== 'HEAD') || remoteRef !== `refs/heads/${branch}` || localSha !== head) throw new Error('Only the current feature branch may be pushed');
-    if (!/^0+$/.test(remoteSha)) {
-      const ancestor = spawnSync('git', ['merge-base', '--is-ancestor', remoteSha, head]);
-      if (ancestor.status !== 0) throw new Error('Refusing a non-fast-forward update');
-    }
   }
 } catch (error) {
   console.error(`pre-push: ${error.message}`);
