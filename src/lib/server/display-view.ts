@@ -14,6 +14,6 @@ export async function loadDisplay(request: Request) {
   const timezone = settings?.timezone ?? 'America/Chicago';
   const today = localDate(new Date(), timezone);
   const last = new Date(`${today}T00:00:00Z`); last.setUTCDate(last.getUTCDate() + 7);
-  const { choices, events, chores } = displayData(services.db, session.user.id, member.householdId, today, last.toISOString().slice(0, 10));
-  return { today, timezone, events, chores, canManage: choices !== null };
+  const { choices, events, chores, meals } = displayData(services.db, session.user.id, member.householdId, today, last.toISOString().slice(0, 10));
+  return { today, timezone, events, chores, meals, canManage: choices !== null };
 }

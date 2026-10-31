@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { listEvents } from './calendar';
+import { listMeals } from './meals';
 
 type Kind = 'event' | 'chore';
 
@@ -33,5 +34,6 @@ export function displayData(db: Database.Database, actor: string, household: str
     events: db.prepare('SELECT e.id, e.title, EXISTS(SELECT 1 FROM display_event d WHERE d.event_id = e.id AND d.household_id = e.household_id) AS shared FROM calendar_event e WHERE e.household_id = ? AND (e.cancelled = 0 OR EXISTS(SELECT 1 FROM display_event d WHERE d.event_id = e.id AND d.household_id = e.household_id)) ORDER BY e.start_date, e.title').all(household) as { id: string; title: string; shared: number }[],
     chores: db.prepare('SELECT c.id, c.title, EXISTS(SELECT 1 FROM display_chore d WHERE d.chore_id = c.id AND d.household_id = c.household_id) AS shared FROM chore c WHERE c.household_id = ? AND (c.due_date = ? OR EXISTS(SELECT 1 FROM display_chore d WHERE d.chore_id = c.id AND d.household_id = c.household_id)) ORDER BY c.due_date, c.title').all(household, today) as { id: string; title: string; shared: number }[]
   } : null;
-  return { events: publicEvents, chores, choices };
+  const meals = listMeals(db, actor, household, today).filter(meal => meal.shared).map(({ id, title, time, servings, ingredients, source, recipeUrl }) => ({ id, title, time, servings, ingredients, source, recipeUrl }));
+  return { events: publicEvents, chores, meals, choices };
 }
