@@ -135,8 +135,14 @@ test('server rejects anonymous, child and cross-origin mutations and hides other
   await signOut(page);
   await signIn(page, 'kid');
   await expect(page.getByRole('heading', { name: title, exact: true })).toHaveCount(0);
+  const privateResponse = await page.request.get('/dashboard');
+  expect(privateResponse.headers()['cache-control']).toContain('no-store');
+  expect(await privateResponse.text()).not.toContain(title);
   const child = await page.request.post(url, { form: { ...body, assignee: kidId! }, headers: { origin: 'http://127.0.0.1:4173' } });
-  expect(child.status()).not.toBe(200);
+  expect(child.status()).toBe(400);
+  expect(await child.json()).toMatchObject({ type: 'failure', status: 400 });
+  await page.reload();
+  await expect(page.getByRole('heading', { name: 'Forged chore', exact: true })).toHaveCount(0);
 });
 
 test('a recurring occurrence is submitted and verified independently', async ({ page }, testInfo) => {
