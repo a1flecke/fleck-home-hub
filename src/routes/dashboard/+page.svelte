@@ -2,8 +2,9 @@
   import { resolve } from '$app/paths';
   import Disclosure from '../calendar/Disclosure.svelte';
   import type { PageData } from './$types';
+  type PayoutError = { child: string; amount: string; date: string; note: string; requestId: string };
   type SeriesError = { id: string; title: string; description: string; assignee: string; startDate: string; endDate: string; weekdays: number[]; reward: string };
-  type FormResult = { message: string; createError?: { title: string; description: string; assignee: string; dueDate: string; reward: string }; seriesError?: SeriesError; correctionError?: { id: string; reason: string } };
+  type FormResult = { message: string; createError?: { title: string; description: string; assignee: string; dueDate: string; reward: string }; seriesError?: SeriesError; correctionError?: { id: string; reason: string }; payoutError?: PayoutError };
   let { data, form }: { data: PageData; form: FormResult | null } = $props();
   let createError = $derived(form?.createError);
   let createTitle = $derived(createError?.title ?? '');
@@ -21,7 +22,10 @@
   let householdTimezone = $derived(data.timezone);
   let recurringStart = $derived(newSeries?.startDate ?? data.today);
   let balances = $derived.by(() => {
-    let values = $state(data.balances.map(balance => ({ ...balance, payouts: balance.payouts.map(payment => ({ ...payment, correctionInput: form?.correctionError?.id === payment.id ? form.correctionError.reason : '' })) })));
+    let values = $state(data.balances.map(balance => {
+      const rejected = form?.payoutError?.child === balance.id ? form.payoutError : undefined;
+      return { ...balance, payouts: balance.payouts.map(payment => ({ ...payment, correctionInput: form?.correctionError?.id === payment.id ? form.correctionError.reason : '' })), paymentAmount: rejected ? Number(rejected.amount) : balance.paymentAmount, paymentDate: rejected?.date ?? balance.paymentDate, paymentNote: rejected?.note ?? '', requestId: rejected?.requestId ?? balance.requestId };
+    }));
     return values;
   });
   let recurringSeries = $derived.by(() => {
@@ -45,15 +49,15 @@
     <section class="mt-6 rounded-2xl bg-amber-50 p-5"><h2 class="text-xl font-bold">Earnings</h2>
       {#if data.payday}<p class="mt-2">Next payday: {data.payday.next}</p>{/if}
       {#each balances as balance (balance.id)}<article aria-label={`Earnings for ${balance.name}`} class="mt-4"><h3 class="font-bold">{balance.name}</h3><p>Waiting for verification: {money(balance.pending)}</p><p>Verified earnings owed: {money(balance.owed)}</p><p>Paid so far: {money(balance.paid)}</p><p>Total verified earnings: {money(balance.earned)}</p>
-        {#if data.role === 'parent' && balance.owed > 0}
-          <details class="mt-3"><summary class="cursor-pointer font-semibold">Record a payment</summary><p class="mt-2 text-sm">Record money you have already paid; this does not transfer money.</p>
+        {#if data.role === 'parent' && (balance.owed > 0 || form?.payoutError?.child === balance.id)}
+          <Disclosure class="mt-3" expanded={form?.payoutError?.child === balance.id}><summary class="cursor-pointer font-semibold">Record a payment</summary><p class="mt-2 text-sm">Record money you have already paid; this does not transfer money.</p>
             <form method="POST" action="?/payout" class="mt-3 grid gap-3"><input type="hidden" name="child" value={balance.id} /><input type="hidden" name="requestId" value={balance.requestId} />
               <label>Payment amount<input name="amount" type="number" min="0.01" max={(balance.owed / 100).toFixed(2)} step="0.01" required bind:value={balance.paymentAmount} class="mt-1 block w-full rounded-lg border p-3" /></label>
               <label>Payment date<input name="date" type="date" bind:value={balance.paymentDate} required class="mt-1 block w-full rounded-lg border p-3" /></label>
-              <label>Payment note<input name="note" maxlength="1000" class="mt-1 block w-full rounded-lg border p-3" /></label>
-              <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Record payment</button>
+              <label>Payment note<input name="note" maxlength="1000" bind:value={balance.paymentNote} class="mt-1 block w-full rounded-lg border p-3" /></label>
+              <button disabled={balance.owed <= 0} class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white disabled:opacity-50">Record payment</button>
             </form>
-          </details>
+          </Disclosure>
         {/if}
         {#if balance.payouts.length}<div class="mt-3"><h4 class="font-semibold">Payment history</h4>{#each balance.payouts as payment (payment.id)}<div class="mt-2"><p>{payment.paidDate} · {money(payment.amountCents)}{payment.reversalReason ? ' · Corrected' : ''}</p>{#if payment.note}<p>{payment.note}</p>{/if}{#if payment.reversalReason}<p>Correction: {payment.reversalReason}</p>{:else if data.role === 'parent'}<Disclosure expanded={form?.correctionError?.id === payment.id}><summary class="cursor-pointer">Correct this payment</summary><p class="mt-2 text-sm">This reverses the whole record and restores the amount owed; it does not transfer money.</p><form method="POST" action="?/reversePayout" class="mt-2 grid gap-2"><input type="hidden" name="id" value={payment.id} /><label>Correction reason<input name="reason" required maxlength="1000" bind:value={payment.correctionInput} class="mt-1 block w-full rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Record correction</button></form></Disclosure>{/if}</div>{/each}</div>{/if}
       </article>{/each}
