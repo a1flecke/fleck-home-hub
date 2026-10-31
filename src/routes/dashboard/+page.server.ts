@@ -81,13 +81,14 @@ export const actions: Actions = {
     if (request.headers.get('origin') !== origin) return fail(403, { message: 'Request not authorized.' });
     const form = await request.formData();
     const reward = String(form.get('reward') ?? '').trim();
-    if (reward && !/^\d{1,7}(?:\.\d{1,2})?$/.test(reward)) return fail(400, { message: 'Enter a valid reward amount.' });
+    const seriesError = { id: String(form.get('id') ?? ''), title: String(form.get('title') ?? ''), description: String(form.get('description') ?? ''), assignee: String(form.get('assignee') ?? ''), startDate: String(form.get('startDate') ?? ''), endDate: String(form.get('endDate') ?? ''), weekdays: form.getAll('weekday').map(Number), reward };
+    if (reward && !/^\d{1,7}(?:\.\d{1,2})?$/.test(reward)) return fail(400, { message: 'Enter a valid reward amount.', seriesError });
     const input = { title: String(form.get('title') ?? ''), description: String(form.get('description') ?? ''), assigneeId: String(form.get('assignee') ?? ''), startDate: String(form.get('startDate') ?? ''), endDate: String(form.get('endDate') ?? ''), weekdays: form.getAll('weekday').map(value => Number(value)), rewardCents: reward ? Math.round(Number(reward) * 100) : null };
     try {
       const id = String(form.get('id') ?? '');
       if (id) updateSeries(db, session.user.id, membership.householdId, id, input);
       else createSeries(db, session.user.id, membership.householdId, input);
-    } catch { return fail(400, { message: 'Unable to save recurring chore. Check the details and try again.' }); }
+    } catch { return fail(400, { message: 'Unable to save recurring chore. Check the details and try again.', seriesError }); }
     return { message: 'Recurring chore saved.' };
   },
   seriesControl: async ({ request }) => {
