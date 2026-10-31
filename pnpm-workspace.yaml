@@ -1,3 +1,11 @@
+minimumReleaseAge: 4320
+minimumReleaseAgeStrict: true
+minimumReleaseAgeIgnoreMissingTime: false
+trustLockfile: false
+blockExoticSubdeps: true
+strictDepBuilds: true
+dangerouslyAllowAllBuilds: false
+
+# esbuild validates and installs its platform-specific binary.
 allowBuilds:
-  better-sqlite3: true
   esbuild: true
