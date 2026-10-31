@@ -1,6 +1,14 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
-  let { data, form } = $props();
+  import Disclosure from '../calendar/Disclosure.svelte';
+  import type { PageData } from './$types';
+  type FormResult = { message: string; createError?: { title: string; description: string; assignee: string; dueDate: string; reward: string } };
+  let { data, form }: { data: PageData; form: FormResult | null } = $props();
+  let createError = $derived(form?.createError);
+  let createTitle = $derived(createError?.title ?? '');
+  let createDescription = $derived(createError?.description ?? '');
+  let createDueDate = $derived(createError?.dueDate ?? '');
+  let createReward = $derived(createError?.reward ? Number(createError.reward) : undefined);
   let paydayAnchor = $derived(data.payday?.anchor ?? data.today);
   let householdTimezone = $derived(data.timezone);
   let recurringStart = $derived(data.today);
@@ -42,18 +50,18 @@
   {/if}
   {#if data.role === 'parent'}
     <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer font-bold">Payday schedule</summary><p class="mt-2 text-sm">A reminder only; no money is transferred automatically.</p><form method="POST" action="?/payday" class="mt-3 grid gap-3"><label>First payday<input name="anchor" type="date" bind:value={paydayAnchor} required class="mt-1 block w-full rounded-lg border p-3" /></label><label>Frequency<select name="cadence" class="mt-1 block w-full rounded-lg border p-3"><option value="7" selected={data.payday?.cadence !== 14}>Weekly</option><option value="14" selected={data.payday?.cadence === 14}>Every two weeks</option></select></label><button class="rounded-xl border border-teal-700 px-4 py-3">Save payday</button></form></details>
-    <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer text-xl font-bold">Add a chore</summary>
+    <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!createError}><summary class="cursor-pointer text-xl font-bold">Add a chore</summary>
       {#if data.children.length}
         <form method="POST" action="?/create" class="mt-4 grid gap-3">
-          <label>Chore title<input name="title" required maxlength="120" class="mt-1 w-full rounded-lg border p-3" /></label>
-          <label>Description (optional)<textarea name="description" maxlength="1000" class="mt-1 w-full rounded-lg border p-3"></textarea></label>
-          <label>Assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id}>{child.name}</option>{/each}</select></label>
-          <label>Due date<input name="dueDate" type="date" required class="mt-1 w-full rounded-lg border p-3" /></label>
-          <label>Reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" class="mt-1 w-full rounded-lg border p-3" /></label>
+          <label>Chore title<input name="title" required maxlength="120" bind:value={createTitle} class="mt-1 w-full rounded-lg border p-3" /></label>
+          <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={createDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
+          <label>Assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === createError?.assignee}>{child.name}</option>{/each}</select></label>
+          <label>Due date<input name="dueDate" type="date" required bind:value={createDueDate} class="mt-1 w-full rounded-lg border p-3" /></label>
+          <label>Reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" bind:value={createReward} class="mt-1 w-full rounded-lg border p-3" /></label>
           <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Add chore</button>
         </form>
       {:else}<p class="mt-3">Add a child account before assigning a chore.</p>{/if}
-    </details>
+    </Disclosure>
     <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer font-bold">Household time zone</summary><form method="POST" action="?/timezone" class="mt-3 flex flex-wrap items-end gap-3"><label>Time zone (for example, America/Chicago)<input name="timezone" bind:value={householdTimezone} required class="mt-1 block rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Save time zone</button></form></details>
     <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer text-xl font-bold">Add a recurring chore</summary>
       {#if data.children.length}
