@@ -1,6 +1,6 @@
 # Security
 
-Use HTTPS through a private tailnet, a unique random `AUTH_SECRET`, and a private database path. Parent and kid roles are checked by the server for each household. Public signup is disabled; local host access is required to run the account-provisioning commands. Shared displays show synthetic data only. The manifest does not implement offline synchronization.
+Use HTTPS through a private tailnet, a unique random `AUTH_SECRET`, and a private database path. Parent and kid roles are checked by the server for each household. Public signup is disabled; local host access is required to run the account-provisioning commands. The authenticated shared display shows only parent-selected event and chore titles and limited status details. The public landing page shows synthetic data. The manifest does not implement offline synchronization.
 
 SvelteKit sends a Content Security Policy for rendered pages restricting scripts, styles and connections to the application's origin, blocking objects and framing, and restricting form targets. SvelteKit adds nonces or hashes for its own generated inline content. HTTP localhost does not receive HSTS; HTTPS termination and HSTS policy remain deployment decisions requiring verification on the actual host and tailnet.
 

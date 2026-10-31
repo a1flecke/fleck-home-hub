@@ -6,6 +6,7 @@
     { "idx": 1, "version": "6", "when": 1793322000000, "tag": "0001_chores", "breakpoints": true },
     { "idx": 2, "version": "6", "when": 1793408400000, "tag": "0002_recurring", "breakpoints": true },
     { "idx": 3, "version": "6", "when": 1793494800000, "tag": "0003_payouts", "breakpoints": true },
-    { "idx": 4, "version": "6", "when": 1793581200000, "tag": "0004_calendar", "breakpoints": true }
+    { "idx": 4, "version": "6", "when": 1793581200000, "tag": "0004_calendar", "breakpoints": true },
+    { "idx": 5, "version": "6", "when": 1793667600000, "tag": "0005_display", "breakpoints": true }
   ]
 }
