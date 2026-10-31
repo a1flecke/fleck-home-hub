@@ -16,6 +16,10 @@ describe('chore transitions', () => {
     ['todo', 'verify', 'parent'],
     ['pending_verification', 'verify', 'kid'],
     ['pending_verification', 'rework', 'kid'],
+    ['pending_verification', 'submit', 'kid'],
+    ['needs_rework', 'verify', 'parent'],
+    ['verified', 'submit', 'kid'],
+    ['verified', 'rework', 'parent'],
     ['verified', 'verify', 'parent'],
     ['todo', 'submit', 'parent']
   ] as const)('rejects %s / %s by %s', (state, action, role) => {
