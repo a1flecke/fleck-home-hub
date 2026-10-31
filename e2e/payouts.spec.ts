@@ -49,6 +49,10 @@ test('dashboard preserves form edits made before hydration', async ({ page, brow
     const child = await chore.getByRole('combobox', { name: 'Assigned child', exact: true }).inputValue();
     await chore.getByLabel('Due date', { exact: true }).fill('2099-03-01');
     await chore.getByLabel('Reward in dollars', { exact: true }).fill('2.50');
+    await recurring.getByRole('textbox', { name: 'Recurring chore title' }).fill('Synthetic weekly task');
+    await recurring.getByRole('combobox', { name: 'Recurring assigned child' }).selectOption({ label: 'Sample Kid' });
+    const assignee = await recurring.getByRole('combobox', { name: 'Recurring assigned child' }).inputValue();
+    await recurring.getByLabel('Monday').check();
     release();
     await delayed.waitForLoadState('networkidle');
     await expect(payday.getByLabel('First payday')).toHaveValue('2099-01-01');
@@ -58,6 +62,8 @@ test('dashboard preserves form edits made before hydration', async ({ page, brow
     await expect(chore).toBeVisible();
     await expect(chore.getByLabel('Chore title', { exact: true })).toHaveValue('Synthetic pre-hydration chore');
     expect(await chore.evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ title: 'Synthetic pre-hydration chore', assignee: child, dueDate: '2099-03-01', reward: '2.50' });
+    await expect(recurring.getByLabel('Monday')).toBeChecked();
+    expect(await recurring.evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ title: 'Synthetic weekly task', assignee, startDate: '2099-02-01', weekday: '1' });
     expect(await payday.evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ anchor: '2099-01-01', cadence: '14' });
   } finally { release(); await context.close(); }
 });

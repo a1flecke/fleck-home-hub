@@ -2,22 +2,33 @@
   import { resolve } from '$app/paths';
   import Disclosure from '../calendar/Disclosure.svelte';
   import type { PageData } from './$types';
-  type FormResult = { message: string; createError?: { title: string; description: string; assignee: string; dueDate: string; reward: string } };
+  type SeriesError = { id: string; title: string; description: string; assignee: string; startDate: string; endDate: string; weekdays: number[]; reward: string };
+  type FormResult = { message: string; createError?: { title: string; description: string; assignee: string; dueDate: string; reward: string }; seriesError?: SeriesError };
   let { data, form }: { data: PageData; form: FormResult | null } = $props();
   let createError = $derived(form?.createError);
   let createTitle = $derived(createError?.title ?? '');
   let createDescription = $derived(createError?.description ?? '');
   let createDueDate = $derived(createError?.dueDate ?? '');
   let createReward = $derived(createError?.reward ? Number(createError.reward) : undefined);
+  let seriesError = $derived(form?.seriesError);
+  let newSeries = $derived(seriesError && !seriesError.id ? seriesError : undefined);
+  let recurringTitle = $derived(newSeries?.title ?? '');
+  let recurringDescription = $derived(newSeries?.description ?? '');
+  let recurringEnd = $derived(newSeries?.endDate ?? '');
+  let recurringReward = $derived(newSeries?.reward ? Number(newSeries.reward) : undefined);
+  let recurringDays = $derived(newSeries?.weekdays ?? []);
   let paydayAnchor = $derived(data.payday?.anchor ?? data.today);
   let householdTimezone = $derived(data.timezone);
-  let recurringStart = $derived(data.today);
+  let recurringStart = $derived(newSeries?.startDate ?? data.today);
   let balances = $derived.by(() => {
     let values = $state(data.balances.map(balance => ({ ...balance })));
     return values;
   });
   let recurringSeries = $derived.by(() => {
-    let values = $state(data.series.map(series => ({ ...series })));
+    let values = $state(data.series.map(series => {
+      const rejected = seriesError?.id === series.id ? seriesError : undefined;
+      return { ...series, editTitle: rejected?.title ?? series.title, editDescription: rejected?.description ?? series.description, editAssignee: rejected?.assignee ?? series.assigneeId, editReward: rejected ? (rejected.reward ? Number(rejected.reward) : undefined) : series.rewardInput };
+    }));
     return values;
   });
   const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
@@ -63,20 +74,20 @@
       {:else}<p class="mt-3">Add a child account before assigning a chore.</p>{/if}
     </Disclosure>
     <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer font-bold">Household time zone</summary><form method="POST" action="?/timezone" class="mt-3 flex flex-wrap items-end gap-3"><label>Time zone (for example, America/Chicago)<input name="timezone" bind:value={householdTimezone} required class="mt-1 block rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Save time zone</button></form></details>
-    <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer text-xl font-bold">Add a recurring chore</summary>
+    <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!newSeries}><summary class="cursor-pointer text-xl font-bold">Add a recurring chore</summary>
       {#if data.children.length}
         <form method="POST" action="?/series" class="mt-4 grid gap-3">
-          <label>Recurring chore title<input name="title" required maxlength="120" class="mt-1 w-full rounded-lg border p-3" /></label>
-          <label>Description (optional)<textarea name="description" maxlength="1000" class="mt-1 w-full rounded-lg border p-3"></textarea></label>
-          <label>Recurring assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id}>{child.name}</option>{/each}</select></label>
+          <label>Recurring chore title<input name="title" required maxlength="120" bind:value={recurringTitle} class="mt-1 w-full rounded-lg border p-3" /></label>
+          <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={recurringDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
+          <label>Recurring assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === newSeries?.assignee}>{child.name}</option>{/each}</select></label>
           <label>Starts on<input name="startDate" type="date" required bind:value={recurringStart} class="mt-1 w-full rounded-lg border p-3" /></label>
-          <label>Ends on (optional)<input name="endDate" type="date" class="mt-1 w-full rounded-lg border p-3" /></label>
-          <fieldset><legend class="font-semibold">Repeat on</legend><div class="mt-2 flex flex-wrap gap-3">{#each days as day, index (day)}<label class="flex items-center gap-2"><input name="weekday" type="checkbox" value={index} />{day}</label>{/each}</div></fieldset>
-          <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" class="mt-1 w-full rounded-lg border p-3" /></label>
+          <label>Ends on (optional)<input name="endDate" type="date" bind:value={recurringEnd} class="mt-1 w-full rounded-lg border p-3" /></label>
+          <fieldset><legend class="font-semibold">Repeat on</legend><div class="mt-2 flex flex-wrap gap-3">{#each days as day, index (day)}<label class="flex items-center gap-2"><input name="weekday" type="checkbox" value={index} bind:group={recurringDays} />{day}</label>{/each}</div></fieldset>
+          <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" bind:value={recurringReward} class="mt-1 w-full rounded-lg border p-3" /></label>
           <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Add recurring chore</button>
         </form>
       {:else}<p class="mt-3">Add a child account before assigning a chore.</p>{/if}
-    </details>
+    </Disclosure>
     {#if data.series.length}
       <section class="mt-6"><h2 class="text-xl font-bold">Recurring chores</h2><p class="mt-1">Scheduled in {data.timezone}. Changes apply to future unstarted occurrences.</p>
         {#each recurringSeries as series (series.id)}
@@ -84,17 +95,17 @@
             {#if series.state === 'active'}<p>{series.next ? `Next: ${series.next}` : 'No upcoming occurrence in the next seven days.'}</p>{/if}
             {#if series.skips.length}<p>Skipped: {series.skips.join(', ')}</p>{/if}
             {#if series.state !== 'ended'}
-              <details class="mt-3"><summary class="cursor-pointer font-semibold">Edit future chores</summary>
+              <Disclosure class="mt-3" expanded={seriesError?.id === series.id}><summary class="cursor-pointer font-semibold">Edit future chores</summary>
                 <form method="POST" action="?/series" class="mt-3 grid gap-3">
                   <input type="hidden" name="id" value={series.id} /><input type="hidden" name="startDate" value={series.startDate} /><input type="hidden" name="endDate" value={series.endDate ?? ''} />
                   {#each JSON.parse(series.weekdays) as day (day)}<input type="hidden" name="weekday" value={day} />{/each}
-                  <label>Recurring chore title<input name="title" bind:value={series.title} required maxlength="120" class="mt-1 w-full rounded-lg border p-3" /></label>
-                  <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={series.description} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
-                  <label>Recurring assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === series.assigneeId}>{child.name}</option>{/each}</select></label>
-                  <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" bind:value={series.rewardInput} class="mt-1 w-full rounded-lg border p-3" /></label>
+                  <label>Recurring chore title<input name="title" bind:value={series.editTitle} required maxlength="120" class="mt-1 w-full rounded-lg border p-3" /></label>
+                  <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={series.editDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
+                  <label>Recurring assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === series.editAssignee}>{child.name}</option>{/each}</select></label>
+                  <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" bind:value={series.editReward} class="mt-1 w-full rounded-lg border p-3" /></label>
                   <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Save changes</button>
                 </form>
-              </details>
+              </Disclosure>
               <form method="POST" action="?/seriesControl" class="mt-3 flex flex-wrap gap-3"><input type="hidden" name="id" value={series.id} /><button name="action" value={series.state === 'active' ? 'paused' : 'active'} class="rounded-xl border border-teal-700 px-4 py-3">{series.state === 'active' ? 'Pause' : 'Resume'}</button><button name="action" value="ended" class="rounded-xl border border-teal-700 px-4 py-3">End series</button></form>
               <form method="POST" action="?/seriesControl" class="mt-3 flex flex-wrap items-end gap-3"><input type="hidden" name="id" value={series.id} /><input type="hidden" name="action" value="skip" /><label>Skip a date<input name="date" type="date" required class="mt-1 block rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Skip occurrence</button></form>
             {/if}

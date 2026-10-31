@@ -53,6 +53,45 @@ for (const javaScriptEnabled of [true, false]) {
     } finally { await context.close(); }
   });
 }
+for (const javaScriptEnabled of [true, false]) test(`a recurring chore can be corrected after omitting its repeat days (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }, testInfo) => {
+  await signIn(page, 'parent');
+  const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    const dashboard = await context.newPage();
+    await dashboard.goto('/dashboard');
+    const section = dashboard.locator('details').filter({ has: dashboard.getByText('Add a recurring chore', { exact: true }) });
+    await section.getByText('Add a recurring chore', { exact: true }).click();
+    const title = `Synthetic weekly chore ${javaScriptEnabled} ${testInfo.repeatEachIndex}`;
+    await section.getByRole('textbox', { name: 'Recurring chore title', exact: true }).fill(title);
+    await section.getByRole('textbox', { name: 'Description (optional)', exact: true }).fill('Keep this description');
+    await section.getByRole('combobox', { name: 'Recurring assigned child', exact: true }).selectOption({ label: 'Sample Kid' });
+    const assignee = await section.getByRole('combobox', { name: 'Recurring assigned child', exact: true }).inputValue();
+    await section.getByLabel('Starts on').fill('2099-03-01');
+    await section.getByLabel('Recurring reward in dollars').fill('3.50');
+    await section.getByRole('button', { name: 'Add recurring chore' }).click();
+    await expect(dashboard.getByRole('status')).toContainText('Unable to save recurring chore');
+    await expect(section).toHaveAttribute('open', '');
+    await expect(section.getByRole('textbox', { name: 'Recurring chore title', exact: true })).toHaveValue(title);
+    await expect(section.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Keep this description');
+    await expect(section.getByRole('combobox', { name: 'Recurring assigned child', exact: true })).toHaveValue(assignee);
+    await expect(section.getByLabel('Starts on')).toHaveValue('2099-03-01');
+    await expect(section.getByLabel('Recurring reward in dollars')).toHaveValue('3.5');
+    await section.getByLabel('Monday').check();
+    await section.getByRole('button', { name: 'Add recurring chore' }).click();
+    const series = dashboard.getByRole('article').filter({ hasText: title });
+    await expect(series).toBeVisible();
+    await series.getByText('Edit future chores').click();
+    await series.getByRole('textbox', { name: 'Recurring chore title', exact: true }).fill('   ');
+    await series.getByRole('textbox', { name: 'Description (optional)', exact: true }).fill('Keep edited details');
+    await series.getByRole('button', { name: 'Save changes' }).click();
+    await expect(dashboard.getByRole('status')).toContainText('Unable to save recurring chore');
+    await expect(series.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Keep edited details');
+    const revised = `${title} revised`;
+    await series.getByRole('textbox', { name: 'Recurring chore title', exact: true }).fill(revised);
+    await series.getByRole('button', { name: 'Save changes' }).click();
+    await expect(dashboard.getByRole('article').filter({ hasText: revised })).toBeVisible();
+  } finally { await context.close(); }
+});
 
 test('child submits and parent verifies a paid chore', async ({ page }, testInfo) => {
   const title = `Feed the cat ${testInfo.repeatEachIndex}`;
