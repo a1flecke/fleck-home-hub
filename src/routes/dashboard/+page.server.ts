@@ -47,9 +47,10 @@ export const actions: Actions = {
     if (request.headers.get('origin') !== origin) return fail(403, { message: 'Request not authorized.' });
     const form = await request.formData();
     const amount = String(form.get('amount') ?? '').trim();
-    if (!/^\d{1,7}(?:\.\d{1,2})?$/.test(amount)) return fail(400, { message: 'Enter a valid payment amount.' });
+    const payoutError = { child: String(form.get('child') ?? ''), amount, date: String(form.get('date') ?? ''), note: String(form.get('note') ?? ''), requestId: String(form.get('requestId') ?? '') };
+    if (!/^\d{1,7}(?:\.\d{1,2})?$/.test(amount)) return fail(400, { message: 'Enter a valid payment amount.', payoutError });
     try { recordPayout(db, session.user.id, membership.householdId, { childId: String(form.get('child') ?? ''), amountCents: Math.round(Number(amount) * 100), date: String(form.get('date') ?? ''), note: String(form.get('note') ?? ''), requestId: String(form.get('requestId') ?? '') }); }
-    catch { return fail(400, { message: 'Unable to record payment. Check the amount and try again.' }); }
+    catch { return fail(400, { message: 'Unable to record payment. Check the amount and current balance, then try again.', payoutError }); }
     return { message: 'Payment recorded.' };
   },
   reversePayout: async ({ request }) => {
