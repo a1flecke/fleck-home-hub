@@ -2,6 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { localDate } from '../../lib/chores/recurrence';
 import { createMeal, listMeals, updateMeal, type MealInput } from '../../lib/server/meals';
+import { addMealIngredients } from '../../lib/server/groceries';
 import { getIdentityServices } from '../../lib/server/runtime';
 
 async function principal(request: Request) {
@@ -31,5 +32,13 @@ export const actions = {
     try { if (raw.id) updateMeal(db, actor, householdId, raw.id, input); else createMeal(db, actor, householdId, input); }
     catch { return fail(400, { message: 'Unable to save meal. Check its details and use an HTTPS recipe link.', mealError: raw }); }
     redirect(303, `/meals?date=${encodeURIComponent(raw.date)}`);
+  },
+  ingredients: async ({ request }) => {
+    const { db, actor, householdId, origin, role } = await principal(request);
+    if (request.headers.get('origin') !== origin || role !== 'parent') return fail(403, { message: 'Request not authorized.' });
+    const form = await request.formData(), id = String(form.get('id') ?? ''), selections = form.getAll('ingredient').map(String);
+    try { addMealIngredients(db, actor, householdId, id, selections, form.get('allowDuplicate') === 'yes'); }
+    catch (err) { return fail(400, { message: err instanceof Error && err.message === 'Item already on list' ? 'A matching ingredient is already on the list. Confirm if you want another.' : 'Choose ingredients to add.', ingredientError: { id, selections, duplicate: err instanceof Error && err.message === 'Item already on list' } }); }
+    redirect(303, '/groceries');
   }
 } satisfies Actions;

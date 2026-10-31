@@ -119,6 +119,33 @@ test('pre-hydration event edits survive hydration and are saved', async ({ page,
   } finally { release(); await context.close(); }
 });
 
+test('calendar view and inbox owner selections survive delayed hydration', async ({ page, browser }) => {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  const context = await browser.newContext({ storageState: await page.context().storageState() });
+  let release!: () => void, blocked!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const requested = new Promise<void>(resolve => { blocked = resolve; });
+  try {
+    const delayed = await context.newPage();
+    await delayed.route('**/src/routes/calendar/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await delayed.goto('/calendar?date=2099-08-01&view=day', { waitUntil: 'commit' }); await requested;
+    const view = delayed.locator('form[method="GET"] select[name="view"]');
+    await view.selectOption('month');
+    await delayed.getByText('Add to the inbox', { exact: true }).click();
+    const owner = delayed.getByLabel('Tentative owner');
+    await owner.selectOption({ label: 'Sample Kid' });
+    const selected = await owner.inputValue();
+    release(); await delayed.waitForLoadState('networkidle');
+    await expect(view).toHaveValue('month');
+    await expect(owner).toHaveValue(selected);
+    expect(await owner.evaluate(element => new FormData((element as HTMLSelectElement).form!).get('owner'))).toBe(selected);
+  } finally { release(); await context.close(); }
+});
+
 test('calendar routes reject anonymous, child and cross-origin mutations', async ({ page }) => {
   const headers = { origin: 'http://127.0.0.1:4173' };
   const form = { title: 'Forged event', date: '2099-08-01', allDay: 'on' };

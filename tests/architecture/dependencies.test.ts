@@ -57,6 +57,15 @@ describe('architecture dependency rules', () => {
     expect(result.stdout + result.stderr).toContain('error domain-independent:');
   });
 
+  it('rejects grocery domain dependencies on server infrastructure', () => {
+    const result = check({
+      'src/lib/grocery/domain.ts': "import { value } from '../server/store'; export const result = value;",
+      'src/lib/server/store.ts': 'export const value = 1;',
+    });
+    expect(result.status).not.toBe(0);
+    expect(result.stdout + result.stderr).toContain('error domain-independent:');
+  });
+
   it('rejects a domain module importing platform APIs', () => {
     const result = check({
       'src/lib/chores/domain.ts': "import { readFileSync } from 'node:fs'; export const read = readFileSync;",
