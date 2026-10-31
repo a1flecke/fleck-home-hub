@@ -24,6 +24,36 @@ async function create(page: Page, title: string) {
   await expect(page.getByRole('article').filter({ hasText: title })).toBeVisible();
 }
 
+for (const javaScriptEnabled of [true, false]) {
+  test(`invalid chore creation preserves details for correction (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }, testInfo) => {
+    await signIn(page, 'parent');
+    const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+    try {
+      const dashboard = await context.newPage();
+      await dashboard.goto('/dashboard');
+      const section = dashboard.locator('details').filter({ has: dashboard.getByText('Add a chore', { exact: true }) });
+      await section.getByText('Add a chore', { exact: true }).click();
+      await section.getByLabel('Chore title', { exact: true }).fill('   ');
+      await section.getByLabel('Description (optional)', { exact: true }).fill('Synthetic details to preserve');
+      await section.getByRole('combobox', { name: 'Assigned child', exact: true }).selectOption({ label: 'Sample Kid' });
+      const assignee = await section.getByRole('combobox', { name: 'Assigned child', exact: true }).inputValue();
+      await section.getByLabel('Due date', { exact: true }).fill('2099-11-01');
+      await section.getByLabel('Reward in dollars', { exact: true }).fill('2.00');
+      await section.getByRole('button', { name: 'Add chore', exact: true }).click();
+      await expect(dashboard.getByRole('status')).toContainText('Unable to add chore');
+      await expect(section).toHaveAttribute('open', '');
+      await expect(section.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Synthetic details to preserve');
+      await expect(section.getByRole('combobox', { name: 'Assigned child', exact: true })).toHaveValue(assignee);
+      await expect(section.getByLabel('Due date', { exact: true })).toHaveValue('2099-11-01');
+      await expect(section.getByLabel('Reward in dollars', { exact: true })).toHaveValue('2');
+      const title = `Corrected synthetic chore ${javaScriptEnabled} ${testInfo.repeatEachIndex}`;
+      await section.getByLabel('Chore title', { exact: true }).fill(title);
+      await section.getByRole('button', { name: 'Add chore', exact: true }).click();
+      await expect(dashboard.getByRole('article').filter({ hasText: title })).toBeVisible();
+    } finally { await context.close(); }
+  });
+}
+
 test('child submits and parent verifies a paid chore', async ({ page }, testInfo) => {
   const title = `Feed the cat ${testInfo.repeatEachIndex}`;
   await page.setViewportSize({ width: 375, height: 812 });
