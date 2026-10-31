@@ -56,8 +56,9 @@ export const actions: Actions = {
     const { db, session, membership, origin } = await principal(request);
     if (request.headers.get('origin') !== origin) return fail(403, { message: 'Request not authorized.' });
     const form = await request.formData();
-    try { reversePayout(db, session.user.id, membership.householdId, String(form.get('id') ?? ''), String(form.get('reason') ?? '')); }
-    catch { return fail(400, { message: 'Unable to correct payment.' }); }
+    const correctionError = { id: String(form.get('id') ?? ''), reason: String(form.get('reason') ?? '') };
+    try { reversePayout(db, session.user.id, membership.householdId, correctionError.id, correctionError.reason); }
+    catch { return fail(400, { message: 'Unable to correct payment. Enter a reason and try again.', correctionError }); }
     return { message: 'Payment correction recorded.' };
   },
   payday: async ({ request }) => {
