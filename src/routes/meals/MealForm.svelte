@@ -13,6 +13,7 @@
   <label>Private notes (optional)<textarea name="notes" maxlength="1000" bind:value={notes} class="mt-1 block w-full rounded-lg border p-3"></textarea></label>
   <label>Recipe source (optional)<input name="source" maxlength="120" bind:value={source} class="mt-1 block w-full rounded-lg border p-3" /></label>
   <label>Recipe link (optional)<input name="recipeUrl" type="url" bind:value={recipeUrl} maxlength="2048" class="mt-1 block w-full rounded-lg border p-3" /></label>
+  <p class="text-sm">Have an eMeals share link? Paste it above and enter eMeals as the source. Add ingredients yourself; recipes are not imported automatically.</p>
   <label class="flex items-center gap-3"><input name="shared" type="checkbox" bind:checked={shared} class="h-5 w-5" />Share on family display</label>
   <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Save meal</button>
 </form>
