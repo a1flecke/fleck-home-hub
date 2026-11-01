@@ -20,6 +20,10 @@ run = "pnpm run dev"
 description = "Build the production application"
 run = "pnpm run build"
 
+[tasks.recovery-test]
+description = "Exercise synthetic backup recovery through the production server"
+run = "pnpm exec tsx --test tests/production-recovery.integration.ts"
+
 [tasks.typecheck]
 description = "Check Svelte and TypeScript"
 run = "pnpm run typecheck"

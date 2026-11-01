@@ -8,6 +8,7 @@ mise run lint
 mise run typecheck
 mise run test
 mise run build
+mise run recovery-test
 mise run e2e
 mise exec -- zizmor --offline .github/workflows
 mise exec -- gitleaks dir --no-banner --redact .

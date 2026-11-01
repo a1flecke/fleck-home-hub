@@ -18,6 +18,14 @@ A sleeping Mac cannot serve requests reliably. Configure sleep/wake to suit the 
 
 ## Backup, restore and update
 
-With environment configured, run `mise run backup /private/path/new-backup.sqlite`. The online SQLite backup is created with owner-only permissions, refuses an existing destination and runs an integrity check. Store encrypted copies off the host, control access, and practice restoration. An automated synthetic test backs up a WAL-mode database containing accounts, verified earnings, payouts and a correction, rejects an unreviewed schema change, and restores a separate copy. It verifies parent and child sign-in through Better Auth, household memberships, the earning record, payout balance, migration compatibility and SQLite integrity. It does not start the restored application or prove recovery on the real host.
+With environment configured, run `mise run backup /private/path/new-backup.sqlite`. The online SQLite backup is created with owner-only permissions, refuses an existing destination and runs an integrity check. Store encrypted copies off the host, control access, and practice restoration. Automated synthetic tests cover backup and restoration, including accounts, verified earnings, payouts, a correction, a rejected schema change, migrations and SQLite integrity. `mise run recovery-test` also builds an isolated production copy, restores a separate database after a failed migration, checks the adapter's reported localhost listener, and verifies parent and child sign-in and recovered ledger totals through the running application. It does not prove recovery on the real host.
 
 To restore, stop the application, preserve the current database and its WAL/SHM files, copy a known-good backup to a **new** private location, set `DATABASE_PATH` to that copy, and start only after checking SQLite integrity. Verify login, membership and representative records, then retain the original until recovery is confirmed. Never overwrite the only copy. To update, create and verify a fresh backup, install locked tools and frozen dependencies, run `mise run migrate` on the existing database while the app is stopped, build with the correct origin, and restart. On a failed migration, stop and inspect the failure; restore a verified backup if needed. Auth and household migrations commit separately, so a later failure can leave the auth migration applied. Better Auth upgrades require a reviewed, version-controlled schema migration and upgrade tests before use on real data.
+
+## Pilot verification status
+
+| Status | Evidence or remaining work |
+| --- | --- |
+| Verified automatically | Synthetic backup, failed-migration recovery, production startup on the reported loopback address, both roles' sign-in and recovered ledger totals; run `mise run recovery-test` and `mise run test`. |
+| Verified on the actual Mac or phone | None recorded. |
+| Not yet verified | Host-specific restore and encrypted off-host backup; launchd start, crash restart and login/reboot; sleep/wake; Tailscale Serve, tailnet access controls and device revocation; iPhone Safari and standalone installation; real-device session and household workflows. |
