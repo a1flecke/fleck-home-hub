@@ -4,7 +4,8 @@ import { join, resolve } from 'node:path';
 const root = resolve(process.argv[2] || '.');
 const read = path => readFileSync(join(root, path), 'utf8');
 const problems = [];
-const namedTaskAllow = /^(?:mise run (?:test|e2e|typecheck|lint|build|verify|doctor|agent-policy)(?: \*)?|pnpm (?:exec )?vitest run \*|pnpm exec playwright test \*|pnpm exec svelte-kit sync)$/;
+const runner = 'pnpm (?:exec )?vitest run \\*|pnpm exec playwright test \\*|pnpm exec svelte-kit sync|pnpm run (?:test|e2e|lint|typecheck|build) \\*';
+const namedTaskAllow = new RegExp(`^(?:mise run (?:test|e2e|typecheck|lint|build|verify|doctor|agent-policy)(?: \\*)?|(?:\\./scripts/run-with-mise\\.sh )?(?:${runner}))$`);
 const unsafeBuildAllow = x => x.effect === 'allow' && (x.action === 'shell' ? x.resource === '*' || (/^(?:sh|bash|zsh|env|xargs|eval|exec|sudo|rm|mise|pnpm|\.\/scripts\/run-with-mise\.sh)\b/.test(x.resource) && !namedTaskAllow.test(x.resource)) : /[*?]/.test(x.action));
 try {
   const shared = read('AGENTS.md');
