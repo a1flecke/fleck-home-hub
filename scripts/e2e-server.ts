@@ -16,11 +16,14 @@ const kid = await auth.api.signUpEmail({ body: { name: 'Sample Kid', email: 'kid
 const other = await auth.api.signUpEmail({ body: { name: 'Other Kid', email: 'other@example.test', password: 'synthetic-other-password' } });
 const payoutKid = await auth.api.signUpEmail({ body: { name: 'Payout Kid', email: 'payout-kid@example.test', password: 'synthetic-payout-kid-password' } });
 const balanceKid = await auth.api.signUpEmail({ body: { name: 'Balance Kid', email: 'balance-kid@example.test', password: 'synthetic-balance-kid-password' } });
+const otherParent = await auth.api.signUpEmail({ body: { name: 'Other Parent', email: 'other-parent@example.test', password: 'synthetic-other-parent-password' } });
 const household = db.prepare('SELECT id FROM household').get() as { id: string };
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-other-household', 'Other household');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(kid.user.id, household.id, 'kid');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(other.user.id, household.id, 'kid');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(payoutKid.user.id, household.id, 'kid');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(balanceKid.user.id, household.id, 'kid');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(otherParent.user.id, 'synthetic-other-household', 'parent');
 db.close();
 const child = spawn('pnpm', ['exec', 'vite', 'dev', '--host', '127.0.0.1', '--port', '4173', '--strictPort'], {
   stdio: 'inherit', env: { ...process.env, DATABASE_PATH: config.dbPath, AUTH_SECRET: config.secret, AUTH_ORIGIN: config.origin }

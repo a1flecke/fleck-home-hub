@@ -1,5 +1,76 @@
 import { expect, test } from '@playwright/test';
 
+test('parent dashboard shows today’s meals and child dashboard does not expose them', async ({ page, browser }, testInfo) => {
+  const linked = `Family supper linked ${testInfo.repeatEachIndex}`;
+  const unlinked = `Family supper unlinked ${testInfo.repeatEachIndex}`;
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  const display = await page.request.get('/display/data');
+  expect(display.status()).toBe(200);
+  const today = (await display.json()).today as string;
+  await page.goto(`/meals?date=${today}`);
+  for (const meal of [{ title: linked, ingredients: '2 cups synthetic beans', link: 'https://example.test/family-recipe' }, { title: unlinked, ingredients: '1 synthetic carrot', link: '' }]) {
+    await page.getByText('Add a meal', { exact: true }).click();
+    const form = page.getByRole('form', { name: 'Add meal' });
+    await form.getByLabel('Meal name').fill(meal.title);
+    await form.getByLabel('Ingredients').fill(meal.ingredients);
+    await form.getByLabel('Private notes (optional)').fill(`Private card note ${meal.title}`);
+    if (meal.link) await form.getByLabel('Recipe link (optional)').fill(meal.link);
+    await form.getByRole('button', { name: 'Save meal' }).click();
+    await expect(page.getByRole('article').filter({ hasText: meal.title })).toBeVisible();
+  }
+  const future = `Future family supper ${testInfo.repeatEachIndex}`;
+  await page.goto('/meals?date=2099-06-03');
+  await page.getByText('Add a meal', { exact: true }).click();
+  const futureForm = page.getByRole('form', { name: 'Add meal' });
+  await futureForm.getByLabel('Meal name').fill(future);
+  await futureForm.getByRole('button', { name: 'Save meal' }).click();
+  await expect(page.getByRole('article').filter({ hasText: future })).toBeVisible();
+  const response = await page.goto('/dashboard');
+  expect(response?.headers()['cache-control']).toContain('no-store');
+  const dinner = page.getByRole('region', { name: "Tonight's meal" });
+  const linkedMeal = dinner.getByRole('article').filter({ hasText: linked });
+  const plainMeal = dinner.getByRole('article').filter({ hasText: unlinked });
+  await expect(linkedMeal).toContainText('2 cups synthetic beans');
+  await expect(linkedMeal.getByRole('link', { name: 'View recipe' })).toHaveAttribute('href', 'https://example.test/family-recipe');
+  await expect(plainMeal).toContainText('1 synthetic carrot');
+  await expect(plainMeal.getByRole('link', { name: /recipe|eMeals/i })).toHaveCount(0);
+  expect(await page.content()).not.toContain('Private card note');
+  expect(await page.content()).not.toContain(future);
+  await page.screenshot({ path: testInfo.outputPath('parent-meal-mobile.png'), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.screenshot({ path: testInfo.outputPath('parent-meal-desktop.png'), fullPage: true });
+
+  const context = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  try {
+    const kid = await context.newPage();
+    await kid.goto('/sign-in');
+    await kid.getByLabel('Email').fill('kid@example.test');
+    await kid.getByLabel('Password').fill('synthetic-kid-password');
+    await kid.getByRole('button', { name: 'Sign in' }).click();
+    await expect(kid.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
+    await expect(kid.getByRole('region', { name: "Tonight's meal" })).toHaveCount(0);
+    expect(await kid.content()).not.toContain(linked);
+    expect(await kid.content()).not.toContain(unlinked);
+  } finally { await context.close(); }
+  const otherContext = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  try {
+    const other = await otherContext.newPage();
+    await other.goto('/sign-in');
+    await other.getByLabel('Email').fill('other-parent@example.test');
+    await other.getByLabel('Password').fill('synthetic-other-parent-password');
+    await other.getByRole('button', { name: 'Sign in' }).click();
+    await expect(other.getByRole('heading', { name: 'Hello, Other Parent' })).toBeVisible();
+    await expect(other.getByRole('region', { name: "Tonight's meal" })).toContainText('No meals planned for today.');
+    expect(await other.content()).not.toContain(linked);
+    expect(await other.content()).not.toContain(unlinked);
+  } finally { await otherContext.close(); }
+});
+
 test('a parent plans a meal and explicitly shares its ingredients on the display', async ({ page }, testInfo) => {
   const title = `Synthetic dinner ${testInfo.repeatEachIndex}`;
   await page.setViewportSize({ width: 375, height: 812 });

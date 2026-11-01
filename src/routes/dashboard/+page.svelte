@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { recipeLinkLabel } from '../../lib/meals/recipe-link';
   import { resolve } from '$app/paths';
   import Disclosure from '../calendar/Disclosure.svelte';
   import type { PageData } from './$types';
@@ -46,6 +47,15 @@
   <a href={resolve('/groceries')} class="ml-4 text-teal-700">Groceries</a>
   <h1 class="mt-6 text-3xl font-bold">{data.role === 'parent' ? `Hello, ${data.name}` : `${data.name}'s My Day`}</h1>
   <p class="mt-2">{data.role === 'parent' ? 'Parent dashboard' : 'Your day'}</p>
+  {#if data.role === 'parent'}
+    <section aria-label="Tonight's meal" class="mt-6 rounded-2xl bg-white p-5 shadow-sm">
+      <h2 class="text-xl font-bold">Tonight's meal</h2>
+      {#each data.meals as meal (meal.id)}
+        <article class="mt-4"><h3 class="font-bold">{meal.title}</h3>{#if meal.time}<p>{meal.time}</p>{/if}{#if meal.servings}<p>Serves {meal.servings}</p>{/if}{#if meal.ingredients}<p class="mt-2 whitespace-pre-line">{meal.ingredients}</p>{/if}{#if meal.source}<p class="mt-2">Source: {meal.source}</p>{/if}{#if meal.recipeUrl}<a href={meal.recipeUrl} rel="external noopener noreferrer" class="mt-2 inline-block py-2 text-teal-700">{recipeLinkLabel(meal.source)}</a>{/if}</article>
+      {:else}<p class="mt-2">No meals planned for today.</p>{/each}
+      <a href={resolve('/meals')} class="mt-3 inline-block py-2 text-teal-700">Plan meals</a>
+    </section>
+  {/if}
   {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}</p>{/if}
   {#if data.balances.length}
     <section class="mt-6 rounded-2xl bg-amber-50 p-5"><h2 class="text-xl font-bold">Earnings</h2>
