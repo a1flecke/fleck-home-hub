@@ -16,21 +16,24 @@ async function signOut(page: Page) {
 for (const javaScriptEnabled of [true, false]) test(`a stale payment form keeps its details when another payment changes the balance (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }, testInfo) => {
   const title = `Synthetic stale payment ${javaScriptEnabled} ${testInfo.repeatEachIndex}`;
   const note = `Synthetic cash payment ${javaScriptEnabled} ${testInfo.repeatEachIndex}`;
+  const childAccount = javaScriptEnabled
+    ? { name: 'Stale Payout On Kid', email: 'stale-payout-on@example.test', password: 'synthetic-stale-payout-on-password' }
+    : { name: 'Stale Payout Off Kid', email: 'stale-payout-off@example.test', password: 'synthetic-stale-payout-off-password' };
   await signIn(page, 'parent');
   await page.getByText('Add a chore', { exact: true }).click();
   const choreForm = page.locator('form[action="?/create"]');
   await choreForm.getByLabel('Chore title', { exact: true }).fill(title);
-  await choreForm.getByRole('combobox', { name: 'Assigned child', exact: true }).selectOption({ label: 'Other Kid' });
+  await choreForm.getByRole('combobox', { name: 'Assigned child', exact: true }).selectOption({ label: childAccount.name });
   await choreForm.getByLabel('Due date', { exact: true }).fill('2026-11-01');
   await choreForm.getByLabel('Reward in dollars', { exact: true }).fill('5.00');
   await choreForm.getByRole('button', { name: 'Add chore', exact: true }).click();
   await expect(page.getByRole('article').filter({ hasText: title })).toBeVisible();
   await signOut(page);
   await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('other@example.test');
-  await page.getByLabel('Password').fill('synthetic-other-password');
+  await page.getByLabel('Email').fill(childAccount.email);
+  await page.getByLabel('Password').fill(childAccount.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: "Other Kid's My Day" })).toBeVisible();
+  await expect(page.getByRole('heading', { name: `${childAccount.name}'s My Day` })).toBeVisible();
   const chore = page.getByRole('article').filter({ hasText: title });
   await chore.getByRole('button', { name: 'Mark complete' }).click();
   await expect(chore.getByText('Waiting for parent verification')).toBeVisible();
@@ -48,7 +51,7 @@ for (const javaScriptEnabled of [true, false]) test(`a stale payment form keeps 
     if (javaScriptEnabled) await stale.route('**/src/routes/dashboard/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
     await stale.goto('/dashboard', { waitUntil: javaScriptEnabled ? 'commit' : 'load' });
     if (javaScriptEnabled) await requested;
-    const earnings = stale.getByRole('article', { name: 'Earnings for Other Kid' });
+    const earnings = stale.getByRole('article', { name: `Earnings for ${childAccount.name}` });
     const owed = cents(await earnings.getByText(/^Verified earnings owed:/).innerText());
     await earnings.getByText('Record a payment').click();
     const form = earnings.locator('form[action="?/payout"]');
