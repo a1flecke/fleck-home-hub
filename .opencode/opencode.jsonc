@@ -45,6 +45,17 @@
         { "action": "shell", "resource": "pnpm exec vitest run *", "effect": "allow" },
         { "action": "shell", "resource": "pnpm exec playwright test *", "effect": "allow" },
         { "action": "shell", "resource": "pnpm exec svelte-kit sync", "effect": "allow" },
+        // The same test runners through the mise wrapper, which agents reach for out of habit. The
+        // wrapper itself runs any command, so only these exact forms are allowed.
+        { "action": "shell", "resource": "./scripts/run-with-mise.sh pnpm vitest run *", "effect": "allow" },
+        { "action": "shell", "resource": "./scripts/run-with-mise.sh pnpm exec vitest run *", "effect": "allow" },
+        { "action": "shell", "resource": "./scripts/run-with-mise.sh pnpm exec playwright test *", "effect": "allow" },
+        { "action": "shell", "resource": "./scripts/run-with-mise.sh pnpm exec svelte-kit sync", "effect": "allow" },
+        { "action": "shell", "resource": "./scripts/run-with-mise.sh pnpm run test *", "effect": "allow" },
+        { "action": "shell", "resource": "./scripts/run-with-mise.sh pnpm run e2e *", "effect": "allow" },
+        { "action": "shell", "resource": "./scripts/run-with-mise.sh pnpm run lint *", "effect": "allow" },
+        { "action": "shell", "resource": "./scripts/run-with-mise.sh pnpm run typecheck *", "effect": "allow" },
+        { "action": "shell", "resource": "./scripts/run-with-mise.sh pnpm run build *", "effect": "allow" },
         { "action": "shell", "resource": "./scripts/sync-main.sh", "effect": "allow" },
         { "action": "shell", "resource": "./scripts/push-branch.sh", "effect": "allow" },
 
