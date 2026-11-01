@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 
-async function signIn(page: Page, role: 'parent' | 'kid') {
+async function signIn(page: Page, role: 'parent' | 'kid' | 'balance-kid') {
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill(`${role}@example.test`);
   await page.getByLabel('Password').fill(`synthetic-${role}-password`);
@@ -13,11 +13,11 @@ async function signOut(page: Page) {
   await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
 }
 
-async function create(page: Page, title: string) {
+async function create(page: Page, title: string, assignee = 'Sample Kid') {
   await page.getByText('Add a chore', { exact: true }).click();
   const form = page.locator('form[action="?/create"]');
   await form.getByLabel('Chore title', { exact: true }).fill(title);
-  await form.getByRole('combobox', { name: 'Assigned child', exact: true }).selectOption({ label: 'Sample Kid' });
+  await form.getByRole('combobox', { name: 'Assigned child', exact: true }).selectOption({ label: assignee });
   await form.getByLabel('Due date', { exact: true }).fill('2026-11-01');
   await form.getByLabel('Reward in dollars', { exact: true }).fill('2.00');
   await form.getByRole('button', { name: 'Add chore', exact: true }).click();
@@ -97,12 +97,12 @@ test('child submits and parent verifies a paid chore', async ({ page }, testInfo
   const title = `Feed the cat ${testInfo.repeatEachIndex}`;
   await page.setViewportSize({ width: 375, height: 812 });
   await signIn(page, 'parent');
-  await create(page, title);
+  await create(page, title, 'Balance Kid');
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: testInfo.outputPath('parent-desktop.png'), fullPage: true });
   await page.setViewportSize({ width: 375, height: 812 });
   await signOut(page);
-  await signIn(page, 'kid');
+  await signIn(page, 'balance-kid');
   const kidChore = page.getByRole('article').filter({ hasText: title });
   const pending = page.getByText(/^Waiting for verification:/);
   const earned = page.getByText(/^Verified earnings owed:/);
@@ -122,7 +122,7 @@ test('child submits and parent verifies a paid chore', async ({ page }, testInfo
   await kidChore.getByRole('button', { name: 'Verify' }).click();
   await expect(kidChore.getByText('Approved! You earned $2.00!')).toBeVisible();
   await signOut(page);
-  await signIn(page, 'kid');
+  await signIn(page, 'balance-kid');
   await expect(kidChore.getByText('Approved! You earned $2.00!')).toBeVisible();
 });
 
