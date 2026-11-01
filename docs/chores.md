@@ -1,8 +1,8 @@
 # Chores and verified earnings
 
-Parents can assign a one-off chore to a child in the same household. A child can submit a to-do or returned chore; submission moves it to pending verification and does not create earnings. A parent can verify the submission or return it with an optional reason. The child can submit returned work again.
+Parents can assign a one-off chore or schedule recurring chores for a child in the same household. A child can submit a to-do or returned chore; submission moves it to pending verification and does not create earnings. A parent can verify the submission or return it with an optional reason. The child can submit returned work again. Recurring schedules create separately verified occurrences; see [architecture](architecture.md) for scheduling and editing details.
 
-Verification updates the chore, writes the transition actor and time, and creates a credit for a positive reward in one SQLite transaction. A unique chore association prevents duplicate credits; ledger updates and deletes are rejected. The verified amount is a snapshot in integer cents, and earned balances are derived from credits. An unpaid chore creates no credit. Payday and payout recording are not implemented.
+Verification updates the chore, writes the transition actor and time, and creates a credit for a positive reward in one SQLite transaction. A unique chore association prevents duplicate credits; ledger updates and deletes are rejected. The verified amount is a snapshot in integer cents, and earned balances are derived from credits. An unpaid chore creates no credit. Parents can configure a payday reminder and record payments already made; the app does not transfer money. See [architecture](architecture.md) for payout, correction and balance behavior.
 
 Before migrating a real database, stop the service and make and verify a backup as described in `deployment.md`. Run `mise run migrate` to apply the checked-in household migration; the Better Auth schema is unchanged. The migration tests cover a fresh database and an existing synthetic household.
 
