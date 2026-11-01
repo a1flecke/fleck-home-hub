@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('a parent plans a meal and explicitly shares its ingredients on the display', async ({ page }, testInfo) => {
   const title = `Synthetic dinner ${testInfo.repeatEachIndex}`;
+  await page.setViewportSize({ width: 375, height: 812 });
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   expect((await page.request.get('/meals', { maxRedirects: 0 })).status()).toBe(303);
   await page.goto('/sign-in');
@@ -19,14 +20,29 @@ test('a parent plans a meal and explicitly shares its ingredients on the display
   await form.getByLabel('Recipe link (optional)').fill('https://example.test/synthetic-recipe');
   await form.getByLabel('Share on family display').check();
   await form.getByRole('button', { name: 'Save meal' }).click();
-  await expect(page.getByRole('article').filter({ hasText: title })).toBeVisible();
+  const savedMeal = page.getByRole('article').filter({ hasText: title });
+  await expect(savedMeal).toBeVisible();
+  await expect(savedMeal.getByRole('link', { name: 'Open in eMeals' })).toHaveAttribute('href', 'https://example.test/synthetic-recipe');
+  await page.screenshot({ path: testInfo.outputPath('meal-mobile.png'), fullPage: true });
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/display');
   const dinner = page.getByRole('region', { name: "Tonight's dinner" });
   await expect(dinner).toContainText(title);
   await expect(dinner).toContainText('2 cups beans');
   await expect(dinner).toContainText('Source: eMeals');
-  await expect(dinner.getByRole('link', { name: 'View recipe' })).toHaveAttribute('href', 'https://example.test/synthetic-recipe');
+  await expect(dinner.getByRole('article').filter({ hasText: title }).getByRole('link', { name: 'Open in eMeals' })).toHaveAttribute('href', 'https://example.test/synthetic-recipe');
   await expect(page.locator('body')).not.toContainText('Synthetic private note');
+  await page.screenshot({ path: testInfo.outputPath('display-desktop.png'), fullPage: true });
+  await page.route('https://example.test/synthetic-recipe', route => route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: '<h1>Synthetic recipe destination</h1>'
+  }));
+  await dinner.getByRole('article').filter({ hasText: title }).getByRole('link', { name: 'Open in eMeals' }).click();
+  await expect(page).toHaveURL('https://example.test/synthetic-recipe');
+  await expect(page.getByRole('heading', { name: 'Synthetic recipe destination' })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('region', { name: "Tonight's dinner" }).getByRole('article').filter({ hasText: title })).toContainText('2 cups beans');
 });
 
 for (const javaScriptEnabled of [true, false]) test(`invalid meals retain entered details for correction (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
@@ -82,12 +98,16 @@ test('editing a meal to another date shows the saved meal at its new date', asyn
   await add.getByRole('button', { name: 'Save meal' }).click();
   const item = page.getByRole('article').filter({ hasText: 'Synthetic moving dinner' });
   await expect(item).toBeVisible();
+  await expect(item.getByRole('link', { name: /recipe|eMeals/i })).toHaveCount(0);
   await item.getByText('Edit meal', { exact: true }).click();
   const edit = item.getByRole('form', { name: 'Edit Synthetic moving dinner' });
   await edit.getByLabel('Date', { exact: true }).fill('2099-02-02');
+  await edit.getByLabel('Recipe source (optional)').fill('Family cookbook');
+  await edit.getByLabel('Recipe link (optional)').fill('https://example.test/cookbook');
   await edit.getByRole('button', { name: 'Save meal' }).click();
   await expect(page.getByRole('heading', { name: 'Meals for 2099-02-02' })).toBeVisible();
   await expect(item).toBeVisible();
+  await expect(item.getByRole('link', { name: 'View recipe' })).toHaveAttribute('href', 'https://example.test/cookbook');
 });
 
 test('meal form edits and disclosure survive delayed hydration', async ({ page, browser }) => {
