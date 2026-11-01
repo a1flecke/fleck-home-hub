@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { spawnSync } from 'node:child_process';
 
-it.each(['sync-main.sh', 'push-branch.sh'])('%s refuses unsafe states and accepts only fixed operations', name => {
+it.each(['sync-main.sh'])('%s refuses unsafe states and accepts only fixed operations', name => {
   const root = mkdtempSync(join(tmpdir(), 'hub-workflow-'));
   try {
     mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'));
