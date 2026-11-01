@@ -3,7 +3,7 @@ import {
   DEFAULT_WEATHER_TIMEOUT_MS,
   DEFAULT_WEATHER_USER_AGENT,
   readWeatherConfig,
-} from '../src/lib/weather/config';
+} from '../src/lib/weather';
 
 const valid = { WEATHER_LATITUDE: '39.7456', WEATHER_LONGITUDE: '-97.0892' };
 
