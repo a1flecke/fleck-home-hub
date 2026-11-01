@@ -1,6 +1,6 @@
 # Architecture
 
-Fleck Home Hub is a modular monolith. Routes and Svelte components call server-side application logic; domain policies do not import presentation or database modules. Infrastructure provides SQLite, Better Auth and external integrations. Only create interfaces for real extension points. Notifications, groceries, expenses and weather are future domains, not implemented services.
+Fleck Home Hub is a modular monolith. Routes and Svelte components call server-side application logic; domain policies do not import presentation or database modules. Infrastructure provides SQLite, Better Auth and external integrations. Only create interfaces for real extension points. Notifications, expenses and weather are future domains, not implemented services.
 
 Meals are household-scoped records managed by parents. The shared display shows only explicitly shared meals and excludes private notes; children can view shared meals. Recipe links are user-provided HTTPS URLs and are never fetched by the server. See [meals.md](meals.md).
 
