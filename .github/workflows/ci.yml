@@ -27,7 +27,7 @@ jobs:
       - name: Scan history for secrets
         run: mise exec -- gitleaks git --no-banner --redact
       - name: Check dependency vulnerabilities
-        run: mise exec -- pnpm audit --audit-level high
+        run: mise exec -- pnpm audit --audit-level moderate
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 20

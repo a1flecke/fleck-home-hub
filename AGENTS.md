@@ -10,6 +10,8 @@ For server-rendered interactive controls, provide a native form/link fallback or
 
 When adding forms or controls, inspect neighboring browser tests for page-wide partial-label selectors that may also match the new controls. Scope form interactions to their named section or intended record and use exact accessible names where appropriate; do not select forms by page-wide position. Exercise repeated scenarios with existing records present. Run the existing workflows for the changed page as well as the new scenario; a passing new scenario alone does not establish that existing workflows still work.
 
+Browser tests that assert household-wide or per-person totals must use synthetic data isolated from concurrently running tests. Distinct record names alone do not isolate shared balances; preserve exact assertions and investigate shared-state interference instead of adding retries or weakening them.
+
 For editable forms, test an invalid submission and correction through the browser: preserve the entered values, keep the relevant form available, and provide an actionable error without losing unrelated data. Check the same behavior for native submissions as well as any enhanced path.
 
 When a form lives on a filtered or date-selected page, inspect how its action URL and subsequent navigation carry the selected context. A relative named action can replace the whole query string. Test both rejected and successful submissions on a non-default filter, and verify the saved record remains visible; when an edit changes the record's date or filter, verify navigation reaches its new context. Apply this to native and enhanced submissions as appropriate. Review neighboring forms for the same context loss before introducing a new pattern.

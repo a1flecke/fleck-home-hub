@@ -6,6 +6,13 @@ blockExoticSubdeps: true
 strictDepBuilds: true
 dangerouslyAllowAllBuilds: false
 
+# The auth runtime uses Drizzle ORM, not Better Auth's optional schema CLI.
+# Removing this unused peer also removes its obsolete esbuild-based loader.
+overrides:
+  'better-auth@1.7.14>drizzle-kit': '-'
+  # ESLint still requests v10; v11 fixes GHSA-g3hv-75wg-m249.
+  'minimatch@10.2.6': '11.0.3'
+
 # esbuild validates and installs its platform-specific binary.
 allowBuilds:
   esbuild: true
