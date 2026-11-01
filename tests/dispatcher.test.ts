@@ -31,4 +31,25 @@ describe('task dispatcher', () => {
     try { symlinkSync('dispatcher.test.ts', link); expect(run('test', link).status).not.toBe(0); }
     finally { rmSync(link, { force: true }); }
   });
+  it('runs one existing browser spec through the fixed Playwright command and preserves its status', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dispatcher-browser-'));
+    const log = join(dir, 'args');
+    try {
+      writeFileSync(join(dir, 'mise'), '#!/bin/sh\nprintf "%s\\n" "$@" > "$DISPATCH_TEST_LOG"\nexit 17\n', { mode: 0o755 });
+      const result = spawnSync('sh', ['scripts/dev.sh', 'e2e', 'e2e/meals.spec.ts'], {
+        env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, DISPATCH_TEST_LOG: log }, encoding: 'utf8'
+      });
+      expect(result.status).toBe(17);
+      expect(readFileSync(log, 'utf8')).toBe('exec\n--\npnpm\nexec\nplaywright\ntest\ne2e/meals.spec.ts\n');
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it.each(['--help', 'e2e/../e2e/meals.spec.ts', 'e2e/meals.spec.ts;id', 'e2e/missing.spec.ts', 'scripts/dev.sh'])(
+    'rejects unsafe browser spec argument %s', path => expect(run('e2e', path).status).not.toBe(0)
+  );
+  it('rejects multiple browser spec arguments', () => expect(run('e2e', 'e2e/meals.spec.ts', 'e2e/chores.spec.ts').status).not.toBe(0));
+  it('rejects symlinked browser specs', () => {
+    const link = 'e2e/dispatcher-link.spec.ts';
+    try { symlinkSync('meals.spec.ts', link); expect(run('e2e', link).status).not.toBe(0); }
+    finally { rmSync(link, { force: true }); }
+  });
 });
