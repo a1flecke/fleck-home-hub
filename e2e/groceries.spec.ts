@@ -50,6 +50,57 @@ test('a parent selects meal ingredients and confirms an existing item', async ({
   await expect(page.getByRole('article').filter({ hasText: '2 cups lentils' })).toHaveCount(2);
 });
 
+test('a shared meal becomes a household grocery task without exposing private notes', async ({ page, browser }, testInfo) => {
+  const title = `Family grocery dinner ${testInfo.repeatEachIndex}`;
+  const selected = `2 bags family lentils ${testInfo.repeatEachIndex}`;
+  const unselected = `1 family carrot ${testInfo.repeatEachIndex}`;
+  const note = `Private dinner note ${testInfo.repeatEachIndex}`;
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  await page.goto('/meals?date=2099-06-02');
+  await page.getByText('Add a meal', { exact: true }).click();
+  const add = page.getByRole('form', { name: 'Add meal' });
+  await add.getByLabel('Meal name').fill(title);
+  await add.getByLabel('Ingredients').fill(`${selected}\n${unselected}`);
+  await add.getByLabel('Private notes (optional)').fill(note);
+  await add.getByLabel('Share on family display').check();
+  await add.getByRole('button', { name: 'Save meal' }).click();
+  const meal = page.getByRole('article').filter({ hasText: title });
+  await expect(meal).toContainText(note);
+  await meal.getByText('Add ingredients to groceries', { exact: true }).click();
+  const ingredients = meal.getByRole('form', { name: `Add ingredients for ${title}` });
+  await ingredients.getByLabel(selected, { exact: true }).check();
+  await ingredients.getByRole('button', { name: 'Add selected ingredients' }).click();
+  const parentItem = page.getByRole('article').filter({ hasText: selected });
+  await expect(parentItem).toContainText('To buy');
+  await expect(page.getByRole('article').filter({ hasText: unselected })).toHaveCount(0);
+
+  const context = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  try {
+    const kid = await context.newPage();
+    await kid.goto('/sign-in');
+    await kid.getByLabel('Email').fill('kid@example.test');
+    await kid.getByLabel('Password').fill('synthetic-kid-password');
+    await kid.getByRole('button', { name: 'Sign in' }).click();
+    await expect(kid.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
+    await kid.goto('/meals?date=2099-06-02');
+    await expect(kid.getByRole('article').filter({ hasText: title })).toContainText(selected);
+    expect(await kid.content()).not.toContain(note);
+    await kid.goto('/groceries');
+    const kidItem = kid.getByRole('article').filter({ hasText: selected });
+    await expect(kidItem).toContainText('To buy');
+    await expect(kid.getByRole('article').filter({ hasText: unselected })).toHaveCount(0);
+    await kidItem.getByRole('button', { name: 'Mark bought' }).click();
+    await expect(kidItem).toContainText('Bought');
+    await page.reload();
+    await expect(parentItem).toContainText('Bought');
+  } finally { await context.close(); }
+});
+
 test('meal ingredient selections survive delayed hydration and submit the selected lines', async ({ page, browser }) => {
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill('parent@example.test');
