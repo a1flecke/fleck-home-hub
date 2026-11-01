@@ -216,6 +216,19 @@ describe('weather service freshness and caching', () => {
     });
   });
 
+  it('does not expose the cached snapshot to consumer mutation', async () => {
+    const times = clock();
+    const provider = providerFrom(reading());
+    const service = createWeatherService({ provider, now: times.now });
+
+    const first = await service.getCurrent();
+    if (first.ok) first.weather.stale = true;
+    const second = await service.getCurrent();
+
+    expect(provider.read).toHaveBeenCalledTimes(1);
+    expect(second).toMatchObject({ ok: true, weather: { stale: false } });
+  });
+
   it('keeps a real zero temperature in a snapshot', async () => {
     const times = clock();
     const service = createWeatherService({

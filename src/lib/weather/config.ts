@@ -33,10 +33,17 @@ function readCoordinate(raw: string | undefined, name: string, limit: number): n
 function readUserAgent(raw: string | undefined): string {
   if (raw === undefined) return DEFAULT_WEATHER_USER_AGENT;
   const userAgent = raw.trim();
-  if (!userAgent || userAgent.length > MAX_USER_AGENT_LENGTH || /[\r\n]/.test(userAgent)) {
+  if (!userAgent || userAgent.length > MAX_USER_AGENT_LENGTH || hasControlCharacter(userAgent)) {
     throw new Error(`WEATHER_USER_AGENT must be a single line of at most ${MAX_USER_AGENT_LENGTH} characters`);
   }
   return userAgent;
+}
+
+function hasControlCharacter(value: string): boolean {
+  return [...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 0x20 || code === 0x7f;
+  });
 }
 
 function readTimeout(raw: string | undefined): number {

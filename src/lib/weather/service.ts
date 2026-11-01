@@ -42,7 +42,7 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
   return {
     async getCurrent(): Promise<WeatherResult> {
       if (cache && now().getTime() - cache.cachedAtMs < cacheTtlMs) {
-        return { ok: true, weather: cache.snapshot };
+        return { ok: true, weather: { ...cache.snapshot } };
       }
 
       try {
@@ -50,7 +50,7 @@ export function createWeatherService(options: WeatherServiceOptions): WeatherSer
         const fetchedAt = now();
         const snapshot: WeatherSnapshot = { ...reading, fetchedAt: fetchedAt.toISOString(), stale: false };
         cache = { snapshot, cachedAtMs: fetchedAt.getTime() };
-        return { ok: true, weather: snapshot };
+        return { ok: true, weather: { ...snapshot } };
       } catch (error) {
         const reason = error instanceof WeatherProviderError ? error.reason : 'network';
         if (cache && now().getTime() - cache.cachedAtMs <= maxStaleMs) {

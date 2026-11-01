@@ -99,11 +99,12 @@ Provider bodies, request URLs, coordinates and underlying exception text are not
 The later dashboard or display integration should create the service in server-only code and reuse it:
 
 ```ts
+// Example: a future src/lib/server/weather.ts module.
 import {
   createNwsWeatherProvider,
   createWeatherService,
   readWeatherConfig,
-} from '$lib/weather';
+} from '../weather';
 
 const config = readWeatherConfig(process.env);
 const weather = createWeatherService({

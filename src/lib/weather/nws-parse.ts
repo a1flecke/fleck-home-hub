@@ -1,6 +1,8 @@
 import { WeatherProviderError } from './errors';
 import type { CurrentConditions, DailyForecast } from './types';
 
+export const NWS_API_ORIGIN = 'https://api.weather.gov';
+
 export type Grid = {
   forecastUrl: string;
   hourlyUrl: string;
@@ -86,7 +88,7 @@ function readGridUrl(value: unknown): string {
     throw invalidResponse();
   }
   if (
-    url.origin !== 'https://api.weather.gov' ||
+    url.origin !== NWS_API_ORIGIN ||
     url.username ||
     url.password ||
     url.search ||

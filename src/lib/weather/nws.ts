@@ -1,8 +1,7 @@
 import { WeatherProviderError } from './errors';
-import { parseCurrent, parseDaily, parsePoint } from './nws-parse';
+import { NWS_API_ORIGIN, parseCurrent, parseDaily, parsePoint } from './nws-parse';
 import type { CurrentConditions, WeatherProvider, WeatherReading } from './types';
 
-const NWS_API_ORIGIN = 'https://api.weather.gov';
 const DEFAULT_TIMEOUT_MS = 5_000;
 
 export type NwsWeatherProviderOptions = {

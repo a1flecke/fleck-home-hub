@@ -60,6 +60,8 @@ describe('weather configuration', () => {
   it('rejects a User-Agent that could inject a header or is unusable', () => {
     expect(() => readWeatherConfig({ ...valid, WEATHER_USER_AGENT: 'home-hub\r\nX-Injected: yes' })).toThrow();
     expect(() => readWeatherConfig({ ...valid, WEATHER_USER_AGENT: 'home-hub\nX-Injected: yes' })).toThrow();
+    expect(() => readWeatherConfig({ ...valid, WEATHER_USER_AGENT: 'home-hub\tX-Injected' })).toThrow();
+    expect(() => readWeatherConfig({ ...valid, WEATHER_USER_AGENT: 'home-hub\u0000' })).toThrow();
     expect(() => readWeatherConfig({ ...valid, WEATHER_USER_AGENT: '   ' })).toThrow();
     expect(() => readWeatherConfig({ ...valid, WEATHER_USER_AGENT: 'x'.repeat(201) })).toThrow();
   });
