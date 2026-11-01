@@ -4,10 +4,11 @@ import { join, resolve } from 'node:path';
 const root = resolve(process.argv[2] || '.');
 const read = path => readFileSync(join(root, path), 'utf8');
 const problems = [];
+const unsafeBuildAllow = x => x.effect === 'allow' && (x.action === 'shell' ? x.resource === '*' || /^(?:sh|bash|zsh|env|xargs|eval|exec|sudo|rm|mise|\.\/scripts\/run-with-mise\.sh)\b/.test(x.resource) : /[*?]/.test(x.action));
 try {
   const shared = read('AGENTS.md');
   const claude = read('CLAUDE.md');
-  const config = JSON.parse(read('.opencode/opencode.jsonc'));
+  const config = JSON.parse(read('.opencode/opencode.jsonc').replace(/^\s*\/\/.*$/gm, ''));
   const mise = read('mise.toml');
   const pkg = JSON.parse(read('package.json'));
   const surfaces = [['AGENTS.md', shared], ['CLAUDE.md', claude]];
@@ -19,6 +20,9 @@ try {
   if (!/^pnpm@\d+\.\d+\.\d+$/.test(pkg.packageManager)) problems.push('packageManager must pin pnpm');
   if (config.share !== 'disabled') problems.push('OpenCode sharing must be disabled');
   if (!Array.isArray(config.permissions) || !config.permissions.some(x => x.action === 'shell' && x.resource === '*' && x.effect === 'ask') || config.permissions.some(x => x.effect === 'allow' && (x.action === 'shell' || /[*?]/.test(x.action)))) problems.push('OpenCode project shell rules must default to ask; wildcard action allows are forbidden');
+  const build = config.agents?.build?.permissions ?? [];
+  if (!Array.isArray(build) || build.some(unsafeBuildAllow)) problems.push('OpenCode build agent must not allow a shell-wide wildcard, an interpreter or a command runner');
+  for (const resource of ['gh pr merge *', 'git push --force *', 'git reset --hard *', 'git clean *']) if (build.findLast(x => x.action === 'shell' && x.resource === resource)?.effect !== 'deny') problems.push(`Build agent must finally deny: ${resource}`);
   for (const resource of ['shell:gh pr merge *', 'shell:git push --force *']) if (!config.policies?.some(x => x.action === 'tool.use' && x.resource === resource && x.effect === 'deny')) problems.push(`Missing hard deny: ${resource}`);
   for (const [path, text] of surfaces) {
     if (path.startsWith('.opencode/commands/') && !text.includes('AGENTS.md')) problems.push(`${path}: missing shared policy reference`);
