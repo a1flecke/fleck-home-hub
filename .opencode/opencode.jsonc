@@ -17,6 +17,10 @@
         { "action": "external_directory", "resource": "$HOME/development/github/fleck-home-hub/*", "effect": "allow" },
         { "action": "external_directory", "resource": "$HOME/development/github/fleck-home-hub-worktrees/*", "effect": "allow" },
 
+        // OpenCode's own per-user scratch directory, where it writes PR bodies and throwaway output.
+        { "action": "external_directory", "resource": "/private/var/folders/*/*/T/opencode/*", "effect": "allow" },
+        { "action": "external_directory", "resource": "/var/folders/*/*/T/opencode/*", "effect": "allow" },
+
         { "action": "shell", "resource": "pwd", "effect": "allow" },
         { "action": "shell", "resource": "ls *", "effect": "allow" },
         { "action": "shell", "resource": "find *", "effect": "allow" },
@@ -70,6 +74,7 @@
         { "action": "shell", "resource": "git rev-parse *", "effect": "allow" },
         { "action": "shell", "resource": "git grep *", "effect": "allow" },
         { "action": "shell", "resource": "git ls-files *", "effect": "allow" },
+        { "action": "shell", "resource": "git ls-remote *", "effect": "allow" },
         { "action": "shell", "resource": "git merge-base *", "effect": "allow" },
         { "action": "shell", "resource": "git add *", "effect": "allow" },
         { "action": "shell", "resource": "git commit *", "effect": "allow" },
