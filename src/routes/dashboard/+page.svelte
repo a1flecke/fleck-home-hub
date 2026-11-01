@@ -64,14 +64,14 @@
         {#if data.role === 'parent' && (balance.owed > 0 || form?.payoutError?.child === balance.id)}
           <Disclosure class="mt-3" expanded={form?.payoutError?.child === balance.id}><summary class="cursor-pointer font-semibold">Record a payment</summary><p class="mt-2 text-sm">Record money you have already paid; this does not transfer money.</p>
             <form method="POST" action="?/payout" class="mt-3 grid gap-3"><input type="hidden" name="child" value={balance.id} /><input type="hidden" name="requestId" value={balance.requestId} />
-              <label>Payment amount<input name="amount" type="number" min="0.01" max={(balance.owed / 100).toFixed(2)} step="0.01" required bind:value={balance.paymentAmount} class="mt-1 block w-full rounded-lg border p-3" /></label>
+              <label>Payment amount<input name="amount" type="number" min="0.01" max={(balance.owed / 100).toFixed(2)} step="0.01" required defaultValue={balance.paymentAmount} class="mt-1 block w-full rounded-lg border p-3" /></label>
               <label>Payment date<input name="date" type="date" bind:value={balance.paymentDate} required class="mt-1 block w-full rounded-lg border p-3" /></label>
-              <label>Payment note<input name="note" maxlength="1000" bind:value={balance.paymentNote} class="mt-1 block w-full rounded-lg border p-3" /></label>
+              <label>Payment note<input name="note" maxlength="1000" defaultValue={balance.paymentNote} class="mt-1 block w-full rounded-lg border p-3" /></label>
               <button disabled={balance.owed <= 0} class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white disabled:opacity-50">Record payment</button>
             </form>
           </Disclosure>
         {/if}
-        {#if balance.payouts.length}<div class="mt-3"><h4 class="font-semibold">Payment history</h4>{#each balance.payouts as payment (payment.id)}<div class="mt-2"><p>{payment.paidDate} · {money(payment.amountCents)}{payment.reversalReason ? ' · Corrected' : ''}</p>{#if payment.note}<p>{payment.note}</p>{/if}{#if payment.reversalReason}<p>Correction: {payment.reversalReason}</p>{:else if data.role === 'parent'}<Disclosure expanded={form?.correctionError?.id === payment.id}><summary class="cursor-pointer">Correct this payment</summary><p class="mt-2 text-sm">This reverses the whole record and restores the amount owed; it does not transfer money.</p><form method="POST" action="?/reversePayout" class="mt-2 grid gap-2"><input type="hidden" name="id" value={payment.id} /><label>Correction reason<input name="reason" required maxlength="1000" bind:value={payment.correctionInput} class="mt-1 block w-full rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Record correction</button></form></Disclosure>{/if}</div>{/each}</div>{/if}
+        {#if balance.payouts.length}<div class="mt-3"><h4 class="font-semibold">Payment history</h4>{#each balance.payouts as payment (payment.id)}<div class="mt-2"><p>{payment.paidDate} · {money(payment.amountCents)}{payment.reversalReason ? ' · Corrected' : ''}</p>{#if payment.note}<p>{payment.note}</p>{/if}{#if payment.reversalReason}<p>Correction: {payment.reversalReason}</p>{:else if data.role === 'parent'}<Disclosure expanded={form?.correctionError?.id === payment.id}><summary class="cursor-pointer">Correct this payment</summary><p class="mt-2 text-sm">This reverses the whole record and restores the amount owed; it does not transfer money.</p><form method="POST" action="?/reversePayout" class="mt-2 grid gap-2"><input type="hidden" name="id" value={payment.id} /><label>Correction reason<input name="reason" required maxlength="1000" defaultValue={payment.correctionInput} class="mt-1 block w-full rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Record correction</button></form></Disclosure>{/if}</div>{/each}</div>{/if}
       </article>{/each}
     </section>
   {/if}
@@ -80,26 +80,26 @@
     <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!createError}><summary class="cursor-pointer text-xl font-bold">Add a chore</summary>
       {#if data.children.length}
         <form method="POST" action="?/create" class="mt-4 grid gap-3">
-          <label>Chore title<input name="title" required maxlength="120" bind:value={createTitle} class="mt-1 w-full rounded-lg border p-3" /></label>
+          <label>Chore title<input name="title" required maxlength="120" defaultValue={createTitle} class="mt-1 w-full rounded-lg border p-3" /></label>
           <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={createDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
           <label>Assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === createError?.assignee}>{child.name}</option>{/each}</select></label>
           <label>Due date<input name="dueDate" type="date" required bind:value={createDueDate} class="mt-1 w-full rounded-lg border p-3" /></label>
-          <label>Reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" bind:value={createReward} class="mt-1 w-full rounded-lg border p-3" /></label>
+          <label>Reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" defaultValue={createReward} class="mt-1 w-full rounded-lg border p-3" /></label>
           <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Add chore</button>
         </form>
       {:else}<p class="mt-3">Add a child account before assigning a chore.</p>{/if}
     </Disclosure>
-    <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer font-bold">Household time zone</summary><form method="POST" action="?/timezone" class="mt-3 flex flex-wrap items-end gap-3"><label>Time zone (for example, America/Chicago)<input name="timezone" bind:value={householdTimezone} required class="mt-1 block rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Save time zone</button></form></details>
+    <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer font-bold">Household time zone</summary><form method="POST" action="?/timezone" class="mt-3 flex flex-wrap items-end gap-3"><label>Time zone (for example, America/Chicago)<input name="timezone" defaultValue={householdTimezone} required class="mt-1 block rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Save time zone</button></form></details>
     <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!newSeries}><summary class="cursor-pointer text-xl font-bold">Add a recurring chore</summary>
       {#if data.children.length}
         <form method="POST" action="?/series" class="mt-4 grid gap-3">
-          <label>Recurring chore title<input name="title" required maxlength="120" bind:value={recurringTitle} class="mt-1 w-full rounded-lg border p-3" /></label>
+          <label>Recurring chore title<input name="title" required maxlength="120" defaultValue={recurringTitle} class="mt-1 w-full rounded-lg border p-3" /></label>
           <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={recurringDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
           <label>Recurring assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === newSeries?.assignee}>{child.name}</option>{/each}</select></label>
           <label>Starts on<input name="startDate" type="date" required bind:value={recurringStart} class="mt-1 w-full rounded-lg border p-3" /></label>
           <label>Ends on (optional)<input name="endDate" type="date" bind:value={recurringEnd} class="mt-1 w-full rounded-lg border p-3" /></label>
           <fieldset><legend class="font-semibold">Repeat on</legend><div class="mt-2 flex flex-wrap gap-3">{#each days as day, index (day)}<label class="flex items-center gap-2"><input name="weekday" type="checkbox" value={index} bind:group={recurringDays} />{day}</label>{/each}</div></fieldset>
-          <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" bind:value={recurringReward} class="mt-1 w-full rounded-lg border p-3" /></label>
+          <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" defaultValue={recurringReward} class="mt-1 w-full rounded-lg border p-3" /></label>
           <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Add recurring chore</button>
         </form>
       {:else}<p class="mt-3">Add a child account before assigning a chore.</p>{/if}
@@ -115,10 +115,10 @@
                 <form method="POST" action="?/series" class="mt-3 grid gap-3">
                   <input type="hidden" name="id" value={series.id} /><input type="hidden" name="startDate" value={series.startDate} /><input type="hidden" name="endDate" value={series.endDate ?? ''} />
                   {#each JSON.parse(series.weekdays) as day (day)}<input type="hidden" name="weekday" value={day} />{/each}
-                  <label>Recurring chore title<input name="title" bind:value={series.editTitle} required maxlength="120" class="mt-1 w-full rounded-lg border p-3" /></label>
+                  <label>Recurring chore title<input name="title" defaultValue={series.editTitle} required maxlength="120" class="mt-1 w-full rounded-lg border p-3" /></label>
                   <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={series.editDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
                   <label>Recurring assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === series.editAssignee}>{child.name}</option>{/each}</select></label>
-                  <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" bind:value={series.editReward} class="mt-1 w-full rounded-lg border p-3" /></label>
+                  <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" defaultValue={series.editReward} class="mt-1 w-full rounded-lg border p-3" /></label>
                   <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Save changes</button>
                 </form>
               </Disclosure>

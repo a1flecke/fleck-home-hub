@@ -39,15 +39,30 @@ for (const javaScriptEnabled of [true, false]) test(`a stale payment form keeps 
   await chore.getByRole('button', { name: 'Verify' }).click();
   await expect(chore.getByText('Approved! You earned $5.00!')).toBeVisible();
   const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState() });
+  let release!: () => void;
+  let blocked!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
     const stale = await context.newPage();
-    await stale.goto('/dashboard');
+    if (javaScriptEnabled) await stale.route('**/src/routes/dashboard/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await stale.goto('/dashboard', { waitUntil: javaScriptEnabled ? 'commit' : 'load' });
+    if (javaScriptEnabled) await requested;
     const earnings = stale.getByRole('article', { name: 'Earnings for Other Kid' });
     const owed = cents(await earnings.getByText(/^Verified earnings owed:/).innerText());
     await earnings.getByText('Record a payment').click();
     const form = earnings.locator('form[action="?/payout"]');
     const child = await form.locator('input[name="child"]').inputValue();
-    await form.getByLabel('Payment amount').fill((owed / 100).toFixed(2));
+    const amount = form.getByLabel('Payment amount');
+    const enteredAmount = (owed / 100).toFixed(2);
+    if (javaScriptEnabled) {
+      await amount.focus();
+      await amount.evaluate((input: HTMLInputElement) => input.select());
+      release();
+      await stale.waitForLoadState('networkidle');
+      await stale.keyboard.insertText(enteredAmount);
+    } else await amount.fill(enteredAmount);
+    await expect(amount).toHaveValue(enteredAmount);
     await form.getByLabel('Payment date').fill('2026-11-01');
     await form.getByLabel('Payment note').fill(note);
     const competing = await page.request.post('/dashboard?/payout', { form: { child, amount: ((owed - 100) / 100).toFixed(2), date: '2026-11-01', note: 'Other tab', requestId: `stale-test-${javaScriptEnabled}-${testInfo.repeatEachIndex}` }, headers: { origin: 'http://127.0.0.1:4173' } });
@@ -61,7 +76,7 @@ for (const javaScriptEnabled of [true, false]) test(`a stale payment form keeps 
     await form.getByRole('button', { name: 'Record payment' }).click();
     await expect(earnings.getByText(/^Verified earnings owed:/)).toHaveText('Verified earnings owed: $0.00');
     await expect(earnings.getByText(note, { exact: true })).toBeVisible();
-  } finally { await context.close(); }
+  } finally { release(); await context.close(); }
 });
 
 const cents = (text: string) => {

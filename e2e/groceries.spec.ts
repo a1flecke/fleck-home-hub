@@ -186,9 +186,12 @@ test('a prefilled grocery edit and open disclosure survive delayed hydration', a
     const item = delayed.getByRole('article').filter({ hasText: 'Synthetic prefilled rice' });
     await item.getByText('Edit item', { exact: true }).click();
     const edit = item.getByRole('form', { name: 'Edit Synthetic prefilled rice' });
-    await edit.getByLabel('Quantity', { exact: true }).fill('3');
     await edit.getByLabel('Unit', { exact: true }).fill('bags');
+    const quantity = edit.getByLabel('Quantity', { exact: true });
+    await quantity.focus();
+    await quantity.evaluate((input: HTMLInputElement) => input.select());
     release(); await delayed.waitForLoadState('networkidle');
+    await delayed.keyboard.insertText('3');
     await expect(edit).toBeVisible();
     expect(await edit.evaluate(element => Object.fromEntries(new FormData(element as HTMLFormElement)))).toMatchObject({ name: 'Synthetic prefilled rice', quantity: '3', unit: 'bags' });
     await edit.getByRole('button', { name: 'Save item' }).click();
