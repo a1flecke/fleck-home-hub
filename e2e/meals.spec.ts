@@ -33,6 +33,16 @@ test('a parent plans a meal and explicitly shares its ingredients on the display
   await expect(dinner.getByRole('article').filter({ hasText: title }).getByRole('link', { name: 'Open in eMeals' })).toHaveAttribute('href', 'https://example.test/synthetic-recipe');
   await expect(page.locator('body')).not.toContainText('Synthetic private note');
   await page.screenshot({ path: testInfo.outputPath('display-desktop.png'), fullPage: true });
+  await page.route('https://example.test/synthetic-recipe', route => route.fulfill({
+    status: 200,
+    contentType: 'text/html',
+    body: '<h1>Synthetic recipe destination</h1>'
+  }));
+  await dinner.getByRole('article').filter({ hasText: title }).getByRole('link', { name: 'Open in eMeals' }).click();
+  await expect(page).toHaveURL('https://example.test/synthetic-recipe');
+  await expect(page.getByRole('heading', { name: 'Synthetic recipe destination' })).toBeVisible();
+  await page.goBack();
+  await expect(page.getByRole('region', { name: "Tonight's dinner" }).getByRole('article').filter({ hasText: title })).toContainText('2 cups beans');
 });
 
 for (const javaScriptEnabled of [true, false]) test(`invalid meals retain entered details for correction (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
