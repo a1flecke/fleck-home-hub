@@ -1,4 +1,15 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+function articleByTitle(page: Page, title: string) {
+  return page.getByRole('article').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
+}
+
+async function waitForHydration(page: Page) {
+  // Calendar submissions are native form POSTs followed by a full document load.
+  // Let module loading settle before editing bound fields so Svelte hydration
+  // cannot run between Playwright's select and insert steps.
+  await page.waitForLoadState('networkidle');
+}
 
 test('parent creates and edits an event and schedules an inbox item', async ({ page }, testInfo) => {
   const eventTitle = `Synthetic calendar walk ${testInfo.repeatEachIndex}`;
@@ -13,6 +24,7 @@ test('parent creates and edits an event and schedules an inbox item', async ({ p
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.getByRole('link', { name: 'Family calendar' }).click();
   await page.goto('/calendar?date=2099-03-07&view=day');
+  await waitForHydration(page);
   const addEvent = page.locator('details').filter({ has: page.getByText('Add an event', { exact: true }) });
   await addEvent.getByText('Add an event', { exact: true }).click();
   const create = addEvent.locator('form[action^="?/saveEvent"]');
@@ -21,7 +33,8 @@ test('parent creates and edits an event and schedules an inbox item', async ({ p
   await create.getByLabel('All day').check();
   await create.getByRole('button', { name: 'Save event' }).click();
   await expect(page.getByText('Event saved.')).toBeVisible();
-  const event = page.getByRole('article').filter({ hasText: eventTitle });
+  await waitForHydration(page);
+  const event = articleByTitle(page, eventTitle);
   await expect(event).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('calendar-mobile.png'), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 900 });
@@ -34,38 +47,45 @@ test('parent creates and edits an event and schedules an inbox item', async ({ p
   await event.getByLabel('End time').fill('14:00');
   await event.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByRole('status')).toContainText('Unable to save event');
+  await waitForHydration(page);
   await expect(event.getByLabel('Event title')).toHaveValue(updatedTitle);
   await event.getByLabel('End time').fill('16:00');
   await event.getByRole('button', { name: 'Save changes' }).click();
-  await expect(page.getByRole('article').filter({ hasText: updatedTitle }).getByRole('heading')).toBeVisible();
+  await expect(articleByTitle(page, updatedTitle).getByRole('heading', { name: updatedTitle, exact: true })).toBeVisible();
+  await waitForHydration(page);
   const addInbox = page.locator('details').filter({ has: page.getByText('Add to the inbox', { exact: true }) });
   await addInbox.getByText('Add to the inbox', { exact: true }).click();
   const inbox = addInbox.locator('form[action^="?/addInbox"]');
   await inbox.getByLabel('Inbox title').fill(inboxTitle);
   await inbox.getByRole('button', { name: 'Add item' }).click();
-  const item = page.getByRole('article').filter({ hasText: inboxTitle });
+  const item = articleByTitle(page, inboxTitle);
   await expect(item).toBeVisible();
+  await waitForHydration(page);
   await item.getByText('Edit item').click();
   await item.getByLabel('Inbox title').fill('   ');
+  await expect(item.getByLabel('Inbox title')).toHaveValue('   ');
   await item.getByRole('button', { name: 'Save item' }).click();
   await expect(page.getByRole('status')).toContainText('Unable to save item');
+  await waitForHydration(page);
   await expect(item.getByLabel('Inbox title')).toHaveValue('   ');
   await item.getByLabel('Inbox title').fill(updatedInboxTitle);
   await item.getByRole('button', { name: 'Save item' }).click();
-  const updated = page.getByRole('article').filter({ hasText: updatedInboxTitle });
+  const updated = articleByTitle(page, updatedInboxTitle);
   await expect(updated).toBeVisible();
+  await waitForHydration(page);
   await updated.getByText('Schedule this').click();
   await updated.getByLabel('Event date').fill('2099-03-08');
   await updated.getByLabel('Start time').fill('15:00');
   await updated.getByLabel('End time').fill('14:00');
   await updated.getByRole('button', { name: 'Schedule event' }).click();
   await expect(page.getByRole('status')).toContainText('Unable to save event');
+  await waitForHydration(page);
   await expect(updated.getByLabel('Event date')).toHaveValue('2099-03-08');
   await updated.getByLabel('End time').fill('16:00');
   await updated.getByRole('button', { name: 'Schedule event' }).click();
   await expect(page.getByText('Event saved.')).toBeVisible();
   await page.goto('/calendar?date=2099-03-08&view=day');
-  await expect(page.getByRole('article').filter({ hasText: updatedInboxTitle })).toBeVisible();
+  await expect(articleByTitle(page, updatedInboxTitle)).toBeVisible();
 });
 
 test('pre-hydration event edits survive hydration and are saved', async ({ page, browser }, testInfo) => {
@@ -88,7 +108,7 @@ test('pre-hydration event edits survive hydration and are saved', async ({ page,
     await delayed.route('**/src/routes/calendar/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
     await delayed.goto('/calendar?date=2099-07-01&view=day', { waitUntil: 'commit' });
     await requested;
-    const article = delayed.getByRole('article').filter({ hasText: title });
+    const article = articleByTitle(delayed, title);
     await article.getByText('Edit event').click();
     await article.getByLabel('Event title').fill(updatedTitle);
     await article.getByLabel('Event date').fill('2099-07-02');
@@ -113,18 +133,23 @@ test('pre-hydration event edits survive hydration and are saved', async ({ page,
     await article.getByRole('button', { name: 'Save changes' }).click();
     await expect(delayed.getByText('Event saved.')).toBeVisible();
     await delayed.goto('/calendar?date=2099-07-02&view=day');
-    const saved = delayed.getByRole('article').filter({ hasText: updatedTitle });
+    const saved = articleByTitle(delayed, updatedTitle);
     await expect(saved.locator('p').filter({ hasText: 'Synthetic description' })).toBeVisible();
     await expect(saved.getByText(/09:00–10:00/)).toBeVisible();
   } finally { release(); await context.close(); }
 });
 
-test('calendar view and inbox owner selections survive delayed hydration', async ({ page, browser }) => {
+test('calendar view and inbox owner selections survive delayed hydration', async ({ page, browser }, testInfo) => {
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill('parent@example.test');
   await page.getByLabel('Password').fill('synthetic-parent-password');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  const existing = await page.request.post('/calendar?/addInbox', {
+    form: { title: `Existing inbox item ${testInfo.repeatEachIndex}`, description: '', owner: '' },
+    headers: { origin: 'http://127.0.0.1:4173' }
+  });
+  expect(await existing.json()).toMatchObject({ type: 'success', status: 200 });
   const context = await browser.newContext({ storageState: await page.context().storageState() });
   let release!: () => void, blocked!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -135,8 +160,9 @@ test('calendar view and inbox owner selections survive delayed hydration', async
     await delayed.goto('/calendar?date=2099-08-01&view=day', { waitUntil: 'commit' }); await requested;
     const view = delayed.locator('form[method="GET"] select[name="view"]');
     await view.selectOption('month');
-    await delayed.getByText('Add to the inbox', { exact: true }).click();
-    const owner = delayed.getByLabel('Tentative owner');
+    const addInbox = delayed.locator('details').filter({ has: delayed.getByText('Add to the inbox', { exact: true }) });
+    await addInbox.getByText('Add to the inbox', { exact: true }).click();
+    const owner = addInbox.getByLabel('Tentative owner');
     await owner.selectOption({ label: 'Sample Kid' });
     const selected = await owner.inputValue();
     release(); await delayed.waitForLoadState('networkidle');
@@ -182,7 +208,7 @@ test('calendar event creation works without JavaScript', async ({ page, browser 
     await form.getByLabel('Event title').fill(title);
     await form.getByLabel('All day').check();
     await form.getByRole('button', { name: 'Save event' }).click();
-    await expect(noScript.getByRole('article').filter({ hasText: title })).toBeVisible();
+    await expect(articleByTitle(noScript, title)).toBeVisible();
   } finally { await context.close(); }
 });
 
@@ -207,5 +233,5 @@ test('invalid event retains entered details for correction', async ({ page }, te
   await expect(section.getByLabel('Start time')).toHaveValue('15:00');
   await section.getByLabel('End time').fill('16:00');
   await section.getByRole('button', { name: 'Save event' }).click();
-  await expect(page.getByRole('article').filter({ hasText: title })).toBeVisible();
+  await expect(articleByTitle(page, title)).toBeVisible();
 });
