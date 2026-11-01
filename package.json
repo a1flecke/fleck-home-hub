@@ -34,7 +34,6 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "^26.6.5",
     "dependency-cruiser": "18.7.0",
-    "drizzle-kit": "^0.31.11",
     "eslint": "^10.13.0",
     "eslint-plugin-svelte": "^3.23.1",
     "globals": "^17.13.0",

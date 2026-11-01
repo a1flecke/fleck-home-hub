@@ -11,4 +11,4 @@ mise run build
 mise run e2e
 mise exec -- zizmor --offline .github/workflows
 mise exec -- gitleaks dir --no-banner --redact .
-mise exec -- pnpm audit --audit-level high
+mise exec -- pnpm audit --audit-level moderate
