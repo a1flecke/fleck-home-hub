@@ -8,6 +8,7 @@ import { createSeries, generateOccurrences, setHouseholdTimezone, setSeriesState
 import { balance, recordPayout, reversePayout, setPayday } from '../../lib/server/payouts';
 import { nextPayday } from '../../lib/earnings/payday';
 import { randomUUID } from 'node:crypto';
+import { listMeals } from '../../lib/server/meals';
 
 async function principal(request: Request) {
   let services;
@@ -25,6 +26,7 @@ export const load: PageServerLoad = async ({ request }) => {
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(householdId) as { timezone: string } | undefined;
   const timezone = settings?.timezone ?? 'America/Chicago';
   const today = localDate(new Date(), timezone);
+  const meals = role === 'parent' ? listMeals(db, session.user.id, householdId, today).map(({ id, title, time, servings, ingredients, source, recipeUrl }) => ({ id, title, time, servings, ingredients, source, recipeUrl })) : [];
   const end = new Date(`${today}T00:00:00Z`); end.setUTCDate(end.getUTCDate() + 7);
   generateOccurrences(db, session.user.id, householdId, today, end.toISOString().slice(0, 10));
   const chores = db.prepare(`SELECT c.id, c.title, c.description, c.due_date AS dueDate, CASE WHEN c.status = 'verified' THEN (SELECT e.amount_cents FROM earning e WHERE e.chore_id = c.id) ELSE c.reward_cents END AS rewardCents, c.status, c.rework_reason AS reworkReason, c.assignee_id AS assigneeId, u.name AS childName, o.series_id AS seriesId, o.scheduled_date AS scheduledDate FROM chore c JOIN user u ON u.id = c.assignee_id LEFT JOIN recurring_occurrence o ON o.chore_id = c.id LEFT JOIN recurring_series r ON r.id = o.series_id WHERE c.household_id = ? AND (? = 'parent' OR c.assignee_id = ?) AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) AND NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= ?) ORDER BY CASE c.status WHEN 'pending_verification' THEN 0 WHEN 'needs_rework' THEN 1 WHEN 'todo' THEN 2 ELSE 3 END, CASE WHEN c.status != 'verified' THEN c.due_date END ASC, CASE WHEN c.status = 'verified' THEN c.updated_at END DESC, c.created_at DESC, c.id`).all(householdId, role, session.user.id, today) as { id: string; title: string; description: string | null; dueDate: string; rewardCents: number | null; status: string; reworkReason: string | null; childName: string; seriesId: string | null; scheduledDate: string | null }[];
@@ -38,7 +40,7 @@ export const load: PageServerLoad = async ({ request }) => {
     next: item.state === 'active' ? (db.prepare("SELECT o.scheduled_date AS date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date >= ? AND c.status = 'todo' AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) ORDER BY o.scheduled_date LIMIT 1").get(item.id, today) as { date: string } | undefined)?.date : undefined,
     skips: (db.prepare('SELECT scheduled_date AS date FROM recurring_skip WHERE series_id = ? ORDER BY scheduled_date DESC').all(item.id) as { date: string }[]).map(skip => skip.date)
   }));
-  return { name: session.user.name, ...membership, chores, children, balances, series, today, timezone, payday };
+  return { name: session.user.name, ...membership, chores, children, balances, series, today, timezone, payday, meals };
 };
 
 export const actions: Actions = {
