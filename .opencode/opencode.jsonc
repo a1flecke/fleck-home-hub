@@ -31,6 +31,20 @@
 
         // Fixed-table task dispatcher: only known tasks and validated test paths.
         { "action": "shell", "resource": "./scripts/dev.sh *", "effect": "allow" },
+        // Named mise tasks and the project's own test runners. These run repo-defined code, like
+        // dev.sh does; arbitrary `mise exec`, `mise x` and `pnpm exec <anything>` stay on ask.
+        { "action": "shell", "resource": "mise run test *", "effect": "allow" },
+        { "action": "shell", "resource": "mise run e2e *", "effect": "allow" },
+        { "action": "shell", "resource": "mise run typecheck *", "effect": "allow" },
+        { "action": "shell", "resource": "mise run lint *", "effect": "allow" },
+        { "action": "shell", "resource": "mise run build *", "effect": "allow" },
+        { "action": "shell", "resource": "mise run verify *", "effect": "allow" },
+        { "action": "shell", "resource": "mise run doctor *", "effect": "allow" },
+        { "action": "shell", "resource": "mise run agent-policy *", "effect": "allow" },
+        { "action": "shell", "resource": "pnpm vitest run *", "effect": "allow" },
+        { "action": "shell", "resource": "pnpm exec vitest run *", "effect": "allow" },
+        { "action": "shell", "resource": "pnpm exec playwright test *", "effect": "allow" },
+        { "action": "shell", "resource": "pnpm exec svelte-kit sync", "effect": "allow" },
         { "action": "shell", "resource": "./scripts/sync-main.sh", "effect": "allow" },
         { "action": "shell", "resource": "./scripts/push-branch.sh", "effect": "allow" },
 

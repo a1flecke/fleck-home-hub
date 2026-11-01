@@ -39,6 +39,14 @@ it('detects policy drift and nonexistent commands', () => {
     build.unshift({ action: 'shell', resource: 'bash *', effect: 'allow' });
     writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
     expect(run().status).not.toBe(0);
+    build[0].resource = 'mise run e2e *';
+    writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
+    expect(run().status).toBe(0);
+    for (const resource of ['mise exec *', 'mise run *', 'pnpm exec *', 'pnpm *']) {
+      build[0].resource = resource;
+      writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
+      expect(run().status).not.toBe(0);
+    }
     build.shift();
     build.push({ action: 'shell', resource: 'gh pr merge *', effect: 'allow' });
     writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
