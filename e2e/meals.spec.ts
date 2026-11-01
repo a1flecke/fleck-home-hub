@@ -203,7 +203,11 @@ test('meal form edits and disclosure survive delayed hydration', async ({ page, 
     await form.getByLabel('Servings (optional)').fill('4');
     await form.getByLabel('Ingredients').fill('2 apples');
     await form.getByLabel('Share on family display').check();
+    const name = form.getByLabel('Meal name');
+    await name.focus();
+    await name.evaluate((input: HTMLInputElement) => input.select());
     release(); await delayed.waitForLoadState('networkidle');
+    await delayed.keyboard.insertText('Synthetic early dinner');
     await expect(form).toBeVisible();
     expect(await form.evaluate(element => Object.fromEntries(new FormData(element as HTMLFormElement)))).toMatchObject({ title: 'Synthetic early dinner', date: '2099-03-01', time: '18:30', servings: '4', ingredients: '2 apples', shared: 'on' });
   } finally { release(); await context.close(); }

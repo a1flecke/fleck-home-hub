@@ -110,7 +110,6 @@ test('pre-hydration event edits survive hydration and are saved', async ({ page,
     await requested;
     const article = articleByTitle(delayed, title);
     await article.getByText('Edit event').click();
-    await article.getByLabel('Event title').fill(updatedTitle);
     await article.getByLabel('Event date').fill('2099-07-02');
     await article.getByLabel('Description (optional)').fill('Synthetic description');
     await article.getByLabel('All day').uncheck();
@@ -118,8 +117,12 @@ test('pre-hydration event edits survive hydration and are saved', async ({ page,
     await article.getByLabel('Sample Kid').check();
     await article.getByLabel('Start time').fill('09:00');
     await article.getByLabel('End time').fill('10:00');
+    const titleInput = article.getByLabel('Event title');
+    await titleInput.focus();
+    await titleInput.evaluate((input: HTMLInputElement) => input.select());
     release();
     await delayed.waitForLoadState('networkidle');
+    await delayed.keyboard.insertText(updatedTitle);
     await expect(article.getByLabel('Event title')).toHaveValue(updatedTitle);
     await expect(article.getByLabel('Event date')).toHaveValue('2099-07-02');
     await expect(article.getByLabel('Description (optional)')).toHaveValue('Synthetic description');
