@@ -100,6 +100,7 @@ test('a parent explicitly shares an event and changes appear on the family displ
   await page.clock.install();
   await page.getByRole('link', { name: 'View family display' }).click();
   await expect(todaySection.getByText(title)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause automatic updates' })).toBeEnabled();
   const change = await page.request.post('/calendar?/saveEvent', { form: { id, title: updated, date: today, allDay: 'on' }, headers: { origin: 'http://127.0.0.1:4173' } });
   expect(await change.json()).toMatchObject({ type: 'success', status: 200 });
   await page.clock.fastForward(60_000);

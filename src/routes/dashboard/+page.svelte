@@ -43,6 +43,7 @@
   <a href={resolve('/display')} class="text-teal-700">Family display</a>
   <a href={resolve('/calendar')} class="ml-4 text-teal-700">Family calendar</a>
   <a href={resolve('/meals')} class="ml-4 text-teal-700">Meals</a>
+  <a href={resolve('/groceries')} class="ml-4 text-teal-700">Groceries</a>
   <h1 class="mt-6 text-3xl font-bold">{data.role === 'parent' ? `Hello, ${data.name}` : `${data.name}'s My Day`}</h1>
   <p class="mt-2">{data.role === 'parent' ? 'Parent dashboard' : 'Your day'}</p>
   {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}</p>{/if}
