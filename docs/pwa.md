@@ -89,7 +89,11 @@ Focused verification completed in this branch:
   manifest checks passed.
 - `mise exec -- pnpm exec playwright test e2e/pwa.spec.ts` — two Chromium browser
   checks passed: manifest/icon delivery and signed-out/signed-in launch behavior.
-- `mise run verify` — result recorded with the pull request.
+- `mise run verify` — passed after rebasing onto the latest `origin/main`:
+  parity, agent policy, lint, typecheck, 181 unit/integration tests, production
+  build, recovery test, all 48 browser tests, workflow analysis, secret scan and
+  the moderate-or-higher dependency audit gate. The audit reported the existing
+  low-severity advisory documented in `docs/security.md`.
 
 These are simulated Chromium checks. They do not prove real Safari, iPhone or
 iPad installation, iOS icon rendering, standalone status-bar layout, or cookie
