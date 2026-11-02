@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title">
+  <title id="title">Fleck Home Hub</title>
+  <rect width="512" height="512" fill="#0f766e"/>
+  <path d="M116 256 256 144l140 112h-40v128H284V312h-56v72H156V256z" fill="#faf8f1"/>
+</svg>
