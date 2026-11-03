@@ -22,6 +22,7 @@ export type WeatherReading = {
 
 export type WeatherSnapshot = WeatherReading & {
   fetchedAt: string;
+  fresh: boolean;
   stale: boolean;
 };
 
