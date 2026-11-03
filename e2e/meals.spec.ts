@@ -93,7 +93,7 @@ test('a parent plans a meal and explicitly shares its ingredients on the display
   await form.getByRole('button', { name: 'Save meal' }).click();
   const savedMeal = page.getByRole('article').filter({ hasText: title });
   await expect(savedMeal).toBeVisible();
-  await expect(savedMeal.getByRole('link', { name: 'Open in eMeals' })).toHaveAttribute('href', 'https://example.test/synthetic-recipe');
+  await expect(savedMeal.getByRole('link', { name: 'View recipe' })).toHaveAttribute('href', 'https://example.test/synthetic-recipe');
   await page.screenshot({ path: testInfo.outputPath('meal-mobile.png'), fullPage: true });
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto('/display');
@@ -101,7 +101,7 @@ test('a parent plans a meal and explicitly shares its ingredients on the display
   await expect(dinner).toContainText(title);
   await expect(dinner).toContainText('2 cups beans');
   await expect(dinner).toContainText('Source: eMeals');
-  await expect(dinner.getByRole('article').filter({ hasText: title }).getByRole('link', { name: 'Open in eMeals' })).toHaveAttribute('href', 'https://example.test/synthetic-recipe');
+  await expect(dinner.getByRole('article').filter({ hasText: title }).getByRole('link', { name: 'View recipe' })).toHaveAttribute('href', 'https://example.test/synthetic-recipe');
   await expect(page.locator('body')).not.toContainText('Synthetic private note');
   await page.screenshot({ path: testInfo.outputPath('display-desktop.png'), fullPage: true });
   await page.route('https://example.test/synthetic-recipe', route => route.fulfill({
@@ -109,7 +109,7 @@ test('a parent plans a meal and explicitly shares its ingredients on the display
     contentType: 'text/html',
     body: '<h1>Synthetic recipe destination</h1>'
   }));
-  await dinner.getByRole('article').filter({ hasText: title }).getByRole('link', { name: 'Open in eMeals' }).click();
+  await dinner.getByRole('article').filter({ hasText: title }).getByRole('link', { name: 'View recipe' }).click();
   await expect(page).toHaveURL('https://example.test/synthetic-recipe');
   await expect(page.getByRole('heading', { name: 'Synthetic recipe destination' })).toBeVisible();
   await page.goBack();
