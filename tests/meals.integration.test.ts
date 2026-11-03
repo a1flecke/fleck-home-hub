@@ -40,6 +40,51 @@ it('keeps meal management parent-only and household-scoped, with opt-in display 
   } finally { db.close(); }
 });
 
+it('deduplicates retried submissions while allowing the same recipe on another date', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'home');
+    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    const recipe = { title: 'Synthetic bowls', date: '2026-11-02', ingredients: '2 cups synthetic chickpeas', recipeUrl: 'https://emeals.com/recipes/synthetic-bowls', shared: false };
+    const first = createMeal(db, 'parent', 'home', { ...recipe, submissionKey: 'review-1' });
+    const retry = createMeal(db, 'parent', 'home', { ...recipe, submissionKey: 'review-1' });
+    expect(retry).toBe(first);
+    expect(db.prepare('SELECT COUNT(*) AS count FROM meal').get()).toEqual({ count: 1 });
+    const wednesday = createMeal(db, 'parent', 'home', { ...recipe, date: '2026-11-04', submissionKey: 'review-2' });
+    expect(wednesday).not.toBe(first);
+    expect(listMeals(db, 'parent', 'home', '2026-11-02')).toHaveLength(1);
+    expect(listMeals(db, 'parent', 'home', '2026-11-04')).toHaveLength(1);
+    expect(listMeals(db, 'kid', 'home', '2026-11-02')).toEqual([]);
+  } finally { db.close(); }
+});
+
+it('upgrades a meal database without losing existing meals when adding submission keys', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hub-meal-submission-migration-'));
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); mkdirSync(join(directory, 'meta'));
+    const journal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
+    journal.entries = journal.entries.slice(0, 7);
+    for (const entry of journal.entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(directory, `${entry.tag}.sql`));
+    writeFileSync(join(directory, 'meta/_journal.json'), JSON.stringify(journal));
+    db.exec('CREATE TABLE user (id TEXT PRIMARY KEY NOT NULL)');
+    migrateDrizzle(drizzle(db), { migrationsFolder: directory });
+    db.prepare('INSERT INTO user VALUES (?)').run('parent');
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare("INSERT INTO meal (id, household_id, title, meal_date, ingredients, shared, created_at, updated_at) VALUES ('existing', 'home', 'Existing dinner', '2026-11-02', '', 0, '2026-11-02', '2026-11-02')").run();
+    migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
+    migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
+    expect(db.prepare('SELECT title FROM meal WHERE id = ?').get('existing')).toEqual({ title: 'Existing dinner' });
+    const columns = db.prepare('PRAGMA table_info(meal)').all() as { name: string }[];
+    expect(columns.map(column => column.name)).toContain('submission_key');
+    expect(db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = 'meal_household_submission'").get()).toEqual({ name: 'meal_household_submission' });
+  } finally { db.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 it('upgrades the previous schema without losing household membership and is repeatable', () => {
   const directory = mkdtempSync(join(tmpdir(), 'hub-meal-migration-'));
   const db = new Database(':memory:');
