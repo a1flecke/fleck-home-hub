@@ -7,8 +7,12 @@ test('manifest and every declared icon are served with installable metadata', as
   expect(manifestResponse.status()).toBe(200);
   expect(manifestResponse.headers()['content-type']).toContain('application/manifest+json');
 
-  const manifest = await manifestResponse.json() as { start_url: string; icons: ManifestIcon[] };
+  const manifest = await manifestResponse.json() as { start_url: string; icons: ManifestIcon[]; share_target?: { action: string; method: string } };
   expect(manifest.start_url).toBe('/dashboard');
+  expect(manifest.share_target).toMatchObject({ action: '/meals/share', method: 'POST' });
+  const workerResponse = await request.get('/service-worker.js');
+  expect(workerResponse.status()).toBe(200);
+  expect(workerResponse.headers()['content-type']).toContain('javascript');
   for (const icon of manifest.icons) {
     const response = await request.get(icon.src);
     expect(response.status(), `${icon.src} must be served`).toBe(200);
@@ -20,7 +24,11 @@ test('manifest and every declared icon are served with installable metadata', as
   await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', '/apple-touch-icon.png');
   await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute('href', '/icon.svg');
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0f766e');
-  expect(await page.evaluate(() => navigator.serviceWorker.getRegistrations().then(items => items.length))).toBe(0);
+  const workerState = await page.evaluate(async () => {
+    await navigator.serviceWorker.ready;
+    return { registrations: (await navigator.serviceWorker.getRegistrations()).length, caches: await caches.keys() };
+  });
+  expect(workerState).toEqual({ registrations: 1, caches: [] });
 });
 
 test('the installed start URL requires sign-in and then launches authenticated household data', async ({ page, request }) => {

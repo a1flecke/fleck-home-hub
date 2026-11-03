@@ -37,6 +37,11 @@ it('keeps meal management parent-only and household-scoped, with opt-in display 
     const shared = displayData(db, 'kid', 'home', meal.date, '2026-11-08').meals;
     expect(shared).toMatchObject([{ title: 'Bean soup', ingredients: '2 cups beans\n1 onion', source: 'eMeals' }]);
     expect(JSON.stringify(shared)).not.toContain('Private notes');
+    updateMeal(db, 'parent', 'home', id, { ...meal, title: 'Bean soup', shared: false });
+    expect(listMeals(db, 'kid', 'home', meal.date)).toEqual([]);
+    const unshared = displayData(db, 'kid', 'home', meal.date, '2026-11-08');
+    expect(unshared.meals).toEqual([]);
+    expect(JSON.stringify(unshared)).not.toContain(meal.recipeUrl);
   } finally { db.close(); }
 });
 

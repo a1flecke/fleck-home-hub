@@ -116,7 +116,7 @@ describe('recipe link parsing', () => {
   it('decodes readable path text without introducing control characters', () => {
     const link = parseRecipeLink('https://emeals.com/recipes/Mac-%26-Cheese-%3Cb%3E');
     expect(link?.suggestedTitle).toBe('Mac & Cheese <b>');
-    expect(link?.suggestedTitle).not.toMatch(/[\u0000-\u001f\u007f]/);
+    expect([...(link?.suggestedTitle ?? '')].every(character => character.charCodeAt(0) > 31)).toBe(true);
   });
 });
 

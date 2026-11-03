@@ -2,8 +2,9 @@
 
 Fleck Home Hub can be installed as a standalone web application, but it is not
 an offline application. The manifest, icons and Apple metadata make the
-existing authenticated site installable; they do not add a service worker,
-offline cache, background synchronization or a native application shell.
+existing authenticated site installable; the only service worker is a minimal
+share-target bridge. There is no offline cache, background synchronization or
+native application shell.
 
 ## Current capabilities
 
@@ -16,9 +17,25 @@ offline cache, background synchronization or a native application shell.
   use a dedicated 180px `apple-touch-icon.png`.
 - `src/app.html` provides favicon links and the Apple standalone/title metadata
   used by iOS Home Screen web apps.
-- No service worker is registered. There is no offline shell and no cached
-  household data. The separate `/display` view keeps its existing privacy model
-  and is not cached by this work.
+- A minimal service worker registers for the Web Share Target POST only. It
+  forwards same-origin `POST /meals/share` requests to the network and performs
+  no caching. There is no offline shell and no cached household data. The
+  separate `/display` view keeps its existing privacy model and is not cached by
+  this work.
+
+## Recipe-link share target
+
+The manifest declares a POST share target at `/meals/share` with title, text and
+URL fields. The share handler requires an authenticated parent, validates the
+link without fetching it, and renders a private review draft without writing a
+meal. The parent still chooses the date and Save. The service worker must be
+active before the operating system offers the share target, so open the installed
+app once while signed in.
+
+Chromium-based browsers can expose Home Hub in the system share sheet. Safari and
+iOS Home Screen web apps do not reliably support Web Share Target; use the paste
+workflow described in [meals.md](meals.md). Real-device share-sheet behavior has
+not been verified in this change.
 
 ## Install from desktop Chromium
 
@@ -110,6 +127,12 @@ persistence after a device restart.
 - [ ] Confirm overlap with the status bar and safe areas on a notched device.
 - [ ] Enable airplane mode and confirm the app does not show cached household
       data or claim offline availability.
+- [ ] On Android Chromium, install the app, sign in, share a synthetic HTTPS link
+      from another app, confirm Home Hub appears as a target, review the draft and
+      save it. Confirm no meal row is created before Save.
+- [ ] On the intended iPhone, confirm whether Home Hub appears in the share sheet.
+      If it does not, verify the copy-and-paste recipe-link flow instead. Do not
+      claim iOS share-sheet support without this check.
 - [ ] Install in desktop Chromium and macOS Safari, checking launch, sign-out and
       session behavior in each.
 - [ ] Confirm the shared display remains unaffected and is not cached by this

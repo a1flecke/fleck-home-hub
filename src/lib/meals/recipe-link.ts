@@ -16,6 +16,18 @@ export type RecipeAttribution = {
 
 const ignoredTitleSegments = new Set(['recipe', 'recipes', 'meal-plan', 'meal-plans', 'menu', 'menus']);
 
+/** Removes control characters and normalizes whitespace without altering printable text. */
+export function cleanRecipeTitle(value: string): string {
+  return Array.from(value)
+    .filter(character => {
+      const code = character.charCodeAt(0);
+      return code > 31 && code !== 127;
+    })
+    .join('')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function isOpaqueTitle(value: string): boolean {
   const trimmed = value.trim();
   if (!trimmed) return true;
@@ -36,14 +48,11 @@ function suggestedTitle(url: URL, provider: RecipeSource | null): string | null 
   segment = segment.replace(/\.(?:html?|php|aspx?)$/i, '');
   for (const prefix of provider?.titlePrefixes ?? []) segment = segment.replace(prefix, '');
   if (isOpaqueTitle(segment) || ignoredTitleSegments.has(segment.toLowerCase())) return null;
-  const text = segment
+  const text = cleanRecipeTitle(segment
     .replace(/[+_]+/g, ' ')
     .replace(/-+/g, ' ')
     .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
-    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2')
-    .replace(/[\u0000-\u001f\u007f]/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
+    .replace(/([A-Z]+)([A-Z][a-z])/g, '$1 $2'));
   if (text.length < 2 || text.length > 120 || isOpaqueTitle(text)) return null;
   return text.split(' ').map(word => {
     if (word.length > 1 && word === word.toUpperCase()) return word;
