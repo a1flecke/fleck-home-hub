@@ -207,6 +207,89 @@ test('a selected chore shows its current progress without displaying its reward'
   expect(await response?.text()).not.toContain('$2.00');
 });
 
+test('weather unavailability leaves the rest of the family display usable', async ({ page }, testInfo) => {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('kid@example.test');
+  await page.getByLabel('Password').fill('synthetic-kid-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
+  await page.goto('/display');
+  const weather = page.getByRole('region', { name: 'Weather' });
+  await expect(weather.getByRole('heading', { name: 'Weather' })).toBeVisible();
+  await expect(weather.getByText('Weather is unavailable right now.')).toBeVisible();
+  for (const name of ["Today's events", 'Upcoming events', 'Shared chores', "Tonight's dinner"]) {
+    await expect(page.getByRole('region', { name })).toBeVisible();
+  }
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.screenshot({ path: testInfo.outputPath('display-weather-unavailable-landscape.png'), fullPage: true });
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({ path: testInfo.outputPath('display-weather-unavailable-mobile.png'), fullPage: true });
+});
+
+test('a refreshed forecast shows zero degrees, missing lows, and an older forecast notice', async ({ page }, testInfo) => {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('kid@example.test');
+  await page.getByLabel('Password').fill('synthetic-kid-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const weather = page.getByRole('region', { name: 'Weather' });
+  await page.clock.install();
+  await page.goto('/display');
+  await expect(weather.getByText('Weather is unavailable right now.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Pause automatic updates' })).toBeEnabled();
+  let refresh = 0;
+  const stale = {
+    status: 'available',
+    timeZone: 'America/Chicago',
+    temperatureF: 0,
+    description: 'Cold and clear',
+    highF: 12,
+    lowF: null,
+    stale: true,
+    fetchedAt: '2026-11-01T13:44:42.000Z',
+    forecastUpdatedAt: '2026-11-01T13:26:32.000Z',
+    retrievedAtLabel: 'Nov 1, 7:44 AM',
+    forecastUpdatedLabel: 'Nov 1, 7:26 AM'
+  };
+  const fresh = {
+    status: 'available',
+    timeZone: 'America/Chicago',
+    temperatureF: 55,
+    description: 'Patchy Fog',
+    highF: 66,
+    lowF: 58,
+    stale: false,
+    fetchedAt: '2026-11-01T13:54:42.000Z',
+    forecastUpdatedAt: '2026-11-01T13:46:32.000Z',
+    retrievedAtLabel: 'Nov 1, 7:54 AM',
+    forecastUpdatedLabel: 'Nov 1, 7:46 AM'
+  };
+  await page.route('**/display/data', async route => {
+    const next = refresh === 0 ? stale : fresh;
+    refresh++;
+    await route.fulfill({ json: { today, timezone: 'America/Chicago', events: [], chores: [], meals: [], canManage: false, weather: next } });
+  });
+  await page.clock.fastForward(60_000);
+  await expect(weather.getByText('0°F', { exact: true })).toBeVisible();
+  await expect(weather.getByText('Cold and clear')).toBeVisible();
+  await expect(weather.getByText('High 12°F')).toBeVisible();
+  await expect(weather).not.toContainText('Low ');
+  await expect(weather.getByText('Older forecast. Retrieved Nov 1, 7:44 AM.')).toBeVisible();
+  await expect(weather.getByRole('link', { name: 'NOAA / National Weather Service' })).toBeVisible();
+  await expect(weather).not.toContainText('Live');
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.screenshot({ path: testInfo.outputPath('display-weather-stale-landscape.png'), fullPage: true });
+  await page.clock.fastForward(60_000);
+  await expect(weather.getByText('55°F', { exact: true })).toBeVisible();
+  await expect(weather.getByText('High 66°F')).toBeVisible();
+  await expect(weather.getByText('Low 58°F')).toBeVisible();
+  await expect(weather.getByText('Patchy Fog')).toBeVisible();
+  await expect(weather).not.toContainText('Older forecast');
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({ path: testInfo.outputPath('display-weather-fresh-mobile.png'), fullPage: true });
+});
+
 test('manual display refresh works without JavaScript', async ({ page, browser }) => {
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill('kid@example.test');

@@ -39,6 +39,43 @@
   <p class="mt-2 text-lg">{current.today} · {current.timezone}</p>
   {#if refreshError}<p role="status" class="mt-3">Unable to update the display. Check the connection and refresh.</p>{/if}
   <div class="mt-6 grid gap-5 md:grid-cols-2 xl:grid-cols-3">
+    <section aria-label="Weather" class="rounded-2xl bg-teal-50 p-6 shadow-sm ring-1 ring-teal-100">
+      <h2 class="flex items-center gap-2 text-2xl font-bold">
+        <svg aria-hidden="true" viewBox="0 0 24 24" class="h-7 w-7 shrink-0 text-amber-500" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="4"></circle>
+          <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>
+        </svg>
+        Weather
+      </h2>
+      {#if current.weather.status === 'available'}
+        {@const forecast = current.weather}
+        {#if forecast.temperatureF !== null}
+          <p class="mt-4 text-6xl font-bold tracking-tight sm:text-7xl">{forecast.temperatureF}°F</p>
+          <p class="mt-1 text-lg font-medium text-teal-800">Near-term hourly forecast</p>
+        {:else}
+          <p class="mt-4 text-2xl font-semibold">Today's forecast</p>
+        {/if}
+        {#if forecast.description}<p class="mt-3 text-xl font-semibold sm:text-2xl">{forecast.description}</p>{/if}
+        {#if forecast.highF !== null || forecast.lowF !== null}
+          <p class="mt-3 text-xl sm:text-2xl">
+            {#if forecast.highF !== null}High {forecast.highF}°F{/if}
+            {#if forecast.highF !== null && forecast.lowF !== null}<span aria-hidden="true"> · </span>{/if}
+            {#if forecast.lowF !== null}Low {forecast.lowF}°F{/if}
+          </p>
+        {/if}
+        {#if forecast.temperatureF === null && forecast.highF === null && forecast.lowF === null && !forecast.description}
+          <p class="mt-4 text-xl">Forecast details are unavailable right now.</p>
+        {/if}
+        {#if forecast.stale}
+          <p role="status" class="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-base font-medium">Older forecast. Retrieved {forecast.retrievedAtLabel}.</p>
+        {:else if forecast.forecastUpdatedLabel}
+          <p class="mt-4 text-base">Forecast updated {forecast.forecastUpdatedLabel}.</p>
+        {/if}
+        <p class="mt-4 text-sm">Weather data from <a href="https://www.weather.gov/" rel="external noopener noreferrer" class="text-teal-700 underline">NOAA / National Weather Service</a>.</p>
+      {:else}
+        <p class="mt-4 text-xl">Weather is unavailable right now.</p>
+      {/if}
+    </section>
     <section aria-label="Today's events" class="rounded-2xl bg-white p-6 shadow-sm"><h2 class="text-2xl font-bold">Today's events</h2>
       {#each current.events.filter(event => event.date === current.today) as event (`${event.id}-${event.date}`)}<article class="mt-4"><h3 class="text-lg font-semibold">{event.title}</h3><p>{event.allDay ? 'All day' : `${event.startTime}–${event.endTime}`}</p></article>{:else}<p class="mt-4">No shared events today.</p>{/each}
     </section>

@@ -30,7 +30,8 @@ db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(otherParent.user.id, 'synthetic-other-household', 'parent');
 db.close();
 const child = spawn('pnpm', ['exec', 'vite', 'dev', '--host', '127.0.0.1', '--port', '4173', '--strictPort'], {
-  stdio: 'inherit', env: { ...process.env, DATABASE_PATH: config.dbPath, AUTH_SECRET: config.secret, AUTH_ORIGIN: config.origin }
+  // Keep browser tests deterministic and offline: they never contact NWS or use private coordinates.
+  stdio: 'inherit', env: { ...process.env, DATABASE_PATH: config.dbPath, AUTH_SECRET: config.secret, AUTH_ORIGIN: config.origin, WEATHER_LATITUDE: '', WEATHER_LONGITUDE: '' }
 });
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => child.kill(signal));
 child.on('exit', (code) => { rmSync(directory, { recursive: true, force: true }); process.exit(code ?? 1); });
