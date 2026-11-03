@@ -66,7 +66,7 @@
         {#if forecast.temperatureF === null && forecast.highF === null && forecast.lowF === null && !forecast.description}
           <p class="mt-4 text-xl">Forecast details are unavailable right now.</p>
         {/if}
-        {#if forecast.stale}
+        {#if !forecast.fresh}
           <p role="status" class="mt-4 rounded-xl border border-amber-300 bg-amber-50 px-3 py-2 text-base font-medium">Older forecast. Retrieved {forecast.retrievedAtLabel}.</p>
         {:else if forecast.forecastUpdatedLabel}
           <p class="mt-4 text-base">Forecast updated {forecast.forecastUpdatedLabel}.</p>

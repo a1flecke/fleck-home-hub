@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createDisplayWeatherSource } from '../src/lib/server/display-weather';
 
 const env = {
@@ -94,10 +94,14 @@ const expectedLabels = {
   forecastUpdatedLabel: 'Nov 1, 7:26 AM',
 };
 
+function createTestSource(options: Parameters<typeof createDisplayWeatherSource>[0]) {
+  return createDisplayWeatherSource({ backgroundRefresh: false, ...options });
+}
+
 describe('display weather source', () => {
   it('projects a configured snapshot into display data', async () => {
     const { fetch } = routedFetch({ points: { body: points }, daily: { body: daily }, hourly: { body: hourly } });
-    const source = createDisplayWeatherSource({ env, fetch, now: clock().now });
+    const source = createTestSource({ env, fetch, now: clock().now });
 
     const result = await source.get();
 
@@ -108,6 +112,7 @@ describe('display weather source', () => {
       description: 'Patchy Fog',
       highF: 66,
       lowF: 58,
+      fresh: true,
       stale: false,
       fetchedAt: '2026-11-01T13:44:42.000Z',
       forecastUpdatedAt: '2026-11-01T13:26:32.000Z',
@@ -117,7 +122,7 @@ describe('display weather source', () => {
 
   it('reports unavailable weather without contacting the provider when coordinates are missing', async () => {
     const { fetch, calls } = routedFetch({ points: { body: points }, daily: { body: daily }, hourly: { body: hourly } });
-    const source = createDisplayWeatherSource({ env: {}, fetch, now: clock().now });
+    const source = createTestSource({ env: {}, fetch, now: clock().now });
 
     await expect(source.get()).resolves.toEqual({ status: 'unavailable' });
     expect(calls).toEqual([]);
@@ -125,7 +130,7 @@ describe('display weather source', () => {
 
   it('reports unavailable weather without contacting the provider when configuration is invalid', async () => {
     const { fetch, calls } = routedFetch({ points: { body: points }, daily: { body: daily }, hourly: { body: hourly } });
-    const source = createDisplayWeatherSource({
+    const source = createTestSource({
       env: { ...env, WEATHER_LATITUDE: 'north' },
       fetch,
       now: clock().now,
@@ -157,7 +162,7 @@ describe('display weather source', () => {
         },
       },
     });
-    const source = createDisplayWeatherSource({ env, fetch, now: clock().now });
+    const source = createTestSource({ env, fetch, now: clock().now });
 
     const result = await source.get();
 
@@ -175,7 +180,7 @@ describe('display weather source', () => {
       daily: { body: daily },
       hourly: { status: 503 },
     });
-    const source = createDisplayWeatherSource({ env, fetch, now: clock().now });
+    const source = createTestSource({ env, fetch, now: clock().now });
 
     const result = await source.get();
 
@@ -209,7 +214,7 @@ describe('display weather source', () => {
       },
       hourly: { status: 503 },
     });
-    const source = createDisplayWeatherSource({ env, fetch, now: clock().now });
+    const source = createTestSource({ env, fetch, now: clock().now });
 
     const result = await source.get();
 
@@ -228,7 +233,7 @@ describe('display weather source', () => {
       daily: { rawBody: 'not json' },
       hourly: { body: hourly },
     });
-    const source = createDisplayWeatherSource({ env, fetch, now: clock().now });
+    const source = createTestSource({ env, fetch, now: clock().now });
 
     await expect(source.get()).resolves.toEqual({ status: 'unavailable' });
   });
@@ -239,7 +244,7 @@ describe('display weather source', () => {
       daily: { body: daily },
       hourly: { body: hourly },
     });
-    const source = createDisplayWeatherSource({
+    const source = createTestSource({
       env: { ...env, WEATHER_TIMEOUT_MS: '100' },
       fetch,
       now: clock().now,
@@ -248,85 +253,101 @@ describe('display weather source', () => {
     await expect(source.get()).resolves.toEqual({ status: 'unavailable' });
   });
 
-  it('marks cached weather as an older forecast when a refresh fails', async () => {
-    const times = clock();
-    let fail = false;
-    const { fetch } = routedFetch({
-      points: {
-        get body() {
-          if (fail) throw new Error('socket hang up for 39.7456,-97.0892');
-          return points;
+  it('marks cached weather as an older forecast when a background refresh fails', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-01T13:44:42Z'));
+    try {
+      let fail = false;
+      const { fetch } = routedFetch({
+        points: {
+          get body() {
+            if (fail) throw new Error('socket hang up for 39.7456,-97.0892');
+            return points;
+          },
         },
-      },
-      daily: { body: daily },
-      hourly: { body: hourly },
-    });
-    const source = createDisplayWeatherSource({
-      env,
-      fetch,
-      now: times.now,
-      cacheTtlMs: 1_000,
-      maxStaleMs: 60_000,
-    });
-    await source.get();
-    fail = true;
-    times.advance(1_001);
+        daily: { body: daily },
+        hourly: { body: hourly },
+      });
+      const source = createDisplayWeatherSource({
+        env,
+        fetch,
+        cacheTtlMs: 1_000,
+        maxStaleMs: 60_000,
+        refreshIntervalMs: 1_000,
+        retryDelaysMs: [],
+      });
+      await source.get();
+      fail = true;
+      await vi.advanceTimersByTimeAsync(1_001);
 
-    const result = await source.get();
+      const result = await source.get();
 
-    expect(result).toMatchObject({
-      status: 'available',
-      stale: true,
-      fetchedAt: '2026-11-01T13:44:42.000Z',
-      retrievedAtLabel: 'Nov 1, 7:44 AM',
-    });
+      expect(result).toMatchObject({
+        status: 'available',
+        fresh: false,
+        stale: true,
+        fetchedAt: '2026-11-01T13:44:42.000Z',
+        retrievedAtLabel: 'Nov 1, 7:44 AM',
+      });
+      source.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
-  it('replaces stale weather with a fresh forecast after the provider recovers', async () => {
-    const times = clock();
-    let fail = false;
-    let temperature = 55;
-    const { fetch } = routedFetch({
-      points: {
-        get body() {
-          if (fail) throw new Error('offline');
-          return points;
+  it('replaces older weather with a fresh forecast after the provider recovers', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-01T13:44:42Z'));
+    try {
+      let fail = false;
+      let temperature = 55;
+      const { fetch } = routedFetch({
+        points: {
+          get body() {
+            if (fail) throw new Error('offline');
+            return points;
+          },
         },
-      },
-      daily: { body: daily },
-      hourly: {
-        get body() {
-          return {
-            properties: {
-              periods: [{ startTime: '2026-11-01T13:00:00-06:00', temperature, temperatureUnit: 'F', shortForecast: 'Clear' }],
-            },
-          };
+        daily: { body: daily },
+        hourly: {
+          get body() {
+            return {
+              properties: {
+                periods: [{ startTime: '2026-11-01T13:00:00-06:00', temperature, temperatureUnit: 'F', shortForecast: 'Clear' }],
+              },
+            };
+          },
         },
-      },
-    });
-    const source = createDisplayWeatherSource({
-      env,
-      fetch,
-      now: times.now,
-      cacheTtlMs: 1_000,
-      maxStaleMs: 60_000,
-    });
-    await source.get();
-    fail = true;
-    times.advance(1_001);
-    await expect(source.get()).resolves.toMatchObject({ stale: true });
-    fail = false;
-    temperature = 61;
-    times.advance(1);
+      });
+      const source = createDisplayWeatherSource({
+        env,
+        fetch,
+        cacheTtlMs: 1_000,
+        maxStaleMs: 60_000,
+        refreshIntervalMs: 1_000,
+        retryDelaysMs: [],
+        retryCooldownMs: 0,
+      });
+      await source.get();
+      fail = true;
+      await vi.advanceTimersByTimeAsync(1_001);
+      fail = false;
+      temperature = 61;
+      await vi.advanceTimersByTimeAsync(1_000);
 
-    const result = await source.get();
+      const result = await source.get();
 
-    expect(result).toMatchObject({
-      stale: false,
-      temperatureF: 61,
-      fetchedAt: '2026-11-01T13:44:43.002Z',
-      retrievedAtLabel: 'Nov 1, 7:44 AM',
-    });
+      expect(result).toMatchObject({
+        fresh: true,
+        stale: false,
+        temperatureF: 61,
+        fetchedAt: '2026-11-01T13:44:44.000Z',
+        retrievedAtLabel: 'Nov 1, 7:44 AM',
+      });
+      source.stop();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('does not expose request details or provider exceptions in an unavailable result', async () => {
@@ -335,7 +356,7 @@ describe('display weather source', () => {
       daily: { body: daily },
       hourly: { body: hourly },
     });
-    const source = createDisplayWeatherSource({ env, fetch, now: clock().now });
+    const source = createTestSource({ env, fetch, now: clock().now });
 
     const result = await source.get();
     const serialized = JSON.stringify(result);
@@ -364,7 +385,7 @@ describe('display weather source', () => {
       if (url.endsWith('/forecast')) return jsonResponse({ body: daily });
       return jsonResponse({ body: points });
     }) as typeof fetch;
-    const source = createDisplayWeatherSource({ env, fetch: fetchImpl, now: clock().now });
+    const source = createTestSource({ env, fetch: fetchImpl, now: clock().now });
 
     const first = source.get();
     const second = source.get();
@@ -377,8 +398,105 @@ describe('display weather source', () => {
   });
 
   it('does not cache the unavailable result of an unconfigured source', async () => {
-    const source = createDisplayWeatherSource({ env: {}, fetch: vi.fn() as unknown as typeof fetch });
+    const source = createTestSource({ env: {}, fetch: vi.fn() as unknown as typeof fetch });
     await expect(source.get()).resolves.toEqual({ status: 'unavailable' });
     await expect(source.get()).resolves.toEqual({ status: 'unavailable' });
+  });
+});
+
+describe('display weather background refresh', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function hourlyAt(readTemperature: () => number) {
+    return {
+      get body() {
+        return {
+          properties: {
+            periods: [
+              {
+                startTime: '2026-11-01T13:00:00-06:00',
+                temperature: readTemperature(),
+                temperatureUnit: 'F',
+                shortForecast: 'Clear',
+              },
+            ],
+          },
+        };
+      },
+    };
+  }
+
+  it('refreshes aging weather in the background and stops on demand', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-01T13:44:42Z'));
+    let temperature = 55;
+    const { fetch, calls } = routedFetch({
+      points: { body: points },
+      daily: { body: daily },
+      hourly: hourlyAt(() => temperature),
+    });
+    const source = createDisplayWeatherSource({
+      env,
+      fetch,
+      cacheTtlMs: 1_000,
+      refreshIntervalMs: 1_000,
+      retryDelaysMs: [],
+    });
+
+    const first = await source.get();
+    expect(first).toMatchObject({ status: 'available', fresh: true, temperatureF: 55 });
+    expect(calls).toHaveLength(3);
+
+    temperature = 61;
+    await vi.advanceTimersByTimeAsync(1_001);
+
+    expect(calls).toHaveLength(6);
+    const second = await source.get();
+    expect(second).toMatchObject({ status: 'available', fresh: true, temperatureF: 61 });
+
+    source.stop();
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(calls).toHaveLength(6);
+  });
+
+  it('does not start a loop when weather is unconfigured', async () => {
+    vi.useFakeTimers();
+    const { fetch, calls } = routedFetch({
+      points: { body: points },
+      daily: { body: daily },
+      hourly: { body: hourly },
+    });
+    const source = createDisplayWeatherSource({ env: {}, fetch });
+
+    await expect(source.get()).resolves.toEqual({ status: 'unavailable' });
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    expect(calls).toEqual([]);
+    source.stop();
+  });
+
+  it('does not start a loop when background refresh is disabled', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-01T13:44:42Z'));
+    const { fetch, calls } = routedFetch({
+      points: { body: points },
+      daily: { body: daily },
+      hourly: { body: hourly },
+    });
+    const source = createDisplayWeatherSource({
+      env,
+      fetch,
+      cacheTtlMs: 1_000,
+      refreshIntervalMs: 1_000,
+      backgroundRefresh: false,
+    });
+
+    await source.get();
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    expect(calls).toHaveLength(3);
+    source.stop();
   });
 });

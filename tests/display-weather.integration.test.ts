@@ -42,6 +42,7 @@ const weather: DisplayWeather = {
   description: 'Patchy Fog',
   highF: 66,
   lowF: 58,
+  fresh: true,
   stale: false,
   fetchedAt: '2026-11-01T13:44:42.000Z',
   forecastUpdatedAt: '2026-11-01T13:26:32.000Z',
@@ -121,6 +122,7 @@ describe('family display weather composition', () => {
       },
       fetch: fetchImpl,
       now: () => new Date('2026-11-01T13:44:42Z'),
+      backgroundRefresh: false,
     });
 
     const data = await loadDisplay(request(kidCookie), { services, weather: () => source.get() });
