@@ -1,6 +1,6 @@
 # Weather
 
-The weather module is a read-only, server-side provider foundation. It is not connected to the dashboard or shared display yet. It exposes current conditions, the current forecast day's high and low, a short forecast description, provider and retrieval timestamps, and explicit freshness state.
+The weather module is a read-only, server-side provider. The authenticated family display reads it through a process-wide server integration. It exposes current conditions, the current forecast day's high and low, a short forecast description, provider and retrieval timestamps, and explicit freshness state.
 
 ## Provider
 
@@ -12,7 +12,7 @@ The only implemented provider is the [National Weather Service API](https://www.
 - Every request identifies the application with a `User-Agent` header. NWS recommends including a website or contact address so it can reach the operator about a security event. The default identifies this project; set `WEATHER_USER_AGENT` to a more specific value if desired.
 - NWS does not publish its rate limit. It describes the limit as generous for typical use and says a limited request may be retried after roughly five seconds. This module caches successful responses to reduce requests, but it does not implement retry or backoff.
 - NWS provides no uptime guarantee. Operational issues are reported through NWS channels (the API documentation lists `nco.ops@noaa.gov`). The service degrades to stale or unavailable data instead of failing the page.
-- NWS data should be credited in a later user interface, for example “Weather data from NOAA / National Weather Service.”
+- The family display credits NWS data as “Weather data from NOAA / National Weather Service” with a link to `https://www.weather.gov/`.
 
 ### Response formats used
 
@@ -94,43 +94,54 @@ Failures return a fixed, safe message and a reason:
 
 Provider bodies, request URLs, coordinates and underlying exception text are not exposed.
 
-## Using it later
+## Family display integration
 
-The later dashboard or display integration should create the service in server-only code and reuse it:
+`src/lib/server/display-weather.ts` is the server-only boundary between the provider and the authenticated family display. It reads `process.env`, creates the NWS provider and weather service lazily, and keeps that one service instance for the life of the server process. Page loads and `/display/data` refreshes share its in-memory cache. Do not create a service per request.
+
+`loadDisplay` authenticates the household member before requesting weather. It then runs the household projection and weather read together and returns a safe projection:
 
 ```ts
-// Example: a future src/lib/server/weather.ts module.
-import {
-  createNwsWeatherProvider,
-  createWeatherService,
-  readWeatherConfig,
-} from '../weather';
-
-const config = readWeatherConfig(process.env);
-const weather = createWeatherService({
-  provider: createNwsWeatherProvider({ ...config, fetch }),
-});
-
-const result = await weather.getCurrent();
-if (result.ok) {
-  // Render result.weather, including a stale-data notice when stale is true.
-} else {
-  // Render a neutral unavailable state using result.message.
-}
+type DisplayWeather =
+  | {
+      status: 'available';
+      timeZone: string;
+      temperatureF: number | null;
+      description: string | null;
+      highF: number | null;
+      lowF: number | null;
+      stale: boolean;
+      fetchedAt: string;
+      forecastUpdatedAt: string;
+      retrievedAtLabel: string;
+      forecastUpdatedLabel: string;
+    }
+  | { status: 'unavailable' };
 ```
 
-Configuration errors should be caught at startup or at the server boundary and rendered as an unavailable weather card; they must not prevent the rest of the dashboard from loading. Run the provider only on the server so coordinates, the user agent and the in-memory cache remain private. No browser network access or Content Security Policy change is needed.
+The projection excludes coordinates, provider URLs, request details and underlying exception messages. A configuration error, provider failure or unexpected exception resolves to `status: 'unavailable'`; it never prevents events, chores, meals or the rest of the display from rendering. Concurrent display loads share one in-flight provider read, so a refresh burst does not multiply NWS requests.
 
-The UI is still responsible for:
+The display refreshes its household projection every 60 seconds and includes weather in the same response. The weather service still serves a snapshot without a provider request for 10 minutes, attempts a refresh after that, and may serve a snapshot up to 60 minutes old as stale. A 60-second display refresh therefore does not imply an NWS request every minute.
 
-- showing `stale` and `fetchedAt` rather than presenting stale values as current;
-- using `null` as “unavailable” and never substituting zero;
-- displaying the NOAA/NWS credit;
-- deciding how often to call `getCurrent` and how to present partial data such as a missing high or low.
+The weather card shows the near-term hourly forecast temperature, today's high and low when present, the short forecast description, and the provider update time. The temperature is labeled **Near-term hourly forecast**, not a live observation. Missing measurements are omitted rather than replaced. A stale snapshot is labeled **Older forecast** with its retrieval time. Every available card credits **NOAA / National Weather Service** and links to `https://www.weather.gov/`.
+
+Failure behavior covered by the display integration:
+
+1. Missing or invalid coordinates render an unavailable card without a provider request.
+2. A provider timeout, network failure or invalid response renders the neutral fallback.
+3. A missing hourly temperature still shows the daily forecast.
+4. A missing high or low displays only the measurement that exists.
+5. A real `0 °F` displays as `0°F`.
+6. Stale data is identified as older and includes its retrieval time.
+7. A recovered provider replaces stale data on a later refresh.
+8. A thrown or misbehaving weather integration cannot break the household projection.
+
+Everyone who can open the authenticated display can see the weather card. Weather is public information, but it does not make the surrounding household response public.
 
 ## Tests and limitations
 
-All automated tests inject HTTP and a clock; they never call NWS. Synthetic fixtures cover successful responses, Celsius-to-Fahrenheit conversion, zero versus missing temperatures, malformed JSON, wrong shapes, empty forecasts, unsafe provider URLs, non-success responses, network errors, timeouts, cache freshness, stale fallback, stale expiry, recovery and configuration validation. Provider response shapes were also checked against the live API during development on 2026-11-01; that check is not part of the test suite.
+All automated tests inject HTTP and a clock; they never contact NWS or use private coordinates. Synthetic fixtures cover successful responses, Celsius-to-Fahrenheit conversion, zero versus missing temperatures, malformed JSON, wrong shapes, empty forecasts, unsafe provider URLs, non-success responses, network errors, timeouts, cache freshness, stale fallback, stale expiry, recovery, configuration validation, concurrent display reads and display composition. Browser tests keep weather unconfigured so they make no live request; they exercise the unavailable fallback and render synthetic refreshed payloads at landscape and phone widths. Provider response shapes were also checked against the live API during development on 2026-11-01; that check is not part of the test suite.
+
+The weather card has not been manually verified on the actual household display, home Mac or iPhone. Browser screenshots establish responsive rendering in the test environment only.
 
 Known limitations:
 
@@ -138,4 +149,4 @@ Known limitations:
 - Current conditions are forecast values, not measured station observations.
 - There is no background refresh, retry policy, circuit breaker, cross-process cache or persistent cache.
 - Weather alerts and severe-weather safety guidance are not implemented.
-- Not yet integrated into any route, page or component; dashboard and display behavior remains future work.
+- The dashboard does not show weather; only the authenticated family display does.

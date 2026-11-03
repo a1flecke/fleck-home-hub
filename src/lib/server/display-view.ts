@@ -1,11 +1,19 @@
 import { error, redirect } from '@sveltejs/kit';
 import { localDate } from '../chores/recurrence';
 import { displayData } from './display';
+import { getDisplayWeather, type DisplayWeather } from './display-weather';
 import { getIdentityServices } from './runtime';
 
-export async function loadDisplay(request: Request) {
-  let services;
-  try { services = getIdentityServices(); } catch { error(503, 'Identity service unavailable'); }
+type DisplayServices = ReturnType<typeof getIdentityServices>;
+
+export type DisplayDependencies = {
+  services?: DisplayServices;
+  weather?: () => Promise<DisplayWeather>;
+};
+
+export async function loadDisplay(request: Request, dependencies: DisplayDependencies = {}) {
+  let services: DisplayServices;
+  try { services = dependencies.services ?? getIdentityServices(); } catch { error(503, 'Identity service unavailable'); }
   const session = await services.auth.api.getSession({ headers: request.headers });
   if (!session) redirect(303, '/sign-in');
   const member = services.db.prepare('SELECT household_id AS householdId FROM membership WHERE user_id = ? ORDER BY household_id LIMIT 1').get(session.user.id) as { householdId: string } | undefined;
@@ -14,6 +22,15 @@ export async function loadDisplay(request: Request) {
   const timezone = settings?.timezone ?? 'America/Chicago';
   const today = localDate(new Date(), timezone);
   const last = new Date(`${today}T00:00:00Z`); last.setUTCDate(last.getUTCDate() + 7);
+  const weatherPromise = loadWeatherSafely(dependencies.weather ?? getDisplayWeather);
   const { choices, events, chores, meals } = displayData(services.db, session.user.id, member.householdId, today, last.toISOString().slice(0, 10));
-  return { today, timezone, events, chores, meals, canManage: choices !== null };
+  return { today, timezone, events, chores, meals, canManage: choices !== null, weather: await weatherPromise };
+}
+
+async function loadWeatherSafely(loader: () => Promise<DisplayWeather>): Promise<DisplayWeather> {
+  try {
+    return await loader();
+  } catch {
+    return { status: 'unavailable' };
+  }
 }
