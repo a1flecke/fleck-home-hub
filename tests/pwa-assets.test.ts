@@ -24,6 +24,12 @@ type WebManifest = {
   background_color: string;
   theme_color: string;
   icons: ManifestIcon[];
+  share_target?: {
+    action: string;
+    method: string;
+    enctype: string;
+    params: Record<string, string>;
+  };
 };
 
 function readManifest(): WebManifest {
@@ -89,12 +95,30 @@ describe('installable PWA assets', () => {
     expect(pngDimensions(join(staticDirectory, 'favicon-32.png'))).toEqual({ width: 32, height: 32 });
   });
 
-  it('does not advertise or register offline behavior that is not implemented', () => {
+  it('declares a POST share target for recipe links inside the app scope', () => {
+    const manifest = readManifest();
+    expect(manifest.share_target).toEqual({
+      action: '/meals/share',
+      method: 'POST',
+      enctype: 'application/x-www-form-urlencoded',
+      params: { title: 'title', text: 'text', url: 'url' }
+    });
+    const action = new URL(manifest.share_target!.action, 'https://hub.invalid');
+    expect(action.pathname.startsWith(new URL(manifest.scope, 'https://hub.invalid').pathname)).toBe(true);
+    expect(action.search).toBe('');
+  });
+
+  it('registers only a non-caching share-target service worker', () => {
     const manifest = readManifest();
     expect(manifest).not.toHaveProperty('serviceworker');
     expect(manifest).not.toHaveProperty('service_worker');
-    expect(sourceText(join(root, 'src'))).not.toMatch(/serviceWorker\s*\.\s*register|navigator\.serviceWorker/);
-    expect(sourceText(staticDirectory)).not.toMatch(/serviceWorker\s*\.\s*register|navigator\.serviceWorker/);
+    expect(sourceText(join(root, 'src'))).toMatch(/navigator\.serviceWorker\.register\('\/service-worker\.js'/);
+    const worker = readFileSync(join(staticDirectory, 'service-worker.js'), 'utf8');
+    const workerCode = worker.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(worker).toContain("url.pathname === '/meals/share'");
+    expect(worker).toContain('event.respondWith(fetch(event.request))');
+    expect(workerCode).not.toMatch(/caches\.|CacheStorage|offline|indexedDB/i);
+    expect(workerCode.match(/addEventListener/g) ?? []).toHaveLength(1);
     expect(existsSync(join(staticDirectory, 'sw.js'))).toBe(false);
   });
 });

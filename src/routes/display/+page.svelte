@@ -1,7 +1,8 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { recipeLinkLabel } from '../../lib/meals/recipe-link';
+  import { recipeAttribution } from '../../lib/meals/recipe-link';
+  import RecipeCredit from '../../lib/meals/RecipeCredit.svelte';
   let { data } = $props();
   let current = $derived(data);
   let ready = $state(false);
@@ -86,7 +87,7 @@
       {#each current.chores as chore (chore.id)}<article class="mt-4"><h3 class="text-lg font-semibold">{chore.title}</h3><p>{chore.status === 'verified' ? 'Approved' : chore.status === 'pending_verification' ? 'Waiting for a parent' : chore.status === 'needs_rework' ? 'Needs rework' : 'To do'}</p></article>{:else}<p class="mt-4">No shared chores today.</p>{/each}
       {#if current.chores.length}<p class="mt-4">{current.chores.filter(chore => chore.status === 'verified').length} of {current.chores.length} approved</p>{/if}
     </section>
-    <section aria-label="Tonight's dinner" class="rounded-2xl bg-white p-6 shadow-sm"><h2 class="text-2xl font-bold">Tonight's dinner</h2>{#each current.meals as meal (meal.id)}<article class="mt-4"><h3 class="text-lg font-semibold">{meal.title}</h3>{#if meal.time}<p>{meal.time}</p>{/if}{#if meal.servings}<p>Serves {meal.servings}</p>{/if}{#if meal.ingredients}<p class="mt-3 whitespace-pre-line">{meal.ingredients}</p>{/if}{#if meal.source}<p class="mt-3">Source: {meal.source}</p>{/if}{#if meal.recipeUrl}<a href={meal.recipeUrl} rel="external noopener noreferrer" class="mt-3 inline-block text-teal-700">{recipeLinkLabel(meal.source)}</a>{/if}</article>{:else}<p class="mt-4">No meals shared for today.</p>{/each}</section>
+    <section aria-label="Tonight's dinner" class="rounded-2xl bg-white p-6 shadow-sm"><h2 class="text-2xl font-bold">Tonight's dinner</h2>{#each current.meals as meal (meal.id)}{@const attribution = recipeAttribution(meal.source, meal.recipeUrl)}<article class="mt-4"><h3 class="text-lg font-semibold">{meal.title}</h3>{#if meal.time}<p>{meal.time}</p>{/if}{#if meal.servings}<p>Serves {meal.servings}</p>{/if}<RecipeCredit source={meal.source} recipeUrl={meal.recipeUrl} />{#if meal.ingredients}{#if attribution?.verifiedSource}<p class="mt-3 text-sm font-semibold">Family-entered ingredients</p>{/if}<p class="mt-1 whitespace-pre-line">{meal.ingredients}</p>{/if}</article>{:else}<p class="mt-4">No meals shared for today.</p>{/each}</section>
   </div>
   <div class="mt-8 flex flex-wrap gap-3"><a href={resolve('/display')} data-sveltekit-reload class="inline-block rounded-xl border border-teal-700 px-4 py-3">Refresh display</a><button disabled={!ready} onclick={() => { updating = !updating; if (!updating) generation++; }} class="rounded-xl border border-teal-700 px-4 py-3 disabled:opacity-50">{updating ? 'Pause automatic updates' : 'Resume automatic updates'}</button>{#if current.canManage}<a href={resolve('/display/settings')} class="inline-block rounded-xl border border-teal-700 px-4 py-3">Choose what to share</a>{/if}</div>
 </main>
