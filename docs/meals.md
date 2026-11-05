@@ -1,6 +1,6 @@
 # Meals
 
-Parents can add and edit meals for a household-local date, including a serving time, servings, a family-entered ingredient list with quantities, private notes, source attribution and an optional HTTPS recipe link. Ingredients are stored as text, one per line; they are not yet a structured grocery list. A link and source are optional. The application does not fetch recipe pages, collect third-party credentials or synchronize eMeals accounts.
+Parents can add and edit meals for a household-local date, including a serving time, servings, a family-entered ingredient list with quantities, private notes, source attribution and an optional HTTPS recipe link. Ingredients are stored as text, one per line; they are not a normalized grocery list. A link and source are optional. The application fetches a recipe page only when a parent explicitly chooses **Preview recipe details** for a recognized eMeals link. It never collects eMeals credentials or synchronizes accounts.
 
 ## Add dinner from a recipe link
 
@@ -22,6 +22,22 @@ Real-device checks still required:
 - On an installed Android Chromium PWA, sign in, open one real eMeals recipe, choose Share, confirm Home Hub appears, choose it, verify the draft link and Save.
 - On the intended iPhone, use a temporary Shortcut with Apple's **View Content Graph** action on an eMeals recipe share. Record whether a URL, title, text or file is supplied, without sharing the URL or recipe content outside the device. Then verify the copy-and-paste fallback on the same device.
 
+## Preview recipe details from eMeals
+
+After reviewing a draft with a recognized eMeals link, a parent can choose **Preview recipe details**. This is an explicit, single-link request. The server:
+
+- fetches only the exact HTTPS link on `emeals.com` or `www.emeals.com`;
+- follows at most three redirects, revalidating every destination against the same exact hosts;
+- sends no cookies or account credentials, uses a 5-second timeout and reads at most 1 MB;
+- reads only JSON-LD `Recipe` name, yield, total time and ingredient lines;
+- ignores directions, images, photos, logos, creator notices and all other fields.
+
+The preview shows **Recipe details from eMeals** with the recipe yield and total time, and a collapsible **Recipe ingredients from eMeals** list with one named group per recipe record. Quantities are preserved as text. The parent can still edit the meal name, date, family-entered ingredients, notes and sharing choice before saving. Provider details are stored only when their source URL matches the saved meal link; changing the link and saving clears stale details.
+
+If the fetch or JSON-LD read fails, the draft stays available and the parent can save the link-only meal. The original link and source credit remain. There is no automatic fetch on paste or share, no background refresh and no crawling.
+
+This is a private household feature. It does not claim provider permission, a licensed import or redistribution rights. The household is responsible for the applicable eMeals terms. Account-level synchronization, weekly-plan enumeration, final grocery-list export, retailer writes and checkout remain out of scope.
+
 ## What is recognized automatically
 
 The source registry in `src/lib/meals/recipe-sources.ts` recognizes only exact HTTPS hosts. eMeals is currently registered for `emeals.com` and `www.emeals.com`. `emeals.com.attacker.test`, `notemeals.com` and other lookalikes are not recognized. Insecure, credential-bearing, malformed, root-only and oversized links are rejected.
@@ -34,9 +50,11 @@ Adding another provider later means adding one registry descriptor with exact ho
 
 ## Ingredients and provider content
 
-Ingredient lines remain **family-entered**. The meal cards label them that way when a verified provider link is present. Quantities are preserved exactly as typed. Nothing is presented as imported from eMeals.
+Provider ingredient lines are shown as **Recipe ingredients from eMeals**, grouped by recipe record with quantity text preserved. Lines the parent types remain **Family-entered ingredients**. The meal cards label family lines that way when a verified provider link is present. The two sources stay separate; nothing is presented as if the family typed provider lines.
 
-Automatic eMeals metadata retrieval is intentionally disabled. A subscriber-shared link can technically return structured recipe data, but that establishes feasibility for one example, not permission to fetch, parse, copy or store provider content. No page requests, JSON-LD parsing, images, directions or credentials are used. The future permission-gated preview described in issue #30 would require explicit provider authorization, named ingredient groups, quantity preservation and the existing grocery duplicate-review step.
+Selecting provider or family lines for groceries uses the existing explicit selection and duplicate-review workflow. A line that matches an active grocery item still requires confirmation. Selections are deduplicated so the same line is not added twice in one action. No directions, images or provider instructions are imported.
+
+Automatic, background or multi-page retrieval is not implemented. The preview is limited to the single link the parent explicitly shares. Account synchronization and a permissioned provider feed remain separate, unapproved work.
 
 ## Privacy and sharing
 
@@ -46,12 +64,12 @@ The draft is private because no row exists before Save. A draft with no title ca
 
 ## Source labels and the display
 
-**Recipe source: eMeals** and **Open original recipe on eMeals** are shown together on the Meals page, the parent Today card and the opted-in family display. The compact cards keep the credit and link while omitting parent controls and private notes. **Family-entered ingredients** remains visible when the ingredient details are shown. Grocery selection is offered only when there are ingredient lines, and the existing explicit selection and duplicate-review rules still apply.
+**Recipe source: eMeals** and **Open original recipe on eMeals** are shown together on the Meals page, the parent Today card and the opted-in family display. **Recipe details from eMeals** and its collapsed ingredient groups appear when details were saved; the source credit stays visible outside that collapsed section. The compact cards keep the credit and link while omitting parent controls and private notes. **Family-entered ingredients** remains visible when the ingredient details are shown. Grocery selection is offered when there are family or provider ingredient lines, and the existing explicit selection and duplicate-review rules still apply.
 
 The Meals page no longer labels a link as an eMeals destination merely because the free-text source says `eMeals`. Only the recognized HTTPS destination receives that label.
 
 ## Migration and verification
 
-Migration `0008_meal_submission` adds a nullable `submission_key` and a partial unique index on `(household_id, submission_key)`. Existing meals keep their data. Back up the database before upgrading and follow the existing migration and recovery procedure.
+Migration `0008_meal_submission` adds a nullable `submission_key` and a partial unique index on `(household_id, submission_key)`. Migration `0009_meal_recipe_details` adds nullable `recipe_details` for normalized provider fields. Existing meals keep their data. Back up the database before upgrading and follow the existing migration and recovery procedure.
 
-The workflow has been tested with synthetic links only. A subscribed adult must verify a real share link on the intended devices and assess applicable content rights. Supported SDK and account-sync investigation is tracked separately in [issue #30](https://github.com/a1flecke/fleck-home-hub/issues/30); account synchronization is not implemented and is not claimed.
+Automated tests use synthetic HTML fixtures and never contact eMeals. A subscribed adult must still verify a real share link and the preview on the intended devices and assess applicable content rights. Supported account-sync investigation is tracked separately in [issue #30](https://github.com/a1flecke/fleck-home-hub/issues/30); account synchronization is not implemented and is not claimed.

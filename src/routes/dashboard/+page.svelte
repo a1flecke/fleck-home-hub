@@ -1,6 +1,7 @@
 <script lang="ts">
   import { recipeAttribution } from '../../lib/meals/recipe-link';
   import RecipeCredit from '../../lib/meals/RecipeCredit.svelte';
+  import RecipeDetails from '../../lib/meals/RecipeDetails.svelte';
   import { resolve } from '$app/paths';
   import Disclosure from '../calendar/Disclosure.svelte';
   import type { PageData } from './$types';
@@ -53,7 +54,7 @@
       <h2 class="text-xl font-bold">Tonight's meal</h2>
       {#each data.meals as meal (meal.id)}
         {@const attribution = recipeAttribution(meal.source, meal.recipeUrl)}
-        <article class="mt-4"><h3 class="font-bold">{meal.title}</h3>{#if meal.time}<p>{meal.time}</p>{/if}{#if meal.servings}<p>Serves {meal.servings}</p>{/if}<RecipeCredit source={meal.source} recipeUrl={meal.recipeUrl} />{#if meal.ingredients}{#if attribution?.verifiedSource}<p class="mt-2 text-sm font-semibold">Family-entered ingredients</p>{/if}<p class="mt-1 whitespace-pre-line">{meal.ingredients}</p>{/if}</article>
+        <article class="mt-4"><h3 class="font-bold">{meal.title}</h3>{#if meal.time}<p>{meal.time}</p>{/if}{#if meal.servings}<p>Serves {meal.servings}</p>{/if}<RecipeCredit source={meal.source} recipeUrl={meal.recipeUrl} /><RecipeDetails details={meal.recipeDetails} />{#if meal.ingredients}{#if attribution?.verifiedSource}<p class="mt-2 text-sm font-semibold">Family-entered ingredients</p>{/if}<p class="mt-1 whitespace-pre-line">{meal.ingredients}</p>{/if}</article>
       {:else}<p class="mt-2">No meals planned for today.</p>{/each}
       <a href={resolve('/meals')} class="mt-3 inline-block py-2 text-teal-700">Plan meals</a>
     </section>

@@ -13,11 +13,11 @@ const userAgent = 'FleckHomeHub/0.1 (private household recipe preview)';
 const redirectStatuses = new Set([301, 302, 303, 307, 308]);
 
 /** Fetches and parses one user-shared eMeals recipe link. No cookies, credentials or crawling. */
-export async function previewRecipe(rawUrl: string): Promise<RecipePreviewResult> {
+export async function previewRecipe(rawUrl: string, fetchImpl: typeof fetch = fetch): Promise<RecipePreviewResult> {
   const link = parseRecipeLink(rawUrl);
   if (!link || link.provider?.id !== 'emeals') return { status: 'unavailable' };
   try {
-    const html = await fetchRecipeHtml(link.url);
+    const html = await fetchRecipeHtml(link.url, fetchImpl);
     const details = extractRecipeDetails(html, link.url);
     return details ? { status: 'ok', details } : { status: 'failed' };
   } catch {
@@ -25,12 +25,14 @@ export async function previewRecipe(rawUrl: string): Promise<RecipePreviewResult
   }
 }
 
-async function fetchRecipeHtml(url: string): Promise<string> {
+async function fetchRecipeHtml(url: string, fetchImpl: typeof fetch): Promise<string> {
   let current = new URL(url);
   for (let redirects = 0; redirects <= maxRedirects; redirects++) {
-    const response = await fetch(current, {
+    const response = await fetchImpl(current, {
       method: 'GET',
       redirect: 'manual',
+      credentials: 'omit',
+      cache: 'no-store',
       headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': userAgent },
       signal: AbortSignal.timeout(timeoutMs)
     });

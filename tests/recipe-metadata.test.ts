@@ -35,7 +35,10 @@ function htmlResponse(body = recipeHtml, status = 200) {
 }
 
 function mockFetch(handler: (url: string) => Response | Promise<Response>) {
-  const fn = vi.fn(async (input: RequestInfo | URL) => handler(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url));
+  const fn = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    void init;
+    return handler(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
+  });
   vi.stubGlobal('fetch', fn);
   return fn;
 }
@@ -64,15 +67,17 @@ describe('recipe preview fetch', () => {
     expect(fetchMock).toHaveBeenCalledOnce();
     const [request, init] = fetchMock.mock.calls[0];
     expect(String(request)).toBe(sourceUrl);
-    expect(init).toMatchObject({ redirect: 'manual', headers: expect.objectContaining({ accept: expect.stringContaining('text/html') }) });
+    expect(init).toMatchObject({ redirect: 'manual', credentials: 'omit', cache: 'no-store', headers: expect.objectContaining({ accept: expect.stringContaining('text/html') }) });
   });
 
   it('formats durations and combines prep plus cook time', async () => {
     mockFetch(() => htmlResponse(`<script type="application/ld+json">${JSON.stringify({ '@type': 'Recipe', name: 'Timed', recipeIngredient: ['1 item'], totalTime: 'PT1H30M' })}</script>`));
-    expect((await previewRecipe(sourceUrl)).details?.totalTime).toBe('1 hr 30 min');
+    const total = await previewRecipe(sourceUrl);
+    expect(total.status === 'ok' ? total.details.totalTime : null).toBe('1 hr 30 min');
     vi.unstubAllGlobals();
     mockFetch(() => htmlResponse(`<script type="application/ld+json">${JSON.stringify({ '@type': 'Recipe', name: 'Timed', recipeIngredient: ['1 item'], prepTime: 'PT10M', cookTime: 'PT5M' })}</script>`));
-    expect((await previewRecipe(sourceUrl)).details?.totalTime).toBe('15 min');
+    const combined = await previewRecipe(sourceUrl);
+    expect(combined.status === 'ok' ? combined.details.totalTime : null).toBe('15 min');
   });
 
   it('does not fetch unrelated hosts', async () => {
