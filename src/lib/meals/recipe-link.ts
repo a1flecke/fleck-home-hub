@@ -19,9 +19,9 @@ const ignoredTitleSegments = new Set(['recipe', 'recipes', 'meal-plan', 'meal-pl
 /** Removes control characters and normalizes whitespace without altering printable text. */
 export function cleanRecipeTitle(value: string): string {
   return Array.from(value)
-    .filter(character => {
+    .map(character => {
       const code = character.charCodeAt(0);
-      return code > 31 && code !== 127;
+      return code > 31 && code !== 127 ? character : ' ';
     })
     .join('')
     .replace(/\s+/g, ' ')

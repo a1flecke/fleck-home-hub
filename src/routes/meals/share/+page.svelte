@@ -2,7 +2,9 @@
   import { resolve } from '$app/paths';
   import MealForm from '../MealForm.svelte';
   import RecipeCredit from '../../../lib/meals/RecipeCredit.svelte';
-  type RecipeDraft = { recipeUrl: string; title: string; date: string; submissionKey: string; mode: string };
+  import RecipeDetails from '../../../lib/meals/RecipeDetails.svelte';
+  import type { RecipeDetails as RecipeDetailsType } from '../../../lib/meals/recipe-details';
+  type RecipeDraft = { recipeUrl: string; title: string; date: string; time?: string; servings?: string; ingredients?: string; notes?: string; source?: string; recipeDetails?: RecipeDetailsType | null; suggestedTitle?: string; shared?: boolean; submissionKey: string; mode: string };
   type Form = { message?: string; recipeDraft?: RecipeDraft; sharedText?: string; sharedTitle?: string };
   let { form }: { form: Form | null } = $props();
   let draft = $derived(form?.recipeDraft);
@@ -16,7 +18,8 @@
   {#if draft}
     <p class="mt-3">Review this private draft. Nothing is saved until you choose Save meal.</p>
     <RecipeCredit recipeUrl={draft.recipeUrl} />
-    <MealForm label="Save recipe meal" viewDate={draft.date} initial={draft} action={`/meals?/save&date=${encodeURIComponent(draft.date)}`} />
+    <RecipeDetails details={draft.recipeDetails ?? null} />
+    <MealForm label="Save recipe meal" viewDate={draft.date} initial={draft} action={`/meals?/save&date=${encodeURIComponent(draft.date)}`} preview />
     <a href={resolve('/meals')} class="mt-3 inline-block py-2 text-teal-700">Cancel draft</a>
   {:else}
     <form method="POST" action={resolve('/meals/share')} aria-label="Add meal from a shared recipe link" class="mt-4 grid gap-3">

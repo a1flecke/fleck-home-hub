@@ -205,8 +205,8 @@ it('upgrades the current main migration history without skipping invitations', a
   const { migrate: migrateDrizzle } = await import('drizzle-orm/better-sqlite3/migrator');
   const directory = mkdtempSync(join(tmpdir(), 'hub-main-upgrade-')); dirs.push(directory);
   const previous = join(directory, 'previous'); mkdirSync(join(previous, 'meta'), { recursive: true });
-  const journal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
-  journal.entries = journal.entries.filter((entry: { tag: string }) => entry.tag !== '0009_household_invitations');
+  const fullJournal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
+  const journal = { ...fullJournal, entries: fullJournal.entries.filter((entry: { tag: string }) => entry.tag !== '0009_household_invitations' && entry.tag !== '0010_meal_recipe_details') };
   writeFileSync(join(previous, 'meta/_journal.json'), JSON.stringify(journal));
   for (const entry of journal.entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(previous, `${entry.tag}.sql`));
   const db = new Database(join(directory, 'synthetic.sqlite')); dbs.push(db);
@@ -215,5 +215,5 @@ it('upgrades the current main migration history without skipping invitations', a
   expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'household_invitation'").get()).toBeUndefined();
   await migrate(db);
   expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'household_invitation'").get()).toEqual({ name: 'household_invitation' });
-  expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: journal.entries.length + 1 });
+  expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: fullJournal.entries.length });
 });

@@ -5,10 +5,12 @@
   import IngredientForm from './IngredientForm.svelte';
   import { ingredientLines } from '../../lib/grocery/domain';
   import RecipeCredit from '../../lib/meals/RecipeCredit.svelte';
+  import RecipeDetails from '../../lib/meals/RecipeDetails.svelte';
+  import type { RecipeDetails as RecipeDetailsType } from '../../lib/meals/recipe-details';
   import { recipeAttribution } from '../../lib/meals/recipe-link';
   import type { PageData } from './$types';
-  type MealError = { id: string; title: string; date: string; time: string; servings: string; ingredients: string; notes: string; source: string; recipeUrl: string; shared: boolean; submissionKey?: string; mode?: string };
-  type RecipeDraft = { recipeUrl: string; title: string; date: string; submissionKey: string; mode: string };
+  type MealError = { id: string; title: string; date: string; time: string; servings: string; ingredients: string; notes: string; source: string; recipeUrl: string; recipeDetails?: RecipeDetailsType | null; suggestedTitle?: string; shared: boolean; submissionKey?: string; mode?: string };
+  type RecipeDraft = { recipeUrl: string; title: string; date: string; time?: string; servings?: string; ingredients?: string; notes?: string; source?: string; recipeDetails?: RecipeDetailsType | null; suggestedTitle?: string; shared?: boolean; submissionKey: string; mode: string };
   type Form = { message?: string; mealError?: MealError; ingredientError?: { id: string; selections: string[]; duplicate: boolean }; recipeLinkError?: { recipeUrl: string }; recipeDraft?: RecipeDraft };
   let { data, form }: { data: PageData; form: Form | null } = $props();
   let selectedDate = $derived(data.date);
@@ -27,7 +29,8 @@
       {#if draft}
         <p class="mt-3 text-sm">Review this private draft. Nothing is saved until you choose Save meal.</p>
         <RecipeCredit recipeUrl={draft.recipeUrl} />
-        <MealForm label="Save recipe meal" viewDate={data.date} initial={draft} />
+        <RecipeDetails details={draft.recipeDetails ?? null} />
+        <MealForm label="Save recipe meal" viewDate={data.date} initial={draft} preview />
         <a href={resolve('/meals')} class="mt-3 inline-block py-2 text-teal-700">Cancel draft</a>
       {:else}
         <form method="POST" action={`?/draft&date=${encodeURIComponent(data.date)}`} aria-label="Add meal from recipe link" class="mt-3 grid gap-3">
@@ -42,10 +45,10 @@
   <section aria-label="Planned meals" class="mt-6"><h2 class="text-2xl font-bold">Meals for {data.date}</h2>
     {#each data.meals as meal (meal.id)}
       {@const attribution = recipeAttribution(meal.source, meal.recipeUrl)}
-      <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm"><h3 class="text-xl font-bold">{meal.title}</h3>{#if meal.time}<p>{meal.time}</p>{/if}{#if meal.servings}<p>Serves {meal.servings}</p>{/if}<RecipeCredit source={meal.source} recipeUrl={meal.recipeUrl} />{#if meal.ingredients}{#if attribution?.verifiedSource}<p class="mt-3 text-sm font-semibold">Family-entered ingredients</p>{/if}<p class="mt-1 whitespace-pre-line">{meal.ingredients}</p>{/if}{#if meal.notes}<p class="mt-3">{meal.notes}</p>{/if}
+      <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm"><h3 class="text-xl font-bold">{meal.title}</h3>{#if meal.time}<p>{meal.time}</p>{/if}{#if meal.servings}<p>Serves {meal.servings}</p>{/if}<RecipeCredit source={meal.source} recipeUrl={meal.recipeUrl} /><RecipeDetails details={meal.recipeDetails} />{#if meal.ingredients}{#if attribution?.verifiedSource}<p class="mt-3 text-sm font-semibold">Family-entered ingredients</p>{/if}<p class="mt-1 whitespace-pre-line">{meal.ingredients}</p>{/if}{#if meal.notes}<p class="mt-3">{meal.notes}</p>{/if}
       {#if data.role === 'parent'}<Disclosure class="mt-4" expanded={form?.mealError?.id === meal.id}><summary class="cursor-pointer font-bold">Edit meal</summary><MealForm label={`Edit ${meal.title}`} viewDate={data.date} initial={form?.mealError?.id === meal.id ? form.mealError : meal} /></Disclosure>
-        {#if ingredientLines(meal.ingredients).length}<Disclosure class="mt-4" expanded={form?.ingredientError?.id === meal.id}><summary class="cursor-pointer font-bold">Add ingredients to groceries</summary>
-          <IngredientForm id={meal.id} title={meal.title} ingredients={meal.ingredients} date={data.date} initial={form?.ingredientError?.id === meal.id ? form.ingredientError.selections : []} duplicate={form?.ingredientError?.id === meal.id && form.ingredientError.duplicate} /></Disclosure>{/if}
+        {#if ingredientLines(meal.ingredients).length || meal.recipeDetails?.groups.length}<Disclosure class="mt-4" expanded={form?.ingredientError?.id === meal.id}><summary class="cursor-pointer font-bold">Add ingredients to groceries</summary>
+          <IngredientForm id={meal.id} title={meal.title} ingredients={meal.ingredients} groups={meal.recipeDetails?.groups ?? []} date={data.date} initial={form?.ingredientError?.id === meal.id ? form.ingredientError.selections : []} duplicate={form?.ingredientError?.id === meal.id && form.ingredientError.duplicate} /></Disclosure>{/if}
       {/if}</article>{:else}<p class="mt-4">No meals planned for this day yet.</p>{/each}
   </section>
 </main>

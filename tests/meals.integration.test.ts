@@ -90,6 +90,51 @@ it('upgrades a meal database without losing existing meals when adding submissio
   } finally { db.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+it('persists and projects only recipe details that match the saved eMeals link', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'home');
+    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    const recipeUrl = 'https://emeals.com/recipes/synthetic-preview';
+    const details = { sourceUrl: recipeUrl, title: 'Synthetic Preview Bowl', yield: '4 servings', totalTime: '25 min', groups: [{ name: 'Synthetic Main', lines: ['1½ cups synthetic rice'] }] };
+    const id = createMeal(db, 'parent', 'home', { title: 'Synthetic dinner', date: '2026-11-05', ingredients: '1 family carrot', shared: true, recipeUrl, recipeDetails: details });
+    expect(listMeals(db, 'parent', 'home', '2026-11-05')[0].recipeDetails).toEqual(details);
+    expect(listMeals(db, 'kid', 'home', '2026-11-05')[0].recipeDetails).toEqual(details);
+    expect(displayData(db, 'kid', 'home', '2026-11-05', '2026-11-12').meals[0].recipeDetails).toEqual(details);
+    updateMeal(db, 'parent', 'home', id, { title: 'Synthetic dinner', date: '2026-11-05', ingredients: '1 family carrot', shared: true, recipeUrl: 'https://emeals.com/recipes/another', recipeDetails: details });
+    expect(listMeals(db, 'parent', 'home', '2026-11-05')[0].recipeDetails).toBeNull();
+    updateMeal(db, 'parent', 'home', id, { title: 'Synthetic dinner', date: '2026-11-05', ingredients: '1 family carrot', shared: false, recipeUrl, recipeDetails: details });
+    expect(listMeals(db, 'kid', 'home', '2026-11-05')).toEqual([]);
+    expect(displayData(db, 'kid', 'home', '2026-11-05', '2026-11-12').meals).toEqual([]);
+  } finally { db.close(); }
+});
+
+it('upgrades a meal database with recipe details without losing existing meals', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'hub-meal-details-migration-'));
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); mkdirSync(join(directory, 'meta'));
+    const journal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
+    journal.entries = journal.entries.slice(0, 9);
+    for (const entry of journal.entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(directory, `${entry.tag}.sql`));
+    writeFileSync(join(directory, 'meta/_journal.json'), JSON.stringify(journal));
+    db.exec('CREATE TABLE user (id TEXT PRIMARY KEY NOT NULL)');
+    migrateDrizzle(drizzle(db), { migrationsFolder: directory });
+    db.prepare('INSERT INTO user VALUES (?)').run('parent');
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare("INSERT INTO meal (id, household_id, title, meal_date, ingredients, shared, created_at, updated_at) VALUES ('existing', 'home', 'Existing dinner', '2026-11-05', '', 0, '2026-11-05', '2026-11-05')").run();
+    migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
+    migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
+    expect(db.prepare('SELECT title FROM meal WHERE id = ?').get('existing')).toEqual({ title: 'Existing dinner' });
+    const columns = db.prepare('PRAGMA table_info(meal)').all() as { name: string }[];
+    expect(columns.map(column => column.name)).toContain('recipe_details');
+  } finally { db.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
 it('upgrades the previous schema without losing household membership and is repeatable', () => {
   const directory = mkdtempSync(join(tmpdir(), 'hub-meal-migration-'));
   const db = new Database(':memory:');

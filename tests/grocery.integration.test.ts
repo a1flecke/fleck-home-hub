@@ -4,6 +4,32 @@ import { migrate } from '../src/lib/server/identity';
 import { addGrocery, addMealIngredients, changeGrocery, listGroceries, removeGrocery } from '../src/lib/server/groceries';
 import { createMeal } from '../src/lib/server/meals';
 
+it('accepts stored provider ingredient lines and deduplicates selections', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'home');
+    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    const recipeUrl = 'https://emeals.com/recipes/synthetic-preview';
+    const meal = createMeal(db, 'parent', 'home', {
+      title: 'Provider dinner',
+      date: '2099-01-02',
+      ingredients: '1 family carrot',
+      recipeUrl,
+      recipeDetails: { sourceUrl: recipeUrl, title: 'Provider dinner', yield: null, totalTime: null, groups: [{ name: 'Synthetic Main', lines: ['1 provider rice', '1 provider lemon'] }] },
+      shared: false
+    });
+    expect(() => addMealIngredients(db, 'parent', 'home', meal, ['1 forged provider line'])).toThrow();
+    expect(addMealIngredients(db, 'parent', 'home', meal, ['1 provider rice', '1 provider rice'], true)).toBe(1);
+    expect(listGroceries(db, 'parent', 'home')).toMatchObject([{ name: '1 provider rice' }]);
+    expect(addMealIngredients(db, 'parent', 'home', meal, ['1 family carrot', '1 provider lemon'])).toBe(2);
+    expect(listGroceries(db, 'parent', 'home').map(item => item.name).sort()).toEqual(['1 family carrot', '1 provider lemon', '1 provider rice']);
+    expect(() => addMealIngredients(db, 'kid', 'home', meal, ['1 provider rice'])).toThrow();
+  } finally { db.close(); }
+});
+
 it('shares grocery items within the household and rejects stale edits', async () => {
   const db = new Database(':memory:');
   try {
