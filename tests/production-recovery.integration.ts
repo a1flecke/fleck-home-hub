@@ -1,4 +1,5 @@
 import { test } from 'node:test';
+import { createHash, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
@@ -58,6 +59,7 @@ test('a verified backup reopens in the localhost production server after a faile
   const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const secret = 'synthetic-production-recovery-secret-32-plus';
+  const invitationToken = randomBytes(32).toString('base64url');
   const parent = { name: 'Recovery Parent', email: 'recovery-parent@example.test', password: 'synthetic-parent-password' };
   const kid = { name: 'Recovery Kid', email: 'recovery-kid@example.test', password: 'synthetic-kid-password' };
   let db: Database.Database | undefined;
@@ -80,6 +82,7 @@ test('a verified backup reopens in the localhost production server after a faile
     changeChore(db, kidId, household, chore, 'submit');
     changeChore(db, parentId, household, chore, 'verify');
     recordPayout(db, parentId, household, { childId: kidId, amountCents: 100, date: '2026-10-30', note: '', requestId: 'synthetic-recovery-payment' });
+    db.prepare('INSERT INTO household_invitation (id, token_hash, household_id, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)').run('synthetic-recovery-invite', createHash('sha256').update(invitationToken).digest('hex'), household, 'kid', parentId, Date.now() + 600_000);
     await backupDatabase(source, backup);
     db.exec('ALTER TABLE user ADD COLUMN unreviewed_schema_change TEXT');
     await assert.rejects(migrate(db));
@@ -99,6 +102,20 @@ test('a verified backup reopens in the localhost production server after a faile
     await waitForStart(child, origin);
     const anonymous = await fetch(`${origin}/dashboard`, { redirect: 'manual' });
     assert.equal(anonymous.status, 303);
+    const invited = await fetch(`${origin}/accept-invitation`, {
+      method: 'POST', headers: { origin, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: invitationToken, name: 'Recovered Invitee', email: 'recovered-invitee@example.test', password: 'synthetic-invitee-password' }), redirect: 'manual'
+    });
+    assert.equal(invited.status, 303);
+    assert.equal(invited.headers.get('location'), '/accept-invitation?success=1');
+    const inviteeSignIn = await fetch(`${origin}/api/auth/sign-in/email`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ email: 'recovered-invitee@example.test', password: 'synthetic-invitee-password' })
+    });
+    assert.equal(inviteeSignIn.status, 200);
+    const inviteeCookies = inviteeSignIn.headers.getSetCookie().map(cookie => cookie.split(';')[0]).join('; ');
+    const admin = await fetch(`${origin}/settings/household`, { headers: { cookie: inviteeCookies }, redirect: 'manual' });
+    assert.equal(admin.status, 403);
     for (const account of [parent, kid]) {
       const signedIn = await fetch(`${origin}/api/auth/sign-in/email`, {
         method: 'POST', headers: { origin, 'content-type': 'application/json' },

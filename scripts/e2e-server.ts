@@ -18,6 +18,7 @@ const payoutKid = await auth.api.signUpEmail({ body: { name: 'Payout Kid', email
 const balanceKid = await auth.api.signUpEmail({ body: { name: 'Balance Kid', email: 'balance-kid@example.test', password: 'synthetic-balance-kid-password' } });
 const stalePayoutOnKid = await auth.api.signUpEmail({ body: { name: 'Stale Payout On Kid', email: 'stale-payout-on@example.test', password: 'synthetic-stale-payout-on-password' } });
 const stalePayoutOffKid = await auth.api.signUpEmail({ body: { name: 'Stale Payout Off Kid', email: 'stale-payout-off@example.test', password: 'synthetic-stale-payout-off-password' } });
+const multiParent = await auth.api.signUpEmail({ body: { name: 'Multi Parent', email: 'multi-parent@example.test', password: 'synthetic-multi-parent-password' } });
 const otherParent = await auth.api.signUpEmail({ body: { name: 'Other Parent', email: 'other-parent@example.test', password: 'synthetic-other-parent-password' } });
 const household = db.prepare('SELECT id FROM household').get() as { id: string };
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-other-household', 'Other household');
@@ -28,6 +29,11 @@ db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(stalePayoutOnKid.user.id, household.id, 'kid');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(stalePayoutOffKid.user.id, household.id, 'kid');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(otherParent.user.id, 'synthetic-other-household', 'parent');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(multiParent.user.id, household.id, 'parent');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(multiParent.user.id, 'synthetic-other-household', 'parent');
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-failure-household', 'Validation example');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(multiParent.user.id, 'synthetic-failure-household', 'parent');
+db.exec("CREATE TRIGGER reject_synthetic_child_invite BEFORE INSERT ON household_invitation WHEN NEW.household_id = 'synthetic-failure-household' AND NEW.role = 'kid' BEGIN SELECT RAISE(ABORT, 'synthetic invitation failure'); END");
 db.close();
 const child = spawn('pnpm', ['exec', 'vite', 'dev', '--host', '127.0.0.1', '--port', '4173', '--strictPort'], {
   // Keep browser tests deterministic and offline: they never contact NWS or use private coordinates.
