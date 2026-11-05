@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { ingredientLines, sameGroceryName } from '../grocery/domain';
+import { parseRecipeDetailsJson, providerIngredientLines, recipeDetailsForMeal } from '../meals/recipe-details';
 
 type ItemInput = { name: string; quantity: string; unit: string };
 type Item = ItemInput & { id: string; completed: boolean; version: number };
@@ -46,11 +47,13 @@ export function removeGrocery(db: Database.Database, actor: string, household: s
 export function addMealIngredients(db: Database.Database, actor: string, household: string, mealId: string, selections: string[], allowDuplicates = false): number {
   authorize(db, actor, household, true);
   return db.transaction(() => {
-    const meal = db.prepare('SELECT ingredients FROM meal WHERE id = ? AND household_id = ?').get(mealId, household) as { ingredients: string } | undefined;
+    const meal = db.prepare('SELECT ingredients, recipe_url AS recipeUrl, recipe_details AS recipeDetailsJson FROM meal WHERE id = ? AND household_id = ?').get(mealId, household) as { ingredients: string; recipeUrl: string | null; recipeDetailsJson: string | null } | undefined;
     if (!meal) throw new Error('Meal not found');
-    const available = ingredientLines(meal.ingredients);
-    if (!selections.length || selections.length > 100 || selections.some(line => !available.includes(line))) throw new Error('Invalid ingredients');
-    for (const name of selections) addGrocery(db, actor, household, { name, quantity: '', unit: '' }, allowDuplicates);
-    return selections.length;
+    const details = recipeDetailsForMeal(parseRecipeDetailsJson(meal.recipeDetailsJson), meal.recipeUrl);
+    const available = [...ingredientLines(meal.ingredients), ...providerIngredientLines(details)];
+    const unique = [...new Set(selections)];
+    if (!unique.length || unique.length > 100 || unique.some(line => !available.includes(line))) throw new Error('Invalid ingredients');
+    for (const name of unique) addGrocery(db, actor, household, { name, quantity: '', unit: '' }, allowDuplicates);
+    return unique.length;
   }).immediate();
 }
