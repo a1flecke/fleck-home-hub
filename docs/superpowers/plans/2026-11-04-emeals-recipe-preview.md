@@ -42,7 +42,7 @@ family and provider lines.
 - [ ] Extend `tests/meals.integration.test.ts`: save details, list/display projection,
       unshare removal, stale-source clearing, migration from 0008 preserves meals.
 - [ ] Confirm failures.
-- [ ] Add `drizzle/0009_meal_recipe_details.sql` and journal entry.
+- [ ] Add `drizzle/0010_meal_recipe_details.sql` and journal entry.
 - [ ] Add `recipeDetails` to `MealInput`/`Meal`, validate source match, insert/update,
       parse on list; add to dashboard and display projections.
 - [ ] Rerun integration tests.

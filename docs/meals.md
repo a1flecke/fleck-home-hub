@@ -70,6 +70,6 @@ The Meals page no longer labels a link as an eMeals destination merely because t
 
 ## Migration and verification
 
-Migration `0008_meal_submission` adds a nullable `submission_key` and a partial unique index on `(household_id, submission_key)`. Migration `0009_meal_recipe_details` adds nullable `recipe_details` for normalized provider fields. Existing meals keep their data. Back up the database before upgrading and follow the existing migration and recovery procedure.
+Migration `0008_meal_submission` adds a nullable `submission_key` and a partial unique index on `(household_id, submission_key)`. Migration `0010_meal_recipe_details` adds nullable `recipe_details` for normalized provider fields. Existing meals keep their data. Back up the database before upgrading and follow the existing migration and recovery procedure.
 
 Automated tests use synthetic HTML fixtures and never contact eMeals. A subscribed adult must still verify a real share link and the preview on the intended devices and assess applicable content rights. Supported account-sync investigation is tracked separately in [issue #30](https://github.com/a1flecke/fleck-home-hub/issues/30); account synchronization is not implemented and is not claimed.

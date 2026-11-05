@@ -6,14 +6,14 @@ import Database from 'better-sqlite3';
 import { readFileSync } from 'node:fs';
 import { authorize, type Principal } from './authorization';
 
-type Options = { secret: string; origin: string; allowSignUp?: boolean };
+type Options = { secret: string; origin: string; allowSignUp?: boolean; autoSignIn?: boolean };
 
 function options(database: Database.Database, config: Options) {
   return {
     database,
     secret: config.secret,
     baseURL: config.origin,
-    emailAndPassword: { enabled: true, disableSignUp: !config.allowSignUp },
+    emailAndPassword: { enabled: true, disableSignUp: !config.allowSignUp, autoSignIn: config.autoSignIn },
     // Do not trust client-supplied proxy headers until a verified proxy boundary exists.
     advanced: { useSecureCookies: config.origin.startsWith('https://'), ipAddress: { ipAddressHeaders: [] as string[] } }
   };
@@ -21,6 +21,23 @@ function options(database: Database.Database, config: Options) {
 
 export function createAuth(database: Database.Database, config: Options) {
   return betterAuth(options(database, config));
+}
+
+// CLI-only provisioning: the credential hook runs inside Better Auth's signup
+// transaction on this dedicated connection, so domain writes roll back with auth.
+export async function provisionIdentity(database: Database.Database, config: Options, input: { name: string; email: string; password: string }, provision: (userId: string) => void) {
+  let provisioned: string | undefined;
+  const auth = betterAuth({
+    ...options(database, { ...config, allowSignUp: true, autoSignIn: false }),
+    logger: { disabled: true },
+    databaseHooks: { account: { create: { before: async (account) => {
+      provision(account.userId);
+      provisioned = account.userId;
+    } } } }
+  });
+  const result = await auth.api.signUpEmail({ body: input });
+  // Duplicate-email responses can contain synthetic user IDs without a write.
+  if (!provisioned || result.user.id !== provisioned) throw new Error('Account could not be provisioned');
 }
 
 function verifyAuthSchema(database: Database.Database, sql: string) {

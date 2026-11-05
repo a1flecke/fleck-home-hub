@@ -42,7 +42,7 @@ responsible for the provider terms and for keeping imported fields private.
 
 ## Data model
 
-Migration `0009_meal_recipe_details` adds nullable `meal.recipe_details` TEXT.
+Migration `0010_meal_recipe_details` adds nullable `meal.recipe_details` TEXT.
 The stored JSON is normalized and validated:
 
 ```text
