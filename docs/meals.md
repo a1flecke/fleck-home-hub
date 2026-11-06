@@ -1,6 +1,6 @@
 # Meals
 
-Parents can add and edit meals for a household-local date, including a serving time, servings, a family-entered ingredient list with quantities, private notes, source attribution and an optional HTTPS recipe link. Ingredients are stored as text, one per line; they are not a normalized grocery list. A link and source are optional. The application fetches a recipe page only when a parent explicitly chooses **Preview recipe details** for a recognized eMeals link. It never collects eMeals credentials or synchronizes accounts.
+Parents can add and edit meals for a household-local date, including a serving time, servings, a family-entered ingredient list with quantities, private notes, source attribution and an optional HTTPS recipe link. Ingredients are stored as text, one per line. The grocery handoff suggests a structured name, quantity and unit for parent review, but it never rewrites the meal. A link and source are optional. The application fetches a recipe page only when a parent explicitly chooses **Preview recipe details** for a recognized eMeals link. It never collects eMeals credentials or synchronizes accounts.
 
 ## Add dinner from a recipe link
 
@@ -52,7 +52,9 @@ Adding another provider later means adding one registry descriptor with exact ho
 
 Provider ingredient lines are shown as **Recipe ingredients from eMeals**, grouped by recipe record with quantity text preserved. Lines the parent types remain **Family-entered ingredients**. The meal cards label family lines that way when a verified provider link is present. The two sources stay separate; nothing is presented as if the family typed provider lines.
 
-Selecting provider or family lines for groceries uses the existing explicit selection and duplicate-review workflow. A line that matches an active grocery item still requires confirmation. Selections are deduplicated so the same line is not added twice in one action. No directions, images or provider instructions are imported.
+Selecting provider or family lines for groceries opens a review step; nothing is written until the parent confirms it. The review shows the original line, the suggested name, quantity and unit, the source group, and any probable active grocery match. The parent can edit every field and choose to add, skip or keep a separate duplicate. Ambiguous lines such as `2 (15 oz) cans tomatoes`, ranges, package descriptions and unknown abbreviations stay whole and are flagged rather than guessed. Quantities are never combined with existing items. Exact duplicate selections from overlapping groups are shown but included once by default. See [groceries](groceries.md) for the parsing and duplicate rules.
+
+Provider details and the saved meal are unchanged by the grocery handoff. No directions, images or provider instructions are imported.
 
 Automatic, background or multi-page retrieval is not implemented. The preview is limited to the single link the parent explicitly shares. Account synchronization and a permissioned provider feed remain separate, unapproved work.
 
@@ -64,7 +66,7 @@ The draft is private because no row exists before Save. A draft with no title ca
 
 ## Source labels and the display
 
-**Recipe source: eMeals** and **Open original recipe on eMeals** are shown together on the Meals page, the parent Today card and the opted-in family display. **Recipe details from eMeals** and its collapsed ingredient groups appear when details were saved; the source credit stays visible outside that collapsed section. The compact cards keep the credit and link while omitting parent controls and private notes. **Family-entered ingredients** remains visible when the ingredient details are shown. Grocery selection is offered when there are family or provider ingredient lines, and the existing explicit selection and duplicate-review rules still apply.
+**Recipe source: eMeals** and **Open original recipe on eMeals** are shown together on the Meals page, the parent Today card and the opted-in family display. **Recipe details from eMeals** and its collapsed ingredient groups appear when details were saved; the source credit stays visible outside that collapsed section. The compact cards keep the credit and link while omitting parent controls and private notes. **Family-entered ingredients** remains visible when the ingredient details are shown. Grocery selection is offered when there are family or provider ingredient lines, and it always opens the parent-reviewed handoff described in [groceries](groceries.md).
 
 The Meals page no longer labels a link as an eMeals destination merely because the free-text source says `eMeals`. Only the recognized HTTPS destination receives that label.
 

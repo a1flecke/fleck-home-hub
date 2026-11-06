@@ -30,24 +30,273 @@ test('a parent selects meal ingredients and confirms an existing item', async ({
   await page.getByText('Add a meal', { exact: true }).click();
   const add = page.getByRole('form', { name: 'Add meal' });
   await add.getByLabel('Meal name').fill('Synthetic grocery dinner');
-  await add.getByLabel('Ingredients').fill('2 cups lentils\n1 carrot');
+  await add.getByLabel('Ingredients').fill('2 cups synthetic lentils\n1 carrot');
   await add.getByRole('button', { name: 'Save meal' }).click();
   const meal = page.getByRole('article').filter({ hasText: 'Synthetic grocery dinner' });
   await expect(meal).toBeVisible();
   await meal.getByText('Add ingredients to groceries', { exact: true }).click();
-  const ingredients = meal.getByRole('form', { name: 'Add ingredients for Synthetic grocery dinner' });
-  await ingredients.getByLabel('2 cups lentils').check();
-  await ingredients.getByRole('button', { name: 'Add selected ingredients' }).click();
-  await expect(page.getByRole('article').filter({ hasText: '2 cups lentils' })).toBeVisible();
+  let ingredients = meal.getByRole('form', { name: 'Add ingredients for Synthetic grocery dinner' });
+  await ingredients.getByLabel('2 cups synthetic lentils').check();
+  await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
+  let review = page.getByRole('region', { name: 'Review ingredients for groceries' });
+  let line = review.getByRole('group', { name: '2 cups synthetic lentils' });
+  await expect(line.getByLabel('Item name')).toHaveValue('synthetic lentils');
+  await expect(line.getByLabel('Quantity')).toHaveValue('2');
+  await expect(line.getByLabel('Unit')).toHaveValue('cups');
+  await review.getByRole('button', { name: 'Add reviewed items' }).click();
+  await expect(page.getByRole('status')).toContainText('Added 1 item and skipped 0');
+  await expect(page.getByRole('article').filter({ hasText: 'synthetic lentils' })).toContainText('2 cups');
+
   await page.goto('/meals?date=2099-06-01');
   await meal.getByText('Add ingredients to groceries', { exact: true }).click();
-  await ingredients.getByLabel('2 cups lentils').check();
-  await ingredients.getByRole('button', { name: 'Add selected ingredients' }).click();
-  await expect(page.getByRole('status')).toContainText('already on the list');
-  await expect(ingredients.getByLabel('2 cups lentils')).toBeChecked();
-  await ingredients.getByLabel('Add matching items anyway').check();
-  await ingredients.getByRole('button', { name: 'Add selected ingredients' }).click();
-  await expect(page.getByRole('article').filter({ hasText: '2 cups lentils' })).toHaveCount(2);
+  ingredients = meal.getByRole('form', { name: 'Add ingredients for Synthetic grocery dinner' });
+  await ingredients.getByLabel('2 cups synthetic lentils').check();
+  await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
+  review = page.getByRole('region', { name: 'Review ingredients for groceries' });
+  line = review.getByRole('group', { name: '2 cups synthetic lentils' });
+  await expect(line).toContainText('Already on your list: synthetic lentils (2 cups)');
+  await expect(line.getByRole('radio', { name: 'Skip this item' })).toBeChecked();
+  await line.getByRole('radio', { name: 'Keep separate duplicate' }).check();
+  await review.getByRole('button', { name: 'Add reviewed items' }).click();
+  await expect(page.getByRole('status')).toContainText('Added 1 item and skipped 0');
+  await expect(page.getByRole('article').filter({ hasText: 'synthetic lentils' })).toHaveCount(2);
+  for (const item of await page.getByRole('article').filter({ hasText: 'synthetic lentils' }).all()) await expect(item).toContainText('2 cups');
+});
+
+test('a parent reviews parsed quantities, edits one item, skips another and resolves a duplicate', async ({ page }, testInfo) => {
+  const stamp = Date.now();
+  const onion = `synthetic review onion ${stamp}`;
+  const beans = `synthetic black beans ${stamp}`;
+  const basil = `Fresh synthetic basil ${stamp}`;
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+
+  await page.goto('/groceries');
+  const addItem = page.getByRole('form', { name: 'Add grocery item' });
+  await addItem.getByLabel('Item', { exact: true }).fill(onion);
+  await addItem.getByLabel('Quantity', { exact: true }).fill('2');
+  await addItem.getByRole('button', { name: 'Add item' }).click();
+  await expect(page.getByRole('article').filter({ hasText: onion })).toContainText('2');
+
+  await page.goto('/meals?date=2099-09-01');
+  await page.getByText('Add a meal', { exact: true }).click();
+  const addMeal = page.getByRole('form', { name: 'Add meal' });
+  await addMeal.getByLabel('Meal name').fill(`Synthetic review dinner ${stamp}`);
+  await addMeal.getByLabel('Ingredients').fill(`2 cups ${beans}\n1 ${onion}\n${basil}`);
+  await addMeal.getByRole('button', { name: 'Save meal' }).click();
+  const meal = page.getByRole('article').filter({ hasText: `Synthetic review dinner ${stamp}` });
+  await meal.getByText('Add ingredients to groceries', { exact: true }).click();
+  const ingredients = meal.getByRole('form', { name: `Add ingredients for Synthetic review dinner ${stamp}` });
+  await ingredients.getByLabel(`2 cups ${beans}`).check();
+  await ingredients.getByLabel(`1 ${onion}`).check();
+  await ingredients.getByLabel(basil).check();
+  await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
+
+  const review = page.getByRole('region', { name: 'Review ingredients for groceries' });
+  const beansLine = review.getByRole('group', { name: `2 cups ${beans}` });
+  const onionLine = review.getByRole('group', { name: `1 ${onion}` });
+  const basilLine = review.getByRole('group', { name: basil });
+  await expect(beansLine.getByLabel('Item name')).toHaveValue(beans);
+  await expect(beansLine.getByLabel('Quantity')).toHaveValue('2');
+  await expect(beansLine.getByLabel('Unit')).toHaveValue('cups');
+  await expect(onionLine).toContainText(`Already on your list: ${onion} (2)`);
+  await expect(onionLine.getByRole('radio', { name: 'Skip this item' })).toBeChecked();
+  await expect(basilLine.getByLabel('Item name')).toHaveValue(basil);
+  await expect(basilLine.getByLabel('Quantity')).toHaveValue('');
+  await page.screenshot({ path: testInfo.outputPath('ingredient-review-mobile.png'), fullPage: true });
+
+  await beansLine.getByLabel('Quantity').fill('3');
+  await beansLine.getByLabel('Unit').fill('cans');
+  await onionLine.getByRole('radio', { name: 'Keep separate duplicate' }).check();
+  await basilLine.getByRole('radio', { name: 'Skip this item' }).check();
+  await review.getByRole('button', { name: 'Add reviewed items' }).click();
+
+  await expect(page.getByRole('status')).toContainText('Added 2 items and skipped 1');
+  await expect(page.getByRole('article').filter({ hasText: beans })).toContainText('3 cans');
+  await expect(page.getByRole('article').filter({ hasText: onion })).toHaveCount(2);
+  await expect(page.getByRole('article').filter({ hasText: basil })).toHaveCount(0);
+});
+
+test('reviewed ingredient edits work without JavaScript', async ({ page, browser }) => {
+  const stamp = Date.now();
+  const beans = `synthetic native beans ${stamp}`;
+  const basil = `Fresh synthetic native basil ${stamp}`;
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  await page.goto('/meals?date=2099-09-02');
+  await page.getByText('Add a meal', { exact: true }).click();
+  const addMeal = page.getByRole('form', { name: 'Add meal' });
+  await addMeal.getByLabel('Meal name').fill(`Synthetic native dinner ${stamp}`);
+  await addMeal.getByLabel('Ingredients').fill(`2 cups ${beans}\n${basil}`);
+  await addMeal.getByRole('button', { name: 'Save meal' }).click();
+  await expect(page.getByRole('article').filter({ hasText: `Synthetic native dinner ${stamp}` })).toBeVisible();
+
+  const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
+  try {
+    const native = await context.newPage();
+    await native.goto('/meals?date=2099-09-02');
+    const meal = native.getByRole('article').filter({ hasText: `Synthetic native dinner ${stamp}` });
+    await meal.getByText('Add ingredients to groceries', { exact: true }).click();
+    const ingredients = meal.getByRole('form', { name: `Add ingredients for Synthetic native dinner ${stamp}` });
+    await ingredients.getByLabel(`2 cups ${beans}`).check();
+    await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
+    const review = native.getByRole('region', { name: 'Review ingredients for groceries' });
+    const line = review.getByRole('group', { name: `2 cups ${beans}` });
+    await line.getByLabel('Quantity').fill('4');
+    await line.getByLabel('Unit').fill('cups');
+    await review.getByRole('button', { name: 'Add reviewed items' }).click();
+    await expect(native.getByRole('status')).toContainText('Added 1 item and skipped 0');
+    await expect(native.getByRole('article').filter({ hasText: beans })).toContainText('4 cups');
+    await expect(native.getByRole('article').filter({ hasText: basil })).toHaveCount(0);
+  } finally { await context.close(); }
+});
+
+test('review edits survive delayed hydration', async ({ page, browser }) => {
+  const stamp = Date.now();
+  const beans = `synthetic delayed beans ${stamp}`;
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  await page.goto('/meals?date=2099-09-03');
+  await page.getByText('Add a meal', { exact: true }).click();
+  const addMeal = page.getByRole('form', { name: 'Add meal' });
+  await addMeal.getByLabel('Meal name').fill(`Synthetic delayed dinner ${stamp}`);
+  await addMeal.getByLabel('Ingredients').fill(`2 cups ${beans}`);
+  await addMeal.getByRole('button', { name: 'Save meal' }).click();
+  await expect(page.getByRole('article').filter({ hasText: `Synthetic delayed dinner ${stamp}` })).toBeVisible();
+
+  const context = await browser.newContext({ storageState: await page.context().storageState() });
+  let release!: () => void, firstRequest!: () => void, secondRequest!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const first = new Promise<void>(resolve => { firstRequest = resolve; });
+  const second = new Promise<void>(resolve => { secondRequest = resolve; });
+  let requests = 0;
+  try {
+    const delayed = await context.newPage();
+    await delayed.route('**/src/routes/meals/+page.svelte*', async route => {
+      requests += 1;
+      if (requests === 1) firstRequest();
+      if (requests === 2) secondRequest();
+      await gate;
+      await route.continue();
+    });
+    await delayed.goto('/meals?date=2099-09-03', { waitUntil: 'commit' });
+    await first;
+    const meal = delayed.getByRole('article').filter({ hasText: `Synthetic delayed dinner ${stamp}` });
+    await meal.getByText('Add ingredients to groceries', { exact: true }).click();
+    const ingredients = meal.getByRole('form', { name: `Add ingredients for Synthetic delayed dinner ${stamp}` });
+    await ingredients.getByLabel(`2 cups ${beans}`).check();
+    await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
+    await second;
+    const review = delayed.getByRole('region', { name: 'Review ingredients for groceries' });
+    const line = review.getByRole('group', { name: `2 cups ${beans}` });
+    await line.getByLabel('Quantity').fill('5');
+    await line.getByLabel('Unit').fill('cans');
+    release();
+    await delayed.waitForLoadState('networkidle');
+    expect(await review.evaluate(element => Object.fromEntries(new FormData(element.querySelector('form') as HTMLFormElement)))).toMatchObject({ 'name-0': beans, 'quantity-0': '5', 'unit-0': 'cans' });
+    await review.getByRole('button', { name: 'Add reviewed items' }).click();
+    await expect(delayed.getByRole('article').filter({ hasText: beans })).toContainText('5 cans');
+  } finally { release(); await context.close(); }
+});
+
+for (const javaScriptEnabled of [true, false]) test(`reviewed ingredient validation preserves edits (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
+  const stamp = Date.now();
+  const onion = `synthetic validated onion ${stamp}`;
+  const date = '2099-09-04';
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  await page.goto(`/meals?date=${date}`);
+  await page.getByText('Add a meal', { exact: true }).click();
+  const addMeal = page.getByRole('form', { name: 'Add meal' });
+  await addMeal.getByLabel('Meal name').fill(`Synthetic validated dinner ${stamp}`);
+  await addMeal.getByLabel('Ingredients').fill(`1 ${onion}`);
+  await addMeal.getByRole('button', { name: 'Save meal' }).click();
+  await expect(page.getByRole('article').filter({ hasText: `Synthetic validated dinner ${stamp}` })).toBeVisible();
+
+  const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState() });
+  try {
+    const view = await context.newPage();
+    await view.goto(`/meals?date=${date}`);
+    const meal = view.getByRole('article').filter({ hasText: `Synthetic validated dinner ${stamp}` });
+    await meal.getByText('Add ingredients to groceries', { exact: true }).click();
+    const ingredients = meal.getByRole('form', { name: `Add ingredients for Synthetic validated dinner ${stamp}` });
+    await ingredients.getByLabel(`1 ${onion}`).check();
+    await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
+    const review = view.getByRole('region', { name: 'Review ingredients for groceries' });
+    const line = review.getByRole('group', { name: `1 ${onion}` });
+    await line.getByLabel('Item name').fill('   ');
+    await line.getByLabel('Quantity').fill('4');
+    await line.getByLabel('Unit').fill('bags');
+    await review.getByRole('button', { name: 'Add reviewed items' }).click();
+    await expect(view.getByRole('status')).toContainText('Check each item name');
+    await expect(review).toBeVisible();
+    await expect(line.getByLabel('Quantity')).toHaveValue('4');
+    await expect(line.getByLabel('Unit')).toHaveValue('bags');
+    await line.getByLabel('Item name').fill(`synthetic corrected onion ${stamp}`);
+    await review.getByRole('button', { name: 'Add reviewed items' }).click();
+    await expect(view.getByRole('status')).toContainText('Added 1 item and skipped 0');
+    await expect(view.getByRole('article').filter({ hasText: `synthetic corrected onion ${stamp}` })).toContainText('4 bags');
+  } finally { await context.close(); }
+});
+
+test('a grocery change during review asks for an explicit duplicate decision', async ({ page, browser }) => {
+  const stamp = Date.now();
+  const beans = `synthetic race beans ${stamp}`;
+  const date = '2099-09-05';
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  await page.goto(`/meals?date=${date}`);
+  await page.getByText('Add a meal', { exact: true }).click();
+  const addMeal = page.getByRole('form', { name: 'Add meal' });
+  await addMeal.getByLabel('Meal name').fill(`Synthetic race dinner ${stamp}`);
+  await addMeal.getByLabel('Ingredients').fill(`2 cups ${beans}`);
+  await addMeal.getByRole('button', { name: 'Save meal' }).click();
+  const meal = page.getByRole('article').filter({ hasText: `Synthetic race dinner ${stamp}` });
+  await expect(meal).toBeVisible();
+  await meal.getByText('Add ingredients to groceries', { exact: true }).click();
+  const ingredients = meal.getByRole('form', { name: `Add ingredients for Synthetic race dinner ${stamp}` });
+  await ingredients.getByLabel(`2 cups ${beans}`).check();
+  await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
+  const review = page.getByRole('region', { name: 'Review ingredients for groceries' });
+  const line = review.getByRole('group', { name: `2 cups ${beans}` });
+  await line.getByLabel('Quantity').fill('4');
+
+  const context = await browser.newContext({ storageState: await page.context().storageState() });
+  try {
+    const other = await context.newPage();
+    await other.goto('/groceries');
+    const addItem = other.getByRole('form', { name: 'Add grocery item' });
+    await addItem.getByLabel('Item', { exact: true }).fill(beans);
+    await addItem.getByLabel('Quantity', { exact: true }).fill('1');
+    await addItem.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: beans })).toContainText('1');
+
+    await review.getByRole('button', { name: 'Add reviewed items' }).click();
+    await expect(page.getByRole('status')).toContainText('now matches the grocery list');
+    await expect(line.getByLabel('Quantity')).toHaveValue('4');
+    await expect(line.getByRole('radio', { name: 'Skip this item' })).toBeChecked();
+    await line.getByRole('radio', { name: 'Keep separate duplicate' }).check();
+    await review.getByRole('button', { name: 'Add reviewed items' }).click();
+    await expect(page.getByRole('status')).toContainText('Added 1 item and skipped 0');
+    await expect(page.getByRole('article').filter({ hasText: beans })).toHaveCount(2);
+    await expect(page.getByRole('article').filter({ hasText: beans }).filter({ hasText: '4 cups' })).toHaveCount(1);
+  } finally { await context.close(); }
 });
 
 test('a shared meal becomes a household grocery task without exposing private notes', async ({ page, browser }, testInfo) => {
@@ -74,7 +323,10 @@ test('a shared meal becomes a household grocery task without exposing private no
   await meal.getByText('Add ingredients to groceries', { exact: true }).click();
   const ingredients = meal.getByRole('form', { name: `Add ingredients for ${title}` });
   await ingredients.getByLabel(selected, { exact: true }).check();
-  await ingredients.getByRole('button', { name: 'Add selected ingredients' }).click();
+  await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
+  const review = page.getByRole('region', { name: 'Review ingredients for groceries' });
+  await expect(review.getByRole('group', { name: selected })).toContainText('Family-entered ingredients');
+  await review.getByRole('button', { name: 'Add reviewed items' }).click();
   const parentItem = page.getByRole('article').filter({ hasText: selected });
   await expect(parentItem).toContainText('To buy');
   await expect(page.getByRole('article').filter({ hasText: unselected })).toHaveCount(0);
@@ -111,7 +363,7 @@ test('meal ingredient selections survive delayed hydration and submit the select
   await page.getByText('Add a meal', { exact: true }).click();
   const add = page.getByRole('form', { name: 'Add meal' });
   await add.getByLabel('Meal name').fill('Synthetic early ingredient meal');
-  await add.getByLabel('Ingredients').fill('2 cups rice\n1 carrot');
+  await add.getByLabel('Ingredients').fill('2 cups synthetic early rice\n1 synthetic early carrot');
   await add.getByRole('button', { name: 'Save meal' }).click();
   await expect(page.getByRole('article').filter({ hasText: 'Synthetic early ingredient meal' })).toBeVisible();
   const context = await browser.newContext({ storageState: await page.context().storageState() });
@@ -126,14 +378,20 @@ test('meal ingredient selections survive delayed hydration and submit the select
     const meal = delayed.getByRole('article').filter({ hasText: 'Synthetic early ingredient meal' });
     await meal.getByText('Add ingredients to groceries', { exact: true }).click();
     const ingredients = meal.getByRole('form', { name: 'Add ingredients for Synthetic early ingredient meal' });
-    await ingredients.getByLabel('2 cups rice').check();
+    await ingredients.getByLabel('2 cups synthetic early rice').check();
     release(); await delayed.waitForLoadState('networkidle');
     await expect(delayed.getByLabel('Choose a date')).toHaveValue('2099-07-02');
     expect(await delayed.getByLabel('Choose a date').evaluate(element => new FormData((element as HTMLInputElement).form!).get('date'))).toBe('2099-07-02');
     await expect(ingredients).toBeVisible();
-    expect(await ingredients.evaluate(element => new FormData(element as HTMLFormElement).getAll('ingredient'))).toEqual(['2 cups rice']);
-    await ingredients.getByRole('button', { name: 'Add selected ingredients' }).click();
-    await expect(delayed.getByRole('article').filter({ hasText: '2 cups rice' })).toBeVisible();
+    expect(await ingredients.evaluate(element => new FormData(element as HTMLFormElement).getAll('ingredient'))).toEqual(['family:0']);
+    await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
+    const review = delayed.getByRole('region', { name: 'Review ingredients for groceries' });
+    const line = review.getByRole('group', { name: '2 cups synthetic early rice' });
+    await expect(line.getByLabel('Item name')).toHaveValue('synthetic early rice');
+    await expect(line.getByLabel('Quantity')).toHaveValue('2');
+    await expect(line.getByLabel('Unit')).toHaveValue('cups');
+    await review.getByRole('button', { name: 'Add reviewed items' }).click();
+    await expect(delayed.getByRole('article').filter({ hasText: 'synthetic early rice' })).toContainText('2 cups');
   } finally { release(); await context.close(); }
 });
 

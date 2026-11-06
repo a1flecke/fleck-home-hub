@@ -512,10 +512,21 @@ test('parent previews eMeals recipe details, saves them and adds a provider ingr
   await expect(groceryForm).toContainText('Family-entered ingredients');
   await groceryForm.getByLabel('1½ cups synthetic rice').check();
   await groceryForm.getByLabel('1 family cucumber').check();
-  await groceryForm.getByRole('button', { name: 'Add selected ingredients' }).click();
-  await expect(page).toHaveURL(/\/groceries$/);
-  await expect(page.getByRole('heading', { name: '1½ cups synthetic rice' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: '1 family cucumber' })).toBeVisible();
+  await groceryForm.getByRole('button', { name: 'Review selected ingredients' }).click();
+  const review = page.getByRole('region', { name: 'Review ingredients for groceries' });
+  const rice = review.getByRole('group', { name: '1½ cups synthetic rice' });
+  await expect(rice).toContainText('Recipe ingredients from eMeals');
+  await expect(rice).toContainText('Synthetic Preview Bowl');
+  await expect(rice.getByLabel('Item name')).toHaveValue('synthetic rice');
+  await expect(rice.getByLabel('Quantity')).toHaveValue('1½');
+  await expect(rice.getByLabel('Unit')).toHaveValue('cups');
+  const cucumber = review.getByRole('group', { name: '1 family cucumber' });
+  await expect(cucumber).toContainText('Family-entered ingredients');
+  await expect(cucumber.getByLabel('Item name')).toHaveValue('family cucumber');
+  await review.getByRole('button', { name: 'Add reviewed items' }).click();
+  await expect(page.getByRole('status')).toContainText('Added 2 items and skipped 0');
+  await expect(page.getByRole('article').filter({ hasText: 'synthetic rice' })).toContainText('1½ cups');
+  await expect(page.getByRole('article').filter({ hasText: 'family cucumber' })).toContainText('1');
 
   await page.goto(`/meals?date=${today}`);
   item = page.getByRole('article').filter({ hasText: title });

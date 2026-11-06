@@ -5,7 +5,8 @@ import { localDate, occurrenceDates } from '../../lib/chores/recurrence';
 import { parseRecipeDetailsJson, type RecipeDetails } from '../../lib/meals/recipe-details';
 import { parseRecipeLink } from '../../lib/meals/recipe-link';
 import { createMeal, listMeals, updateMeal, type MealInput } from '../../lib/server/meals';
-import { addMealIngredients } from '../../lib/server/groceries';
+import { confirmMealIngredients, IngredientConflictError, IngredientValidationError, reviewMealIngredients, StaleIngredientSelectionError } from '../../lib/server/groceries';
+import { ingredientActions, type IngredientAction, type IngredientDecision, type IngredientReviewOverrides } from '../../lib/grocery/handoff';
 import { mealAccess } from '../../lib/server/meal-access';
 import { previewRecipe } from '../../lib/server/recipe-preview';
 
@@ -61,9 +62,63 @@ export const actions = {
   ingredients: async ({ request }) => {
     const { db, actor, householdId, origin, role } = await principal(request);
     if (request.headers.get('origin') !== origin || role !== 'parent') return fail(403, { message: 'Request not authorized.' });
-    const form = await request.formData(), id = String(form.get('id') ?? ''), selections = form.getAll('ingredient').map(String);
-    try { addMealIngredients(db, actor, householdId, id, selections, form.get('allowDuplicate') === 'yes'); }
-    catch (err) { return fail(400, { message: err instanceof Error && err.message === 'Item already on list' ? 'A matching ingredient is already on the list. Confirm if you want another.' : 'Choose ingredients to add.', ingredientError: { id, selections, duplicate: err instanceof Error && err.message === 'Item already on list' } }); }
-    redirect(303, '/groceries');
+    const form = await request.formData(), id = String(form.get('id') ?? ''), selections = form.getAll('ingredient').map(String).filter(Boolean);
+    try { return { ingredientReview: reviewMealIngredients(db, actor, householdId, id, selections) }; }
+    catch { return fail(400, { message: 'Choose ingredients to review.', ingredientError: { id, selections } }); }
+  },
+  ingredientsConfirm: async ({ request }) => {
+    const { db, actor, householdId, origin, role } = await principal(request);
+    if (request.headers.get('origin') !== origin || role !== 'parent') return fail(403, { message: 'Request not authorized.' });
+    const form = await request.formData(), id = String(form.get('id') ?? ''), decisions = ingredientDecisions(form);
+    if (!decisions) return fail(400, { message: 'Choose ingredients to add.' });
+
+    let result: { added: number; skipped: number };
+    try { result = confirmMealIngredients(db, actor, householdId, id, decisions); }
+    catch (err) {
+      if (err instanceof IngredientConflictError) {
+        try {
+          const ingredientReview = reviewMealIngredients(db, actor, householdId, id, decisions.map(decision => decision.key), reviewOverrides(decisions, err.keys));
+          return fail(409, { message: 'An item now matches the grocery list. Choose Keep separate duplicate or Skip, then confirm again.', ingredientReview });
+        } catch { return fail(409, { message: 'The grocery list changed. Review the ingredients again.' }); }
+      }
+      if (err instanceof IngredientValidationError) {
+        try {
+          const ingredientReview = reviewMealIngredients(db, actor, householdId, id, decisions.map(decision => decision.key), reviewOverrides(decisions));
+          return fail(400, { message: 'Check each item name, quantity and unit, then confirm again.', ingredientReview });
+        } catch { return fail(400, { message: 'Check each item name, quantity and unit.' }); }
+      }
+      if (err instanceof StaleIngredientSelectionError) return fail(400, { message: 'This meal changed. Select its ingredients again.' });
+      return fail(400, { message: 'Unable to add ingredients. Review the meal and try again.' });
+    }
+    redirect(303, `/groceries?added=${result.added}&skipped=${result.skipped}`);
   }
 } satisfies Actions;
+
+function ingredientDecisions(form: FormData): IngredientDecision[] | null {
+  const rowCount = Number(form.get('rowCount'));
+  if (!Number.isInteger(rowCount) || rowCount < 1 || rowCount > 100) return null;
+  const decisions: IngredientDecision[] = [];
+  for (let index = 0; index < rowCount; index += 1) {
+    const action = String(form.get(`action-${index}`) ?? '');
+    if (!ingredientActions.includes(action as IngredientAction)) return null;
+    decisions.push({
+      key: String(form.get(`key-${index}`) ?? ''),
+      line: String(form.get(`line-${index}`) ?? ''),
+      action: action as IngredientAction,
+      name: String(form.get(`name-${index}`) ?? ''),
+      quantity: String(form.get(`quantity-${index}`) ?? ''),
+      unit: String(form.get(`unit-${index}`) ?? '')
+    });
+  }
+  return decisions;
+}
+
+function reviewOverrides(decisions: IngredientDecision[], skipKeys: string[] = []): IngredientReviewOverrides {
+  const skip = new Set(skipKeys);
+  return Object.fromEntries(decisions.map(decision => [decision.key, {
+    action: skip.has(decision.key) ? 'skip' as const : decision.action,
+    name: decision.name,
+    quantity: decision.quantity,
+    unit: decision.unit
+  }]));
+}

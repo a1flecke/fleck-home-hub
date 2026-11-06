@@ -13,9 +13,12 @@ async function principal(request: Request) {
   return { ...services, actor: session.user.id, householdId: member.householdId };
 }
 
-export const load: PageServerLoad = async ({ request }) => {
+export const load: PageServerLoad = async ({ request, url }) => {
   const { db, actor, householdId } = await principal(request);
-  return { items: listGroceries(db, actor, householdId) };
+  const addedParam = url.searchParams.get('added'), skippedParam = url.searchParams.get('skipped');
+  const added = Number(addedParam), skipped = Number(skippedParam);
+  const summary = addedParam !== null && skippedParam !== null && Number.isInteger(added) && Number.isInteger(skipped) && added >= 0 && skipped >= 0 ? { added, skipped } : null;
+  return { items: listGroceries(db, actor, householdId), summary };
 };
 
 export const actions = {
