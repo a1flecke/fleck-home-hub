@@ -11,6 +11,7 @@
   <a href={resolve('/dashboard')} class="text-teal-700">Back to home</a>
   <h1 class="mt-5 text-3xl font-bold">Grocery list</h1>
   <p class="mt-2">A shared list for your household.</p>
+  {#if data.summary}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">Added {data.summary.added} {data.summary.added === 1 ? 'item' : 'items'} and skipped {data.summary.skipped}.</p>{/if}
   {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">{form.message}</p>{/if}
   <form method="POST" action="?/add" aria-label="Add grocery item" class="mt-6 grid gap-3 rounded-2xl bg-white p-5 shadow-sm">
     <GroceryFields initial={form?.item ?? { name: '', quantity: '', unit: '' }} />
