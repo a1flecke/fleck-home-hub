@@ -9,3 +9,5 @@ Use `mise run dev`, `mise run lint`, `mise run typecheck`, `mise run test`, `mis
 `mise run verify` runs policy/version checks, lint, typechecking, all unit/integration tests, build, browser tests, workflow analysis, secret scan and dependency audit. It requires network access for the dependency audit and a locally usable Playwright browser. Git pre-push runs a shorter check. `./scripts/sync-main.sh` merges the latest `origin/main` into a clean feature branch; `./scripts/push-branch.sh` performs an ordinary push only. Both accept no arguments. Resolve conflicts explicitly without discarding work.
 
 A failing pre-commit scan reports filenames, not secret contents. These local checks supplement CI; they cannot cover every secret or dangerous shell expression.
+
+Test commands run `svelte-kit sync` before starting Vitest or Playwright so a fresh worktree does not depend on an earlier typecheck or dev-server run. Use `mise run test`, `mise run e2e`, or the focused dispatcher commands above; direct runner invocations require sync first.

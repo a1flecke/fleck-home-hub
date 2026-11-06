@@ -11,6 +11,7 @@ if ! MISE_LOCKED_SCOPES=project mise install --locked; then
   exit 1
 fi
 mise run install
+mise exec -- pnpm exec svelte-kit sync
 ./scripts/setup-git-hooks.sh
 ./scripts/doctor.sh
 printf '%s\n' 'Setup complete. Start the app with: mise run dev'

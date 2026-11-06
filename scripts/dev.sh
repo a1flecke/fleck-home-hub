@@ -31,7 +31,7 @@ case "$task" in
       [ ! -L "$current" ] || usage
       case "$path" in */*) path=${path#*/} ;; *) path= ;; esac
     done
-    if [ "$task" = test ]; then exec mise exec -- pnpm exec vitest run "$1"; fi
-    exec mise exec -- pnpm exec playwright test "$1" ;;
+    if [ "$task" = test ]; then exec mise exec -- pnpm run test "$1"; fi
+    exec mise exec -- pnpm run e2e "$1" ;;
   *) usage ;;
 esac

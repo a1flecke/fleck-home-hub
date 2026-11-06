@@ -23,7 +23,7 @@ describe('task dispatcher', () => {
         env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, DISPATCH_TEST_LOG: log }, encoding: 'utf8'
       });
       expect(result.status).toBe(0);
-      expect(readFileSync(log, 'utf8')).toBe('exec\n--\npnpm\nexec\nvitest\nrun\ntests/dispatcher.test.ts\n');
+      expect(readFileSync(log, 'utf8')).toBe('exec\n--\npnpm\nrun\ntest\ntests/dispatcher.test.ts\n');
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
   it('rejects symlinked test files', () => {
@@ -40,7 +40,7 @@ describe('task dispatcher', () => {
         env: { ...process.env, PATH: `${dir}:${process.env.PATH}`, DISPATCH_TEST_LOG: log }, encoding: 'utf8'
       });
       expect(result.status).toBe(17);
-      expect(readFileSync(log, 'utf8')).toBe('exec\n--\npnpm\nexec\nplaywright\ntest\ne2e/meals.spec.ts\n');
+      expect(readFileSync(log, 'utf8')).toBe('exec\n--\npnpm\nrun\ne2e\ne2e/meals.spec.ts\n');
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
   it.each(['--help', 'e2e/../e2e/meals.spec.ts', 'e2e/meals.spec.ts;id', 'e2e/missing.spec.ts', 'scripts/dev.sh'])(
