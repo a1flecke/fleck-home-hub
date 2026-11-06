@@ -15,6 +15,6 @@ it('requires mise and invokes only locked setup steps', () => {
     expect(run().status).not.toBe(0);
     writeFileSync(join(root, 'bin/mise'), '#!/bin/sh\nprintf "%s|%s\\n" "$*" "$MISE_LOCKED_SCOPES" >> "$BOOTSTRAP_LOG"\n', { mode: 0o755 });
     expect(run().status).toBe(0);
-    expect(readFileSync(join(root, 'log'), 'utf8')).toBe('install --locked|project\nrun install|global\n');
+    expect(readFileSync(join(root, 'log'), 'utf8')).toBe('install --locked|project\nrun install|global\nexec -- pnpm exec svelte-kit sync|global\n');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
