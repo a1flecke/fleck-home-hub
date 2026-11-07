@@ -45,6 +45,10 @@ db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-race-household', 'Race household');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(raceOne.user.id, 'synthetic-race-household', 'parent');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(raceTwo.user.id, 'synthetic-race-household', 'parent');
+const sessionKid = await auth.api.signUpEmail({ body: { name: 'Session Kid', email: 'session-kid@example.test', password: 'synthetic-session-kid-password' } });
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(sessionKid.user.id, household.id, 'kid');
+// Sign-up auto-created a session; the journey counts only the devices it signs in.
+db.prepare('DELETE FROM session WHERE userId = ?').run(sessionKid.user.id);
 const seededAt = new Date().toISOString();
 db.prepare("INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at) VALUES ('revoke-pending-chore', ?, ?, 'Revocation pending chore', '2026-11-01', 250, 'pending_verification', ?, ?)").run(household.id, revokeKid.user.id, seededAt, seededAt);
 db.close();

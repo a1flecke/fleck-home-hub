@@ -37,3 +37,19 @@ A parent can disable one member of one household. The row stays, with `disabled_
 - Authorization is checked per request against the database; there is no cache to invalidate.
 - Pre-existing: routes with several households pick the first by id rather than a user-selected one.
 - Browser tests were run against the dev server; real-device and tailnet behavior remain unverified.
+
+## Session management (PR B2)
+
+`/settings/sessions` (linked from the home page, any signed-in role) wraps the pinned Better Auth 1.7.14 session API: `listSessions`, `revokeSession` and `revokeOtherSessions`. No custom cookies or Better Auth internals are involved.
+
+- **Scope is the caller's own account.** Sessions are global to an account and carry no household. A parent cannot list or end another person's sessions, and ending a session never changes membership. Both directions are tested: membership denial leaves the session valid, and signing a device out leaves membership untouched.
+- **Cross-household effect is stated on the page.** Signing a device out ends it for every household the account belongs to.
+- **No raw tokens.** The page and responses carry only the session row id; the server maps an id to a token inside `src/lib/server/sessions.ts` and only for sessions that `listSessions` returned for the caller. An unknown, foreign or already-ended id changes nothing.
+- **Actions.** End one other session, or end all other sessions (the current one stays). Each is a native POST behind a confirmation disclosure, with the origin check used elsewhere.
+- **Freshness.** Better Auth lists sessions only for a recently created session (its freshness window, one day by default). An older session sees a "sign in again" screen instead of a list; this is framework behavior, not custom code.
+
+### Limits
+
+- A parent **cannot end a disabled or other member's sessions**: the pinned framework exposes no administrator session API, and enabling the admin plugin is a separate, larger decision. Disabling membership blocks the household without it; the person's session remains valid for their other households, as intended.
+- There is no "sign out everywhere including this device" action; use sign out after ending the others. There is no automatic revocation on password change because there is no password-change flow yet.
+- Device labels come from the User-Agent header and are only a hint. IP addresses are not shown because forwarded headers are not trusted.
