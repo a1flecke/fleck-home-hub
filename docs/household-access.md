@@ -53,3 +53,7 @@ A parent can disable one member of one household. The row stays, with `disabled_
 - A parent **cannot end a disabled or other member's sessions**: the pinned framework exposes no administrator session API, and enabling the admin plugin is a separate, larger decision. Disabling membership blocks the household without it; the person's session remains valid for their other households, as intended.
 - There is no "sign out everywhere including this device" action; use sign out after ending the others. There is no automatic revocation on password change because there is no password-change flow yet.
 - Device labels come from the User-Agent header and are only a hint. IP addresses are not shown because forwarded headers are not trusted.
+
+### Displays and disabling
+
+Disabling a parent also revokes the pairing codes they created and every display they paired, in the same transaction; other parents' displays are unaffected. A display is not a member and has no role. See [display](display.md) and [ADR 0004](adr/0004-restricted-display-sessions.md).

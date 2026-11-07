@@ -22,6 +22,17 @@ With environment configured, run `mise run backup /private/path/new-backup.sqlit
 
 To restore, stop the application, preserve the current database and its WAL/SHM files, copy a known-good backup to a **new** private location, set `DATABASE_PATH` to that copy, and start only after checking SQLite integrity. Verify login, membership and representative records, then retain the original until recovery is confirmed. Never overwrite the only copy. To update, create and verify a fresh backup, install locked tools and frozen dependencies, run `mise run migrate` on the existing database while the app is stopped, build with the correct origin, and restart. On a failed migration, stop and inspect the failure; restore a verified backup if needed. Auth and household migrations commit separately, so a later failure can leave the auth migration applied. Better Auth upgrades require a reviewed, version-controlled schema migration and upgrade tests before use on real data.
 
+## Display pairing pilot checklist
+
+Backups include the pairing and display-credential tables (hashes only), so a restore also restores which displays were revoked: after restoring an older backup, re-check **Household displays** and revoke anything that should not be active. Pairing requires `AUTH_ORIGIN` to be the exact HTTPS origin the display uses; its Secure cookie is not sent over HTTP. None of the following has been performed on real hardware; a separately authorized pilot should record each result:
+
+- Pair the actual display device over the tailnet using a private channel for the code; confirm it works after sleep, wake and reboot of both the display and the Mac.
+- Confirm the browser keeps the cookie (private browsing and "clear on quit" settings can drop it) and that kiosk or home-screen mode launches `/display` without a personal sign-in.
+- Revoke the display from a parent's phone and time how long it takes the screen to show Pairing required; confirm it never regains access on reload.
+- Disable a test parent who paired a display and confirm the display is revoked.
+- Disconnect the Mac and confirm the screen shows its connection message rather than stale-looking success.
+- Confirm Tailscale access controls and that tailnet reachability alone does not show household data.
+
 ## Pilot verification status
 
 | Status | Evidence or remaining work |

@@ -11,6 +11,26 @@ With JavaScript, the page refreshes its data every 60 seconds; automatic updates
 - **Signed-in household member** (unchanged): an ordinary account opens `/display`. Expired or revoked sessions must sign in again. That account keeps its ordinary privileges, so do not leave it signed in on an unattended screen.
 - **Paired display** (restricted): a parent creates a one-time pairing code and the display redeems it at `/display/pair`. The display then holds only a revocable display credential in an HttpOnly cookie scoped to `/display`. It sees exactly the shared information above, with no navigation or management controls, and cannot reach any other page or action. Credentials expire after 90 days. Revoked, expired or orphaned credentials return the display to a **Pairing required** screen. A device that is signed in as a person must sign out before it can be paired. See [ADR 0004](adr/0004-restricted-display-sessions.md) for the invariants and threat model.
 
-This release implements the server side and the pairing page. Parent-facing management (naming, listing and revoking displays), kiosk polish and browser journeys are delivered separately; until then, pairing codes are created through the application services only. Actual device, tailnet and unattended-use behavior remain unverified.
+### Pairing a display
+
+1. On a parent's own device, open **Household displays** (`/settings/displays`, linked from the sharing page), name the display (for example "Kitchen screen") and choose **Create pairing code**. The code is shown once and is not stored; up to five unused codes may exist per household.
+2. On the display, make sure no personal account is signed in (pairing refuses a device with a normal session and offers sign-out), open `/display/pair` and type the code. Enter it through a private channel; do not put it in chat, tickets or screenshots, and it never belongs in a URL.
+3. The code works once and expires after 10 minutes. The display receives a credential valid for 90 days and opens the read-only view. There is no automatic renewal: after expiry, or after any revocation, a parent pairs again.
+
+The management page lists each display's name, status (active, expired or revoked), when it was paired and when it was last seen (updated at most every five minutes), and lets any parent in the household revoke it or cancel an unused code. Raw credentials are never displayed. Revocation applies on the display's next server request; with the 60-second refresh the display shows **Pairing required** within about a minute, and a reload cannot restore it.
+
+### What a paired display can and cannot show
+
+It can show shared event and chore titles, dates, times and chore status, shared meals with their permitted ingredients and recipe details, the weather card, and the date and time zone. It cannot open or act on any other page, and receives no notes, descriptions, locations, assignees, balances, rewards, payouts, members, invitations, pairing codes or session information. Each of those is enforced by the server, not by hiding links.
+
+### Disabled parents, lost displays and limits
+
+- Disabling the parent who paired a display revokes their unused codes and every display they paired at once; other parents' displays and other households are unaffected. The household shows those displays as revoked.
+- To recover from a lost or stolen display, open **Household displays** and revoke it. Then pair a replacement. Revocation stops future server responses; whatever the screen already rendered, or a copy of the browser profile's cookie before revocation, cannot be erased remotely.
+- An unlocked display still shows its shared information to anyone who can see it. Reaching the host over Tailscale is not authorization: a code is still required to pair, and a credential to read.
+- If the Mac is offline, the display cannot refresh, shows its connection message and keeps the last rendered content. Once the Mac returns, revoked displays go to Pairing required.
+- Serve over HTTPS so the cookie is marked Secure (`AUTH_ORIGIN` must be `https://`; plain HTTP is accepted only for localhost). All `/display*` and `/settings/displays` responses are `no-store`.
+
+Pairing and kiosk behavior is validated by automated browser tests with synthetic data only. It has **not** been checked on a real display, iPhone, tablet, or over the real tailnet; see the pilot checklist in [deployment](deployment.md).
 
 Migration `0005_display` creates opt-in tables without altering existing records; `0012_display_pairing` adds the pairing and display-credential tables (forward-only, no existing data changes). Stop the service and verify a backup before upgrading. Actual device, tailnet and unattended-use behavior remain unverified. Calendar daylight-saving limitations in [calendar.md](calendar.md) still apply.
