@@ -4,7 +4,7 @@
 </script>
 <svelte:head><title>Display settings · Fleck Home Hub</title></svelte:head>
 <main class="mx-auto max-w-4xl px-5 py-8">
-  <a href={resolve('/display')} class="text-teal-700">View family display</a>
+  <a href={resolve('/display')} class="text-teal-700">View family display</a> · <a href={resolve('/settings/displays')} class="text-teal-700">Household displays</a>
   <section aria-label="Choose what to share" class="mt-8"><h1 class="text-2xl font-bold">Choose what to share</h1><p class="mt-2">Only selected titles, dates, times and chore status appear on the display. Shared event choices apply to the whole series.</p>
     {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">{form.message}</p>{/if}
     {#if data.choices}

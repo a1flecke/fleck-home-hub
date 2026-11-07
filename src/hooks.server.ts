@@ -17,7 +17,7 @@ export const handle: Handle = async ({ event, resolve }) => {
   response.headers.set('x-content-type-options', 'nosniff');
   response.headers.set('x-frame-options', 'DENY');
   response.headers.set('referrer-policy', event.url.pathname.startsWith('/accept-invitation') || event.url.pathname.startsWith('/settings/household') ? 'origin' : 'same-origin');
-  if (event.url.pathname.startsWith('/accept-invitation') || event.url.pathname.startsWith('/settings/household')) response.headers.set('cache-control', 'no-store');
+  if (event.url.pathname.startsWith('/accept-invitation') || event.url.pathname.startsWith('/settings/household') || event.url.pathname.startsWith('/settings/displays')) response.headers.set('cache-control', 'no-store');
   if (event.url.pathname === '/dashboard' || event.url.pathname.startsWith('/display') || event.url.pathname.startsWith('/calendar') || event.url.pathname.startsWith('/meals') || event.url.pathname.startsWith('/groceries') || event.url.pathname.startsWith('/settings/sessions') || event.url.pathname.startsWith('/api/')) response.headers.set('cache-control', 'no-store');
   return response;
 };

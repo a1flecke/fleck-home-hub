@@ -1,6 +1,6 @@
 # ADR 0004: Restricted display sessions
 
-Status: accepted for review (backend). Independent security review is required before production use.
+Status: accepted for review (backend, pairing page and management page). Independent security review is required before production use.
 
 ## Context
 
@@ -33,7 +33,7 @@ A **display** is not a household member. It has no Better Auth account, no `memb
 | Cross-origin forced pairing or revoke | Origin must equal `AUTH_ORIGIN` on every mutation; cookie is SameSite=Strict. |
 | Concurrent redeem/revoke | Immediate transactions; a revoke that commits first makes the redeem fail, and the reverse leaves a revoked device. |
 | Disabled parent | See invariant 5. |
-| Stale content after revoke | All `/display*` responses are `no-store`; the page refresh switches to a pairing-required state. Content already rendered on an offline or compromised device cannot be erased remotely. |
+| Stale content after revoke | All `/display*` responses are `no-store`; the page refresh switches to a pairing-required state. A dead credential stays in the browser (it is inert) so a reload keeps showing the pairing-required screen. Content already rendered on an offline or compromised device cannot be erased remotely. |
 | Tailnet access alone | Reaching the host is not authorization; a code or sign-in is required. |
 
 Not addressed: device-bound credentials, per-device IP binding, distributed rate limiting, and any validation on real hardware.

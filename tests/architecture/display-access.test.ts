@@ -7,7 +7,7 @@ import { expect, it } from 'vitest';
 // display access must be added here deliberately, with its own authorization tests.
 const credentialAllowed = new Set([
   'src/lib/server/display.ts', 'src/lib/server/display-pairing.ts', 'src/lib/server/display-session.ts', 'src/lib/server/display-view.ts', 'src/lib/server/household-access.ts',
-  'src/routes/display/+page.server.ts', 'src/routes/display/data/+server.ts', 'src/routes/display/pair/+page.server.ts'
+  'src/routes/display/+page.server.ts', 'src/routes/display/data/+server.ts', 'src/routes/display/pair/+page.server.ts', 'src/routes/settings/displays/+page.server.ts'
 ]);
 const credentialUse = /display-pairing|display-session|verifyDisplayCredential|readDisplayToken|redeemPairing|displayDataForDevice/;
 const uncheckedAllowed = new Set(['src/lib/server/calendar.ts', 'src/lib/server/meals.ts', 'src/lib/server/display.ts']);

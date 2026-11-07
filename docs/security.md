@@ -4,7 +4,7 @@ Use HTTPS through a private tailnet, a unique random `AUTH_SECRET`, and a privat
 
 ## Restricted display sessions
 
-A paired display holds a separate, revocable, read-only credential instead of a person's session: see [ADR 0004](adr/0004-restricted-display-sessions.md) for the invariants and threat model and [display](display.md) for behavior. It is a distinct credential type that no household route accepts, it is revoked when the pairing parent is disabled, and it needs no Better Auth account. Reaching the host over Tailscale is not authorization. An unlocked screen still discloses what it shows to anyone who can see it. This feature requires independent review before production use; the repository ruleset requires no approving reviews.
+A paired display holds a separate, revocable, read-only credential instead of a person's session: see [ADR 0004](adr/0004-restricted-display-sessions.md) for the invariants and threat model and [display](display.md) for pairing, revocation and recovery. It is a distinct credential type that no household route accepts, it is revoked when the pairing parent is disabled, and it needs no Better Auth account. Reaching the host over Tailscale is not authorization. An unlocked screen still discloses what it shows to anyone who can see it. This feature requires independent review before production use; the repository ruleset requires no approving reviews.
 
 ## Household invitation threat model
 
