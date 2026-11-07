@@ -57,6 +57,16 @@ Confirmation rechecks the meal's authorized lines and the current grocery list i
 
 No schema change is required: `grocery_item` already stores `name`, `quantity` and `unit` separately. Existing rows, including rows whose name still contains a complete ingredient line, remain visible and editable. There is no destructive migration and no automatic update to existing quantities.
 
+## Live updates
+
+While the page is open and visible, it reruns the authenticated page load about every 25 seconds. Items added, completed, changed or removed in another session appear without a full browser reload, and the current scroll position and focused control are left alone. A refresh is skipped while another refresh is running, while the tab is hidden, while the browser reports that it is offline, and while a grocery draft is active.
+
+The add form counts as a draft when any value is present or the duplicate confirmation is shown. An edit form counts as a draft when its name, quantity or unit differs from the saved item. Validation recovery keeps the submitted values and message and pauses updates until the member corrects or clears them. The status line states that updates are paused, and **Refresh list** does not replace the draft. Closing an edit form discards that draft and lets the next refresh use the current server values. An input the member already changed is not rewritten by a refresh response that was already in flight. Members can pause and resume automatic updates; hiding the tab also stops requests, and showing it or reconnecting resumes them.
+
+**Refresh list** is an ordinary same-page link before hydration and when JavaScript is disabled, so it still reloads the current list. After hydration it performs the safe refresh instead. When the browser reports a connection loss, the rendered list stays visible and the status explains that updates are retrying. An expired session follows the normal sign-in redirect rather than presenting stale data as current.
+
+Live refresh only replaces the displayed data. It does not retry a grocery mutation, combine quantities or bypass the item-version check; a stale save or removal is still rejected by the server. The list is not copied to localStorage, IndexedDB or a service-worker cache, and no WebSocket, message queue or separate synchronization endpoint is used. If the browser still reports itself online while the server is unreachable, SvelteKit may render its normal error page for the failed data load; that case is not detected as offline and is not guaranteed to preserve the current list.
+
 ## Unsupported
 
 The list does not synchronize with eMeals, a retailer or any external grocery service, and it does not place orders or write to a retailer cart. Unit conversion, compound parsing, automatic quantity combining and ingredient-name normalisation beyond the conservative match above are out of scope.
