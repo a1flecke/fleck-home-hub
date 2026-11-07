@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
-import { listEvents } from './calendar';
-import { listMeals } from './meals';
+import { householdEventOccurrences } from './calendar';
+import { householdSharedMeals } from './meals';
+import type { VerifiedDisplay } from './display-pairing';
 
 type Kind = 'event' | 'chore';
 
@@ -23,17 +24,32 @@ export function setDisplayVisibility(db: Database.Database, actor: string, house
   }).immediate();
 }
 
-export function displayData(db: Database.Database, actor: string, household: string, today: string, end: string) {
-  const role = membership(db, actor, household);
+/**
+ * The one read-only display projection. It takes a household id that the caller has already
+ * authenticated (a member session or a verified display credential) and returns only what a
+ * parent explicitly shared: no notes, descriptions, locations, assignees, rewards or balances.
+ */
+function sharedProjection(db: Database.Database, household: string, today: string, end: string) {
   const sharedEvents = new Set((db.prepare('SELECT event_id FROM display_event WHERE household_id = ?').all(household) as { event_id: string }[]).map(row => row.event_id));
-  const events = listEvents(db, actor, household, today, end);
-  const publicEvents = events.filter(event => sharedEvents.has(event.id)).map(({ id, title, date, startTime, endTime, allDay }) => ({ id, title, date, startTime, endTime, allDay }));
+  const events = householdEventOccurrences(db, household, today, end)
+    .filter(event => sharedEvents.has(event.id)).map(({ id, title, date, startTime, endTime, allDay }) => ({ id, title, date, startTime, endTime, allDay }));
   const visibleChores = `FROM chore c LEFT JOIN recurring_occurrence o ON o.chore_id = c.id LEFT JOIN recurring_series r ON r.id = o.series_id WHERE c.household_id = ? AND c.due_date = ? AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) AND NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= ?)`;
   const chores = db.prepare(`SELECT c.id, c.title, c.status ${visibleChores} AND EXISTS (SELECT 1 FROM display_chore d WHERE d.chore_id = c.id AND d.household_id = c.household_id) ORDER BY c.title`).all(household, today, today) as { id: string; title: string; status: string }[];
+  const meals = householdSharedMeals(db, household, today).filter(meal => meal.shared).map(({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }) => ({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }));
+  return { events, chores, meals };
+}
+
+/** Projection for a paired display. The household comes only from a verified display credential. */
+export function displayDataForDevice(db: Database.Database, display: VerifiedDisplay, today: string, end: string) {
+  return sharedProjection(db, display.householdId, today, end);
+}
+
+export function displayData(db: Database.Database, actor: string, household: string, today: string, end: string) {
+  const role = membership(db, actor, household);
+  const { events, chores, meals } = sharedProjection(db, household, today, end);
   const choices = role === 'parent' ? {
     events: db.prepare('SELECT e.id, e.title, EXISTS(SELECT 1 FROM display_event d WHERE d.event_id = e.id AND d.household_id = e.household_id) AS shared FROM calendar_event e WHERE e.household_id = ? AND (e.cancelled = 0 OR EXISTS(SELECT 1 FROM display_event d WHERE d.event_id = e.id AND d.household_id = e.household_id)) ORDER BY e.start_date, e.title').all(household) as { id: string; title: string; shared: number }[],
     chores: db.prepare('SELECT c.id, c.title, EXISTS(SELECT 1 FROM display_chore d WHERE d.chore_id = c.id AND d.household_id = c.household_id) AS shared FROM chore c WHERE c.household_id = ? AND (c.due_date = ? OR EXISTS(SELECT 1 FROM display_chore d WHERE d.chore_id = c.id AND d.household_id = c.household_id)) ORDER BY c.due_date, c.title').all(household, today) as { id: string; title: string; shared: number }[]
   } : null;
-  const meals = listMeals(db, actor, household, today).filter(meal => meal.shared).map(({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }) => ({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }));
-  return { events: publicEvents, chores, meals, choices };
+  return { events, chores, meals, choices };
 }

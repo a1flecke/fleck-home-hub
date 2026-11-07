@@ -206,7 +206,7 @@ it('upgrades the current main migration history without skipping invitations', a
   const directory = mkdtempSync(join(tmpdir(), 'hub-main-upgrade-')); dirs.push(directory);
   const previous = join(directory, 'previous'); mkdirSync(join(previous, 'meta'), { recursive: true });
   const fullJournal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
-  const journal = { ...fullJournal, entries: fullJournal.entries.filter((entry: { tag: string }) => entry.tag !== '0009_household_invitations' && entry.tag !== '0010_meal_recipe_details' && entry.tag !== '0011_membership_disable') };
+  const journal = { ...fullJournal, entries: fullJournal.entries.filter((entry: { tag: string }) => entry.tag !== '0009_household_invitations' && entry.tag !== '0010_meal_recipe_details' && entry.tag !== '0011_membership_disable' && entry.tag !== '0012_display_pairing') };
   writeFileSync(join(previous, 'meta/_journal.json'), JSON.stringify(journal));
   for (const entry of journal.entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(previous, `${entry.tag}.sql`));
   const db = new Database(join(directory, 'synthetic.sqlite')); dbs.push(db);

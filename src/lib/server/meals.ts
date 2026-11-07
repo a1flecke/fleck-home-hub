@@ -53,7 +53,19 @@ export function updateMeal(db: Database.Database, actor: string, household: stri
 }
 
 export function listMeals(db: Database.Database, actor: string, household: string, date: string): Meal[] {
-  const role = authorize(db, actor, household); occurrenceDates(date, date, [0]);
+  return mealsForRole(db, household, date, authorize(db, actor, household));
+}
+
+/**
+ * Shared meals only, with private notes withheld. Performs NO caller authorization: `household` must
+ * come from a verified member session or display credential. Only display.ts and listMeals may call it.
+ */
+export function householdSharedMeals(db: Database.Database, household: string, date: string): Meal[] {
+  return mealsForRole(db, household, date, 'kid');
+}
+
+function mealsForRole(db: Database.Database, household: string, date: string, role: string): Meal[] {
+  occurrenceDates(date, date, [0]);
   const rows = db.prepare('SELECT id, title, meal_date AS date, meal_time AS time, servings, ingredients, notes, source, recipe_url AS recipeUrl, recipe_details AS recipeDetailsJson, shared FROM meal WHERE household_id = ? AND meal_date = ? ORDER BY meal_time, title, id').all(household, date) as (Omit<Meal, 'shared' | 'recipeDetails'> & { shared: number; recipeDetailsJson: string | null })[];
   return rows.filter(row => role === 'parent' || row.shared).map(row => {
     const { recipeDetailsJson, ...meal } = row;

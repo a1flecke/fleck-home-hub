@@ -2,6 +2,10 @@
 
 Use HTTPS through a private tailnet, a unique random `AUTH_SECRET`, and a private database path. Parent and kid roles are checked by the server for each household. Public signup is disabled; local host access is required to run the account-provisioning commands. The authenticated shared display shows only parent-selected event and chore titles and limited status details. The public landing page shows synthetic data. The manifest does not implement offline synchronization.
 
+## Restricted display sessions
+
+A paired display holds a separate, revocable, read-only credential instead of a person's session: see [ADR 0004](adr/0004-restricted-display-sessions.md) for the invariants and threat model and [display](display.md) for behavior. It is a distinct credential type that no household route accepts, it is revoked when the pairing parent is disabled, and it needs no Better Auth account. Reaching the host over Tailscale is not authorization. An unlocked screen still discloses what it shows to anyone who can see it. This feature requires independent review before production use; the repository ruleset requires no approving reviews.
+
 ## Household invitation threat model
 
 Initial bootstrap remains a trusted local operation. Public signup remains disabled. A signed-in parent may create a seven-day, single-use invitation for one household and one fixed role. The recipient creates a new account and chooses their own password; an existing email is rejected rather than linked or promoted. Parents should share links only through a trusted private channel. Anyone holding an unused link can redeem it before expiration or revocation, including a person who intercepts it. The parent can revoke a pending invitation in household settings; the issuer must still be a parent when it is redeemed.
