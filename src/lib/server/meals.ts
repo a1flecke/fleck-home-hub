@@ -7,7 +7,7 @@ export type MealInput = { title: string; date: string; time?: string; servings?:
 export type Meal = { id: string; title: string; date: string; time: string | null; servings: number | null; ingredients: string; notes: string | null; source: string | null; recipeUrl: string | null; recipeDetails: RecipeDetails | null; shared: boolean };
 
 function authorize(db: Database.Database, actor: string, household: string, parent = false) {
-  const member = db.prepare('SELECT role FROM membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
+  const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
   if (!member || (parent && member.role !== 'parent')) throw new Error('Not authorized');
   return member.role;
 }

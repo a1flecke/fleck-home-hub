@@ -14,8 +14,8 @@ async function fixture(path = ':memory:') {
   await migrate(db);
   for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
   db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-  db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-  db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
   const chore = createChore(db, 'parent', 'home', { title: 'Synthetic', assigneeId: 'kid', dueDate: '2026-10-30', rewardCents: 500 });
   changeChore(db, 'kid', 'home', chore, 'submit');
   changeChore(db, 'parent', 'home', chore, 'verify');
@@ -90,7 +90,7 @@ it('corrects a payout with a single immutable compensating record', async () => 
     const id = recordPayout(db, 'parent', 'home', { childId: 'kid', amountCents: 200, date: '2026-10-30', note: '', requestId: 'request-a' });
     db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run('other-parent', 'Other', 'other-parent@example.test');
     db.prepare('INSERT INTO household VALUES (?, ?)').run('other-home', 'Other Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('other-parent', 'other-home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('other-parent', 'other-home', 'parent');
     expect(() => reversePayout(db, 'kid', 'home', id, 'Mistake')).toThrow();
     expect(() => reversePayout(db, 'other-parent', 'other-home', id, 'Mistake')).toThrow();
     expect(() => recordPayout(db, 'other-parent', 'other-home', { childId: 'kid', amountCents: 1, date: '2026-10-30', note: '', requestId: 'forged' })).toThrow();

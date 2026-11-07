@@ -2,12 +2,13 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { getIdentityServices } from '../../../lib/server/runtime';
 import { createInvitation, listHouseholdAccess, revokeInvitation } from '../../../lib/server/invitations';
+import { MemberDisableError, disableMember } from '../../../lib/server/household-access';
 
 async function parent(request: Request, url: URL) {
   const services = getIdentityServices();
   const session = await services.auth.api.getSession({ headers: request.headers });
   if (!session) redirect(303, '/sign-in');
-  const households = services.db.prepare("SELECT household.id, household.name FROM household JOIN membership ON membership.household_id = household.id WHERE membership.user_id = ? AND membership.role = 'parent' ORDER BY household.name, household.id").all(session.user.id) as { id: string; name: string }[];
+  const households = services.db.prepare("SELECT household.id, household.name FROM household JOIN active_membership ON active_membership.household_id = household.id WHERE active_membership.user_id = ? AND active_membership.role = 'parent' ORDER BY household.name, household.id").all(session.user.id) as { id: string; name: string }[];
   const householdId = url.searchParams.get('household') ?? households[0]?.id;
   if (!householdId || !households.some((item) => item.id === householdId)) error(403, 'No household administration access');
   return { ...services, actor: session.user.id, households, householdId };
@@ -15,7 +16,7 @@ async function parent(request: Request, url: URL) {
 
 export const load: PageServerLoad = async ({ request, url }) => {
   const { db, actor, households, householdId } = await parent(request, url);
-  return { households, householdId, ...listHouseholdAccess(db, actor, householdId) };
+  return { households, householdId, currentUserId: actor, ...listHouseholdAccess(db, actor, householdId) };
 };
 
 export const actions = {
@@ -35,5 +36,18 @@ export const actions = {
     try { revokeInvitation(db, actor, householdId, String(form.get('id') ?? '')); }
     catch { return fail(400, { message: 'That invitation is no longer available. Reload and try again.' }); }
     return { message: 'Invitation revoked.' };
+  },
+  disable: async ({ request, url }) => {
+    const { db, actor, householdId, origin } = await parent(request, url);
+    if (request.headers.get('origin') !== origin) return fail(403, { message: 'Request not authorized.' });
+    const form = await request.formData();
+    try {
+      const { changed } = disableMember(db, actor, householdId, String(form.get('member') ?? ''));
+      return { message: changed ? 'Access disabled. They can no longer use this household.' : 'That person already had their access disabled.' };
+    } catch (error) {
+      const code = error instanceof MemberDisableError ? error.code : 'unavailable';
+      const messages = { 'last-parent': 'A household must keep at least one active parent.', self: 'You cannot disable your own access.', 'not-authorized': 'Request not authorized.', unavailable: 'That person is not part of this household. Reload and try again.' } as const;
+      return fail(code === 'not-authorized' ? 403 : 400, { message: messages[code] });
+    }
   }
 } satisfies Actions;

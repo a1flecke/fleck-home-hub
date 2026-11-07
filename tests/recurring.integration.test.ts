@@ -17,7 +17,7 @@ it('generates household-scoped occurrences once and credits only verified work',
       db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     }
     db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('home', 'Synthetic');
-    for (const [id, role] of [['parent', 'parent'], ['kid', 'kid']]) db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run(id, 'home', role);
+    for (const [id, role] of [['parent', 'parent'], ['kid', 'kid']]) db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(id, 'home', role);
     const input = { title: 'Feed pet', assigneeId: 'kid', startDate: '2026-03-07', weekdays: [0, 1, 2, 3, 4, 5, 6], rewardCents: 200 };
     expect(() => createSeries(db, 'kid', 'home', input)).toThrow();
     expect(() => createSeries(db, 'outsider', 'home', input)).toThrow();
@@ -62,8 +62,8 @@ it('serializes generation from independent processes without duplicate occurrenc
     await migrate(db);
     for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     createSeries(db, 'parent', 'home', { title: 'Race', assigneeId: 'kid', startDate: '2099-01-01', weekdays: [0, 1, 2, 3, 4, 5, 6] });
     const workers = [0, 1].map(() => spawn(process.execPath, ['--import', 'tsx', 'tests/fixtures/generate-occurrences.ts', path], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] }));
     const outcomes = workers.map(worker => new Promise<string>((resolve, reject) => {
@@ -89,8 +89,8 @@ it('updates future unstarted occurrences without changing verified history', asy
     await migrate(db);
     for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     expect(() => setHouseholdTimezone(db, 'kid', 'home', 'America/New_York')).toThrow();
     expect(() => setHouseholdTimezone(db, 'parent', 'home', 'Not/AZone')).toThrow();
     setHouseholdTimezone(db, 'parent', 'home', 'America/New_York');
@@ -112,8 +112,8 @@ it('does not revive generated dates that elapsed while a series was paused', asy
     await migrate(db);
     for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-03-07T18:00:00Z'));
     const id = createSeries(db, 'parent', 'home', { title: 'Daily', assigneeId: 'kid', startDate: '2026-03-07', weekdays: [0, 1, 2, 3, 4, 5, 6] });

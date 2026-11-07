@@ -18,7 +18,7 @@ async function fixture(path = ':memory:') {
     db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
   }
   db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-  for (const [id, role] of [['parent', 'parent'], ['kid', 'kid'], ['other', 'kid']]) db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run(id, 'home', role);
+  for (const [id, role] of [['parent', 'parent'], ['kid', 'kid'], ['other', 'kid']]) db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(id, 'home', role);
   return db;
 }
 
@@ -34,7 +34,7 @@ it('serializes competing approvals across independent SQLite connections', async
   try {
     const db = await fixture(path);
     db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run('parent2', 'Second parent', 'parent2@example.test');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent2', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent2', 'home', 'parent');
     const id = createChore(db, 'parent', 'home', { title: 'Race', assigneeId: 'kid', dueDate: '2026-10-30', rewardCents: 200 });
     changeChore(db, 'kid', 'home', id, 'submit');
     const workers = ['parent', 'parent2'].map(actor => spawn(process.execPath, ['--import', 'tsx', 'tests/fixtures/verify-chore.ts', path, actor, id], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] }));
@@ -63,7 +63,7 @@ it('rejects child creation and invalid assignees or inputs', async () => {
   expect(() => createChore(db, 'parent', 'home', { ...input, rewardCents: 1.5 })).toThrow();
   expect(() => createChore(db, 'parent', 'home', { ...input, dueDate: '2026-02-30' })).toThrow();
   db.prepare('INSERT INTO household VALUES (?, ?)').run('other-home', 'Other');
-  db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('other', 'other-home', 'parent');
+  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('other', 'other-home', 'parent');
   const id = createChore(db, 'parent', 'home', input);
   changeChore(db, 'kid', 'home', id, 'submit');
   expect(() => changeChore(db, 'other', 'other-home', id, 'verify')).toThrow();

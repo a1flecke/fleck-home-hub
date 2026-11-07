@@ -1,6 +1,7 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { Worker } from 'node:worker_threads';
+import { listMembers } from './household-access';
 import workerSource from './invitation-worker.js?raw';
 
 type Role = 'parent' | 'kid';
@@ -13,7 +14,7 @@ export function createInvitation(db: Database.Database, actorId: string, househo
   if (role !== 'parent' && role !== 'kid') throw new Error('Invalid role');
   const token = randomBytes(32).toString('base64url');
   db.transaction(() => {
-    const actor = db.prepare('SELECT role FROM membership WHERE user_id = ? AND household_id = ?').get(actorId, householdId) as { role: Role } | undefined;
+    const actor = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actorId, householdId) as { role: Role } | undefined;
     if (actor?.role !== 'parent') throw new Error('Not authorized');
     db.prepare('INSERT INTO household_invitation (id, token_hash, household_id, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(randomUUID(), digest(token), householdId, role, actorId, Date.now() + 7 * 24 * 60 * 60 * 1000);
@@ -27,7 +28,7 @@ export async function redeemInvitation(db: Database.Database, config: Config, to
   if (!/^[A-Za-z0-9_-]{43}$/.test(token) || !input.name.trim() || input.password.length < 12) throw new Error('Invalid invitation or input');
   // Reject unusable bearer tokens before spawning auth work or requesting a
   // writer lock. Redemption still rechecks authorization inside its transaction.
-  const usable = db.prepare("SELECT 1 FROM household_invitation i JOIN membership m ON m.user_id = i.created_by AND m.household_id = i.household_id AND m.role = 'parent' WHERE i.token_hash = ? AND i.consumed_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").get(digest(token), Date.now());
+  const usable = db.prepare("SELECT 1 FROM household_invitation i JOIN active_membership m ON m.user_id = i.created_by AND m.household_id = i.household_id AND m.role = 'parent' WHERE i.token_hash = ? AND i.consumed_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").get(digest(token), Date.now());
   if (!usable) throw new Error('Invalid invitation');
   if (activeRedemptions >= 2) throw new Error('Too many invitation attempts');
   activeRedemptions++;
@@ -41,13 +42,13 @@ export async function redeemInvitation(db: Database.Database, config: Config, to
 }
 
 function requireParent(db: Database.Database, actorId: string, householdId: string) {
-  const actor = db.prepare('SELECT role FROM membership WHERE user_id = ? AND household_id = ?').get(actorId, householdId) as { role: Role } | undefined;
+  const actor = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actorId, householdId) as { role: Role } | undefined;
   if (actor?.role !== 'parent') throw new Error('Not authorized');
 }
 
 export function listHouseholdAccess(db: Database.Database, actorId: string, householdId: string) {
   requireParent(db, actorId, householdId);
-  const members = db.prepare('SELECT user.id, user.name, membership.role FROM membership JOIN user ON user.id = membership.user_id WHERE membership.household_id = ? ORDER BY user.name, user.id').all(householdId) as { id: string; name: string; role: Role }[];
+  const members = listMembers(db, actorId, householdId);
   const invitations = db.prepare('SELECT id, role, expires_at AS expiresAt FROM household_invitation WHERE household_id = ? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > ? ORDER BY expires_at, id').all(householdId, Date.now()) as { id: string; role: Role; expiresAt: number }[];
   return { members, invitations };
 }

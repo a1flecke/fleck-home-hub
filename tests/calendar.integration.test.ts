@@ -16,9 +16,9 @@ it('limits calendar management and reads to household members and preserves loca
     for (const id of ['parent', 'kid', 'outsider']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
     db.prepare('INSERT INTO household VALUES (?, ?)').run('elsewhere', 'Synthetic other');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('outsider', 'elsewhere', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('outsider', 'elsewhere', 'parent');
     const event = { title: 'Family walk', date: '2026-03-07', startTime: '09:00', endTime: '10:00', allDay: false, weekdays: [0, 6], participants: ['kid'] };
     expect(() => createEvent(db, 'kid', 'home', event)).toThrow();
     expect(() => createEvent(db, 'outsider', 'home', event)).toThrow();
@@ -49,8 +49,8 @@ it('upgrades a payout database and preserves existing household financial data',
     migrateDrizzle(drizzle(db), { migrationsFolder: directory });
     for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user VALUES (?)').run(id);
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     db.prepare("INSERT INTO chore VALUES (?, ?, ?, ?, NULL, ?, ?, 'verified', NULL, ?, ?)").run('chore', 'home', 'kid', 'Synthetic', '2026-01-01', 200, '2026-01-01', '2026-01-01');
     db.prepare('INSERT INTO earning VALUES (?, ?, ?, ?, ?, ?)').run('earning', 'chore', 'home', 'kid', 200, '2026-01-01');
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
@@ -67,8 +67,8 @@ it('edits and cancels an event without permitting cross-household changes', asyn
     db.pragma('foreign_keys = ON'); await migrate(db);
     for (const id of ['parent', 'outsider']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     for (const id of ['home', 'elsewhere']) db.prepare('INSERT INTO household VALUES (?, ?)').run(id, id);
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('outsider', 'elsewhere', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('outsider', 'elsewhere', 'parent');
     const input = { title: 'Dinner', date: '2026-11-01', allDay: true, participants: [] };
     const id = createEvent(db, 'parent', 'home', input);
     expect(() => updateEvent(db, 'outsider', 'elsewhere', id, { ...input, title: 'Intrusion' })).toThrow();
@@ -85,8 +85,8 @@ it('schedules an inbox item transactionally and forbids children from managing i
     db.pragma('foreign_keys = ON'); await migrate(db);
     for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     expect(() => addUnscheduled(db, 'kid', 'home', { title: 'Dentist' })).toThrow();
     const id = addUnscheduled(db, 'parent', 'home', { title: 'Dentist', ownerId: 'kid' });
     expect(listUnscheduled(db, 'kid', 'home')).toHaveLength(1);

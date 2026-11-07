@@ -34,8 +34,8 @@ test('a parent invites another parent and that parent can manage household acces
     await invitee.getByRole('button', { name: 'Sign in' }).click();
     await expect(invitee.getByRole('heading', { name: 'Hello, Invited Parent' })).toBeVisible();
     await invitee.goto('/settings/household');
-    await expect(invitee.getByText('Invited Parent')).toBeVisible();
-    await expect(invitee.getByText('Sample Parent')).toBeVisible();
+    await expect(invitee.getByRole('listitem').filter({ hasText: 'Invited Parent · Parent (you)' })).toBeVisible();
+    await expect(invitee.getByRole('listitem').filter({ hasText: 'Sample Parent · Parent' })).toBeVisible();
   } finally { await context.close(); }
 });
 

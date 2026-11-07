@@ -13,7 +13,10 @@
   {/if}
   {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">{form.message}</p>{/if}
   <section class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><h2 class="text-xl font-bold">People with access</h2>
-    <ul>{#each data.members as member (member.id)}<li class="mt-3">{member.name} · {member.role === 'parent' ? 'Parent' : 'Child'}</li>{/each}</ul>
+    <ul>{#each data.members.filter((member) => member.disabledAt === null) as member (member.id)}<li class="mt-4"><p>{member.name} · {member.role === 'parent' ? 'Parent' : 'Child'}{member.id === data.currentUserId ? ' (you)' : ''}</p>
+      {#if member.id !== data.currentUserId}<details class="mt-2"><summary class="cursor-pointer rounded-xl border border-red-800 px-4 py-3">Disable access for {member.name}</summary><p class="mt-2">{member.name} will immediately lose access to this household, even if they are signed in. Chores, earnings and history stay. Their account and any other household they belong to are not changed. This cannot be undone here.</p><form method="POST" action="?/disable&household={encodeURIComponent(data.householdId)}" class="mt-2"><input type="hidden" name="member" value={member.id} /><button class="rounded-xl bg-red-800 px-4 py-3 font-bold text-white">Confirm disable {member.name}</button></form></details>{/if}</li>{/each}</ul>
+    {#if data.members.some((member) => member.disabledAt !== null)}<h3 class="mt-6 text-lg font-bold">Disabled access</h3>
+    <ul>{#each data.members.filter((member) => member.disabledAt !== null) as member (member.id)}<li class="mt-3">{member.name} · {member.role === 'parent' ? 'Parent' : 'Child'} · disabled {new Date(member.disabledAt ?? 0).toLocaleDateString()}{member.disabledByName ? ` by ${member.disabledByName}` : ''}</li>{/each}</ul>{/if}
   </section>
   <section class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><h2 class="text-xl font-bold">Invite someone</h2>
     <p class="mt-2">Share the private link with someone you trust. It works once and expires after seven days. They choose their own password.</p>

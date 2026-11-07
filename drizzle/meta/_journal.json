@@ -12,6 +12,7 @@
     { "idx": 7, "version": "6", "when": 1793840400000, "tag": "0007_groceries", "breakpoints": true },
     { "idx": 8, "version": "6", "when": 1793926800000, "tag": "0008_meal_submission", "breakpoints": true },
     { "idx": 9, "version": "6", "when": 1794013200000, "tag": "0009_household_invitations", "breakpoints": true },
-    { "idx": 10, "version": "6", "when": 1794099600000, "tag": "0010_meal_recipe_details", "breakpoints": true }
+    { "idx": 10, "version": "6", "when": 1794099600000, "tag": "0010_meal_recipe_details", "breakpoints": true },
+    { "idx": 11, "version": "6", "when": 1794186000000, "tag": "0011_membership_disable", "breakpoints": true }
   ]
 }

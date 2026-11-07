@@ -28,7 +28,7 @@ it('upgrades an existing household while preserving membership', async () => {
     migrateDrizzle(drizzle(db), { migrationsFolder: dir });
     db.prepare('INSERT INTO user VALUES (?)').run('synthetic');
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Example');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('synthetic', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('synthetic', 'home', 'parent');
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
     expect(db.prepare('SELECT role FROM membership WHERE user_id = ?').get('synthetic')).toEqual({ role: 'parent' });
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'earning'").get()).toEqual({ name: 'earning' });
@@ -51,8 +51,8 @@ it('upgrades a chore database without changing membership or verified earnings',
     db.prepare('INSERT INTO user VALUES (?)').run('parent');
     db.prepare('INSERT INTO user VALUES (?)').run('kid');
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     db.prepare("INSERT INTO chore VALUES (?, ?, ?, ?, NULL, ?, ?, 'verified', NULL, ?, ?)").run('chore', 'home', 'kid', 'Synthetic chore', '2026-01-01', 200, '2026-01-01', '2026-01-01');
     db.prepare('INSERT INTO earning VALUES (?, ?, ?, ?, ?, ?)').run('earning', 'chore', 'home', 'kid', 200, '2026-01-01');
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
@@ -77,8 +77,8 @@ it('upgrades a recurring database while preserving earnings and schedules', () =
     migrateDrizzle(drizzle(db), { migrationsFolder: dir });
     for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user VALUES (?)').run(id);
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     db.prepare("INSERT INTO chore VALUES (?, ?, ?, ?, NULL, ?, ?, 'verified', NULL, ?, ?)").run('chore', 'home', 'kid', 'Synthetic', '2026-10-30', 200, '2026-10-30', '2026-10-30');
     db.prepare('INSERT INTO earning VALUES (?, ?, ?, ?, ?, ?)').run('earning', 'chore', 'home', 'kid', 200, '2026-10-30');
     db.prepare("INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, start_date, weekdays, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)").run('series', 'home', 'parent', 'kid', 'Synthetic', '2026-10-30', '[5]', '2026-10-30', '2026-10-30');
