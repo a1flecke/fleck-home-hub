@@ -9,7 +9,7 @@ async function principal(request: Request) {
   try { services = getIdentityServices(); } catch { error(503, 'Identity service unavailable'); }
   const session = await services.auth.api.getSession({ headers: request.headers });
   if (!session) redirect(303, '/sign-in');
-  const member = services.db.prepare('SELECT household_id AS householdId, role FROM membership WHERE user_id = ? ORDER BY household_id LIMIT 1').get(session.user.id) as { householdId: string; role: 'parent' | 'kid' } | undefined;
+  const member = services.db.prepare('SELECT household_id AS householdId, role FROM active_membership WHERE user_id = ? ORDER BY household_id LIMIT 1').get(session.user.id) as { householdId: string; role: 'parent' | 'kid' } | undefined;
   if (!member) error(403, 'No household access');
   return { ...services, actor: session.user.id, ...member };
 }
@@ -30,7 +30,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
   if (view === 'month') { first.setUTCDate(1); last.setUTCMonth(last.getUTCMonth() + 1, 0); }
   const start = first.toISOString().slice(0, 10), end = last.toISOString().slice(0, 10);
   const events = listEvents(db, actor, householdId, start, end);
-  const members = db.prepare('SELECT u.id, u.name FROM membership m JOIN user u ON u.id = m.user_id WHERE m.household_id = ? ORDER BY u.name').all(householdId) as { id: string; name: string }[];
+  const members = db.prepare('SELECT u.id, u.name FROM active_membership m JOIN user u ON u.id = m.user_id WHERE m.household_id = ? ORDER BY u.name').all(householdId) as { id: string; name: string }[];
   return { date, view, start, end, timezone, role, events, members, inbox: listUnscheduled(db, actor, householdId) };
 };
 

@@ -82,7 +82,7 @@ it('allows at most one concurrent redemption using separate SQLite connections',
     const auth = createAuth(first, { ...config, allowSignUp: true });
     const parent = await auth.api.signUpEmail({ body: { name: 'Parent', email: 'parent@example.test', password: 'synthetic-password-123' } });
     first.prepare('INSERT INTO household VALUES (?, ?)').run('house-a', 'Example');
-    first.prepare('INSERT INTO membership VALUES (?, ?, ?)').run(parent.user.id, 'house-a', 'parent');
+    first.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(parent.user.id, 'house-a', 'parent');
     const token = createInvitation(first, parent.user.id, 'house-a', 'kid');
     const results = await Promise.allSettled([
       redeemInvitation(first, config, token, { name: 'Child A', email: 'child-a@example.test', password: 'synthetic-password-123' }),
@@ -99,7 +99,7 @@ it('lists household members and pending invitations only for a parent', async ()
   const { db, parent } = await fixture();
   createInvitation(db, parent, 'house-a', 'kid');
   const result = listHouseholdAccess(db, parent, 'house-a');
-  expect(result.members).toEqual([{ id: parent, name: 'Parent', role: 'parent' }]);
+  expect(result.members).toEqual([{ id: parent, name: 'Parent', role: 'parent', disabledAt: null, disabledByName: null }]);
   expect(result.invitations).toHaveLength(1);
   expect(result.invitations[0].role).toBe('kid');
   expect(JSON.stringify(result)).not.toContain('token_hash');
@@ -206,7 +206,7 @@ it('upgrades the current main migration history without skipping invitations', a
   const directory = mkdtempSync(join(tmpdir(), 'hub-main-upgrade-')); dirs.push(directory);
   const previous = join(directory, 'previous'); mkdirSync(join(previous, 'meta'), { recursive: true });
   const fullJournal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
-  const journal = { ...fullJournal, entries: fullJournal.entries.filter((entry: { tag: string }) => entry.tag !== '0009_household_invitations' && entry.tag !== '0010_meal_recipe_details') };
+  const journal = { ...fullJournal, entries: fullJournal.entries.filter((entry: { tag: string }) => entry.tag !== '0009_household_invitations' && entry.tag !== '0010_meal_recipe_details' && entry.tag !== '0011_membership_disable') };
   writeFileSync(join(previous, 'meta/_journal.json'), JSON.stringify(journal));
   for (const entry of journal.entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(previous, `${entry.tag}.sql`));
   const db = new Database(join(directory, 'synthetic.sqlite')); dbs.push(db);

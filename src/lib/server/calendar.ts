@@ -6,7 +6,7 @@ export type EventInput = { title: string; date: string; endDate?: string; startT
 type Row = { id: string; title: string; start_date: string; end_date: string | null; start_time: string | null; end_time: string | null; all_day: number; weekdays: string | null; description: string | null; location: string | null };
 
 function requireMember(db: Database.Database, actor: string, household: string, parent = false) {
-  const member = db.prepare('SELECT role FROM membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
+  const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
   if (!member || (parent && member.role !== 'parent')) throw new Error('Not authorized');
 }
 
@@ -28,7 +28,7 @@ export function createEvent(db: Database.Database, actor: string, household: str
   return db.transaction(() => {
     requireMember(db, actor, household, true);
     const participants = [...new Set(input.participants ?? [])];
-    if (participants.length > 100 || participants.some(id => !db.prepare('SELECT 1 FROM membership WHERE user_id = ? AND household_id = ?').get(id, household))) throw new Error('Invalid participants');
+    if (participants.length > 100 || participants.some(id => !db.prepare('SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ?').get(id, household))) throw new Error('Invalid participants');
     const id = randomUUID();
     const now = new Date().toISOString();
     db.prepare('INSERT INTO calendar_event (id, household_id, creator_id, title, description, location, start_date, end_date, start_time, end_time, all_day, weekdays, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, household, actor, values.title, values.description, values.location, input.date, input.endDate || null, input.allDay ? null : input.startTime, input.allDay ? null : input.endTime, Number(input.allDay), input.weekdays?.length ? JSON.stringify([...new Set(input.weekdays)].sort()) : null, now, now);
@@ -63,7 +63,7 @@ export function updateEvent(db: Database.Database, actor: string, household: str
   db.transaction(() => {
     requireMember(db, actor, household, true);
     const participants = [...new Set(input.participants ?? [])];
-    if (participants.length > 100 || participants.some(user => !db.prepare('SELECT 1 FROM membership WHERE user_id = ? AND household_id = ?').get(user, household))) throw new Error('Invalid participants');
+    if (participants.length > 100 || participants.some(user => !db.prepare('SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ?').get(user, household))) throw new Error('Invalid participants');
     const changed = db.prepare('UPDATE calendar_event SET title = ?, description = ?, location = ?, start_date = ?, end_date = ?, start_time = ?, end_time = ?, all_day = ?, weekdays = ?, updated_at = ? WHERE id = ? AND household_id = ? AND cancelled = 0').run(values.title, values.description, values.location, input.date, input.endDate || null, input.allDay ? null : input.startTime, input.allDay ? null : input.endTime, Number(input.allDay), input.weekdays?.length ? JSON.stringify([...new Set(input.weekdays)].sort()) : null, new Date().toISOString(), id, household);
     if (!changed.changes) throw new Error('Event not found');
     db.prepare('DELETE FROM calendar_participant WHERE event_id = ?').run(id);
@@ -80,7 +80,7 @@ type InboxInput = { title: string; description?: string; ownerId?: string };
 function validateInbox(db: Database.Database, household: string, input: InboxInput) {
   const title = input.title.trim();
   const description = input.description?.trim() || null;
-  if (!title || title.length > 120 || (description && description.length > 1000) || (input.ownerId && !db.prepare('SELECT 1 FROM membership WHERE user_id = ? AND household_id = ?').get(input.ownerId, household))) throw new Error('Invalid item');
+  if (!title || title.length > 120 || (description && description.length > 1000) || (input.ownerId && !db.prepare('SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ?').get(input.ownerId, household))) throw new Error('Invalid item');
   return { title, description };
 }
 export function addUnscheduled(db: Database.Database, actor: string, household: string, input: InboxInput): string {

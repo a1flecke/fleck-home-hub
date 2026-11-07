@@ -7,15 +7,15 @@ type SeriesInput = { title: string; description?: string; assigneeId: string; st
 type Series = { id: string; creator_id: string; assignee_id: string; title: string; description: string | null; reward_cents: number | null; start_date: string; end_date: string | null; weekdays: string };
 
 export function setHouseholdTimezone(db: Database.Database, actor: string, household: string, timezone: string): void {
-  if (!db.prepare("SELECT 1 FROM membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household)) throw new Error('Not authorized');
+  if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household)) throw new Error('Not authorized');
   if (timezone.length > 100 || !timezone.includes('/')) throw new Error('Invalid timezone');
   localDate(new Date(), timezone);
   db.prepare('INSERT INTO household_settings (household_id, timezone) VALUES (?, ?) ON CONFLICT(household_id) DO UPDATE SET timezone = excluded.timezone').run(household, timezone);
 }
 
 function validateSeries(db: Database.Database, actor: string, household: string, input: SeriesInput) {
-  if (!db.prepare("SELECT 1 FROM membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household) ||
-      !db.prepare("SELECT 1 FROM membership WHERE user_id = ? AND household_id = ? AND role = 'kid'").get(input.assigneeId, household)) throw new Error('Not authorized');
+  if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household) ||
+      !db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'kid'").get(input.assigneeId, household)) throw new Error('Not authorized');
   const title = input.title.trim();
   const description = input.description?.trim() || null;
   occurrenceDates(input.startDate, input.startDate, input.weekdays);
@@ -33,7 +33,7 @@ export function createSeries(db: Database.Database, actor: string, household: st
 }
 
 export function generateOccurrences(db: Database.Database, actor: string, household: string, from: string, through: string): void {
-  const member = db.prepare('SELECT role FROM membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
+  const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
   if (!member) throw new Error('Not authorized');
   occurrenceDates(from, through, [0]);
   db.transaction(() => {
@@ -52,7 +52,7 @@ export function generateOccurrences(db: Database.Database, actor: string, househ
 }
 
 function requireParent(db: Database.Database, actor: string, household: string, id: string): void {
-  if (!db.prepare("SELECT 1 FROM membership m JOIN recurring_series s ON s.household_id = m.household_id WHERE m.user_id = ? AND m.household_id = ? AND m.role = 'parent' AND s.id = ?").get(actor, household, id)) throw new Error('Not authorized');
+  if (!db.prepare("SELECT 1 FROM active_membership m JOIN recurring_series s ON s.household_id = m.household_id WHERE m.user_id = ? AND m.household_id = ? AND m.role = 'parent' AND s.id = ?").get(actor, household, id)) throw new Error('Not authorized');
 }
 
 export function setSeriesState(db: Database.Database, actor: string, household: string, id: string, state: 'active' | 'paused' | 'ended'): void {
