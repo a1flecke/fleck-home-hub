@@ -1,4 +1,12 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
+
+async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password') {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill(email);
+  await page.getByLabel('Password').fill(password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: /Hello, |My Day/ })).toBeVisible();
+}
 
 test('a household member adds and completes an item', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
@@ -525,4 +533,365 @@ test('a stale edit does not overwrite another household session', async ({ page,
     await other.reload();
     await expect(otherItem).toContainText('Bought');
   } finally { await context.close(); }
+});
+
+test('a visible grocery list receives additions, completions and removals from another session', async ({ page, browser }) => {
+  const name = 'Synthetic live rye';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(name);
+    await otherAdd.getByLabel('Quantity', { exact: true }).fill('2');
+    await otherAdd.getByLabel('Unit', { exact: true }).fill('loaves');
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: name })).toContainText('2 loaves');
+    const item = page.getByRole('article').filter({ hasText: name });
+    await expect(item).toHaveCount(0);
+    await page.evaluate(() => { (window as unknown as { __manualRefreshMarker?: boolean }).__manualRefreshMarker = true; });
+    await page.getByRole('link', { name: 'Refresh list' }).click();
+    await expect(item).toContainText('2 loaves');
+    expect(await page.evaluate(() => (window as unknown as { __manualRefreshMarker?: boolean }).__manualRefreshMarker)).toBe(true);
+
+    await other.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Mark bought' }).click();
+    await expect(other.getByRole('article').filter({ hasText: name })).toContainText('Bought');
+    await page.clock.runFor(25_000);
+    await expect(item).toContainText('Bought');
+
+    await other.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Remove item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: name })).toHaveCount(0);
+    await page.clock.runFor(25_000);
+    await expect(item).toHaveCount(0);
+  } finally { await otherContext.close(); }
+});
+
+test('automatic updates pause for add and edit drafts and resume when editing ends', async ({ page, browser }) => {
+  const base = 'Synthetic live pears';
+  const oranges = 'Synthetic live oranges';
+  const kiwis = 'Synthetic live kiwis';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(base);
+    await add.getByLabel('Quantity', { exact: true }).fill('2');
+    await add.getByRole('button', { name: 'Add item' }).click();
+    const baseItem = page.getByRole('article').filter({ hasText: base });
+    await expect(baseItem).toContainText('2');
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(oranges);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: oranges })).toBeVisible();
+
+    await add.getByLabel('Item', { exact: true }).fill('Synthetic draft plums');
+    await add.getByLabel('Quantity', { exact: true }).fill('4');
+    await page.getByRole('link', { name: 'Refresh list' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Finish or clear your changes before refreshing.' })).toBeVisible();
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: oranges })).toHaveCount(0);
+    await expect(add.getByLabel('Item', { exact: true })).toHaveValue('Synthetic draft plums');
+    await expect(add.getByLabel('Quantity', { exact: true })).toHaveValue('4');
+    await expect(page.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
+
+    await add.getByLabel('Item', { exact: true }).fill('');
+    await add.getByLabel('Quantity', { exact: true }).fill('');
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: oranges })).toBeVisible();
+
+    await baseItem.getByText('Edit item', { exact: true }).click();
+    const edit = baseItem.getByRole('form', { name: `Edit ${base}` });
+    await edit.getByLabel('Quantity', { exact: true }).fill('7');
+    await otherAdd.getByLabel('Item', { exact: true }).fill(kiwis);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: kiwis })).toBeVisible();
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: kiwis })).toHaveCount(0);
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('7');
+    await expect(edit).toBeVisible();
+    await page.getByRole('link', { name: 'Refresh list' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Finish or clear your changes before refreshing.' })).toBeVisible();
+
+    await baseItem.getByText('Edit item', { exact: true }).click();
+    await expect(edit).toBeHidden();
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: kiwis })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Live updates on.' })).toBeVisible();
+  } finally { await otherContext.close(); }
+});
+
+test('live updates stop while the tab is hidden and refresh when it becomes visible', async ({ page, browser }) => {
+  const name = 'Synthetic hidden plums';
+  await signIn(page);
+  await page.addInitScript(() => {
+    const state = window as unknown as { __groceryHidden?: boolean; __setGroceryHidden?: (hidden: boolean) => void };
+    Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state.__groceryHidden ? 'hidden' : 'visible' });
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => Boolean(state.__groceryHidden) });
+    state.__setGroceryHidden = (hidden: boolean) => {
+      state.__groceryHidden = hidden;
+      document.dispatchEvent(new Event('visibilitychange'));
+    };
+  });
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(name);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: name })).toBeVisible();
+
+    await page.evaluate(() => (window as unknown as { __setGroceryHidden: (hidden: boolean) => void }).__setGroceryHidden(true));
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: name })).toHaveCount(0);
+
+    await page.evaluate(() => (window as unknown as { __setGroceryHidden: (hidden: boolean) => void }).__setGroceryHidden(false));
+    await expect(page.getByRole('article').filter({ hasText: name })).toBeVisible();
+  } finally { await otherContext.close(); }
+});
+
+test('leaving the page disposes the live refresh timer', async ({ page }) => {
+  await signIn(page);
+  await page.clock.install();
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  let dataRequests = 0;
+  page.on('request', request => { if (request.url().includes('/__data.json')) dataRequests++; });
+  await page.getByRole('link', { name: 'Back to home' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  await page.waitForLoadState('networkidle');
+  const requestsAfterNavigation = dataRequests;
+  await page.clock.runFor(75_000);
+  expect(dataRequests).toBe(requestsAfterNavigation);
+});
+
+test('live refresh does not start another request while one is still running', async ({ page }) => {
+  await signIn(page);
+  await page.clock.install();
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  let requests = 0;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  let started!: () => void;
+  const firstStarted = new Promise<void>(resolve => { started = resolve; });
+  await page.route('**/groceries/__data.json*', async route => {
+    requests++;
+    if (requests === 1) { started(); await gate; }
+    await route.continue();
+  });
+  await page.clock.runFor(25_000);
+  await firstStarted;
+  expect(requests).toBe(1);
+  await page.clock.runFor(75_000);
+  expect(requests).toBe(1);
+  const completed = page.waitForResponse(response => response.url().includes('/groceries/__data.json'));
+  release();
+  await completed;
+  await page.clock.runFor(25_000);
+  await expect.poll(() => requests).toBe(2);
+});
+
+test('an edit typed during a slow refresh survives the arriving server data', async ({ page, browser }) => {
+  const base = 'Synthetic live oat bread';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(base);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    const baseItem = page.getByRole('article').filter({ hasText: base });
+    await expect(baseItem).toBeVisible();
+    await baseItem.getByText('Edit item', { exact: true }).click();
+    const edit = baseItem.getByRole('form', { name: `Edit ${base}` });
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherItem = other.getByRole('article').filter({ hasText: base });
+    await otherItem.getByText('Edit item', { exact: true }).click();
+    const otherEdit = otherItem.getByRole('form', { name: `Edit ${base}` });
+
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let started!: () => void;
+    const firstStarted = new Promise<void>(resolve => { started = resolve; });
+    await page.route('**/groceries/__data.json*', async route => {
+      started();
+      await gate;
+      await route.continue();
+    });
+    await page.clock.runFor(25_000);
+    await firstStarted;
+    await edit.getByLabel('Quantity', { exact: true }).fill('7');
+    await otherEdit.getByLabel('Quantity', { exact: true }).fill('5');
+    await otherEdit.getByRole('button', { name: 'Save item' }).click();
+    await expect(otherItem).toContainText('5');
+    release();
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('7');
+    await expect(edit).toBeVisible();
+
+    await baseItem.getByText('Edit item', { exact: true }).click();
+    await expect(edit).toBeHidden();
+    await baseItem.getByText('Edit item', { exact: true }).click();
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('5');
+  } finally { await otherContext.close(); }
+});
+
+test('a failed refresh keeps the current list visible and recovers automatically', async ({ page, browser }) => {
+  const base = 'Synthetic recovery beans';
+  const remote = 'Synthetic recovery rice';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(base);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(remote);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: remote })).toBeVisible();
+
+    await page.context().setOffline(true);
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('status').filter({ hasText: 'Unable to refresh right now.' })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: remote })).toHaveCount(0);
+
+    await page.context().setOffline(false);
+    await expect(page.getByRole('status').filter({ hasText: 'Live updates on.' })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: remote })).toBeVisible();
+  } finally { await otherContext.close(); }
+});
+
+test('an expired session returns to sign in instead of showing a stale live list', async ({ page }) => {
+  await signIn(page);
+  await page.clock.install();
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  await page.context().clearCookies();
+  await page.clock.runFor(25_000);
+  await expect(page).toHaveURL(/\/sign-in/);
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+});
+
+test('automatic updates can be paused and resumed', async ({ page, browser }) => {
+  const name = 'Synthetic paused lentils';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    await page.getByRole('button', { name: 'Pause automatic updates' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Automatic updates paused.' })).toBeVisible();
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(name);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: name })).toBeVisible();
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: name })).toHaveCount(0);
+
+    await page.getByRole('button', { name: 'Resume automatic updates' }).click();
+    await expect(page.getByRole('article').filter({ hasText: name })).toBeVisible();
+  } finally { await otherContext.close(); }
+});
+
+test('a refresh keeps the reading position and focus stable', async ({ page, browser }) => {
+  const base = 'Synthetic scroll lentils';
+  const remote = 'Synthetic scroll rice';
+  const later = 'Synthetic scroll oats';
+  await signIn(page);
+  await page.setViewportSize({ width: 375, height: 300 });
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 300 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(base);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(remote);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: remote })).toBeVisible();
+
+    await page.evaluate(() => window.scrollTo(0, 200));
+    const scrollPosition = await page.evaluate(() => window.scrollY);
+    expect(scrollPosition).toBeGreaterThan(0);
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: remote })).toBeVisible();
+    expect(await page.evaluate(() => window.scrollY)).toBe(scrollPosition);
+
+    await add.getByLabel('Item', { exact: true }).focus();
+    await otherAdd.getByLabel('Item', { exact: true }).fill(later);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: later })).toBeVisible();
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: later })).toBeVisible();
+    await expect(add.getByLabel('Item', { exact: true })).toBeFocused();
+  } finally { await otherContext.close(); }
+});
+
+test('validation recovery keeps entered values and pauses refresh until corrected', async ({ page, browser }) => {
+  const remote = 'Synthetic recovery squash';
+  const corrected = 'Synthetic corrected squash';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill('   ');
+    await add.getByLabel('Quantity', { exact: true }).fill('4');
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Check the item name' })).toBeVisible();
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(remote);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: remote })).toBeVisible();
+
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: remote })).toHaveCount(0);
+    await expect(add.getByLabel('Quantity', { exact: true })).toHaveValue('4');
+    await expect(page.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
+
+    await add.getByLabel('Item', { exact: true }).fill(corrected);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: corrected })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: remote })).toBeVisible();
+  } finally { await otherContext.close(); }
 });
