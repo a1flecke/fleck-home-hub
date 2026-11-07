@@ -39,6 +39,14 @@ export function createEvent(db: Database.Database, actor: string, household: str
 
 export function listEvents(db: Database.Database, actor: string, household: string, from: string, through: string) {
   requireMember(db, actor, household);
+  return householdEventOccurrences(db, household, from, through);
+}
+
+/**
+ * Performs NO caller authorization: it trusts that `household` came from a verified member session
+ * or a verified display credential. Only display.ts and listEvents may call it (architecture-tested).
+ */
+export function householdEventOccurrences(db: Database.Database, household: string, from: string, through: string) {
   occurrenceDates(from, through, [0]);
   const rows = db.prepare('SELECT * FROM calendar_event WHERE household_id = ? AND cancelled = 0 AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)').all(household, through, from) as Row[];
   return rows.flatMap(row => {

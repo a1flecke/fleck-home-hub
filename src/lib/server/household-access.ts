@@ -1,4 +1,5 @@
 import type Database from 'better-sqlite3';
+import { revokeDisplayAuthorityOf } from './display-pairing';
 
 export type HouseholdRole = 'parent' | 'kid';
 export type HouseholdMember = { id: string; name: string; role: HouseholdRole; disabledAt: number | null; disabledByName: string | null };
@@ -49,6 +50,8 @@ export function disableMember(db: Database.Database, actorId: string, householdI
       db.prepare('UPDATE membership SET disabled_at = ?, disabled_by = ? WHERE user_id = ? AND household_id = ? AND disabled_at IS NULL').run(now, actorId, targetId, householdId);
       // Links the disabled member issued are unusable at redemption anyway; revoking makes that visible.
       db.prepare('UPDATE household_invitation SET revoked_at = ? WHERE household_id = ? AND created_by = ? AND consumed_at IS NULL AND revoked_at IS NULL').run(now, householdId, targetId);
+      // Displays and pairing codes this member authorized stop working with them.
+      revokeDisplayAuthorityOf(db, householdId, targetId, actorId, now);
       return { changed: true };
     }).immediate();
   } catch (error) {
