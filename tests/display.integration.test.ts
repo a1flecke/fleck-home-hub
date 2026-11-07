@@ -12,9 +12,9 @@ it('shares only parent-selected household fields and allows revocation', async (
     db.pragma('foreign_keys = ON'); await migrate(db);
     for (const id of ['parent', 'kid', 'outsider']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     for (const id of ['home', 'other']) db.prepare('INSERT INTO household VALUES (?, ?)').run(id, id);
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('outsider', 'other', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('outsider', 'other', 'parent');
     const event = createEvent(db, 'parent', 'home', { title: 'Shared event', date: '2026-10-30', allDay: true, description: 'Private event details', location: 'Private location' });
     const chore = createChore(db, 'parent', 'home', { title: 'Shared chore', description: 'Private chore details', assigneeId: 'kid', dueDate: '2026-10-30', rewardCents: 200 });
     const snapshot = () => displayData(db, 'kid', 'home', '2026-10-30', '2026-11-06');

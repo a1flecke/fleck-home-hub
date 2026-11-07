@@ -5,7 +5,7 @@ import { listMeals } from './meals';
 type Kind = 'event' | 'chore';
 
 function membership(db: Database.Database, actor: string, household: string) {
-  const member = db.prepare('SELECT role FROM membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
+  const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
   if (!member) throw new Error('Not authorized');
   return member.role;
 }

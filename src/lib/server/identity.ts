@@ -92,7 +92,7 @@ export async function migrate(database: Database.Database) {
 export async function authorizeRequest(auth: ReturnType<typeof createAuth>, database: Database.Database, headers: Headers, householdId: string, action: 'read' | 'manage') {
   const session = await auth.api.getSession({ headers });
   if (!session) return false;
-  const row = database.prepare('SELECT household_id AS householdId, role FROM membership WHERE user_id = ? AND household_id = ?').get(session.user.id, householdId) as Principal | undefined;
+  const row = database.prepare('SELECT household_id AS householdId, role FROM active_membership WHERE user_id = ? AND household_id = ?').get(session.user.id, householdId) as Principal | undefined;
   return authorize(row ?? null, householdId, action);
 }
 

@@ -31,7 +31,7 @@ it('upgrades the previous auth schema without changing accounts or memberships',
     const auth = createAuth(db, { secret, origin, allowSignUp: true });
     const user = await auth.api.signUpEmail({ body: { name: 'Parent', email: 'legacy@example.test', password: 'synthetic-password-123' } });
     db.prepare('INSERT INTO household VALUES (?, ?)').run('house-a', 'Example');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run(user.user.id, 'house-a', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(user.user.id, 'house-a', 'parent');
     await migrate(db);
     expect(db.prepare('SELECT email FROM user WHERE id = ?').get(user.user.id)).toEqual({ email: 'legacy@example.test' });
     expect(db.prepare('SELECT role FROM membership WHERE user_id = ?').get(user.user.id)).toEqual({ role: 'parent' });

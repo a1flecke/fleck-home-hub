@@ -26,7 +26,7 @@ export class IngredientConflictError extends Error {
 export class StaleIngredientSelectionError extends Error {}
 
 function authorize(db: Database.Database, actor: string, household: string, parent = false) {
-  const member = db.prepare('SELECT role FROM membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
+  const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
   if (!member || (parent && member.role !== 'parent')) throw new Error('Not authorized');
 }
 

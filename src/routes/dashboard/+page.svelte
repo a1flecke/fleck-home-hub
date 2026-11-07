@@ -155,5 +155,6 @@
       </article>
     {/each}
   </section>
+  <p class="mt-8"><a href={resolve('/settings/sessions')} class="text-teal-700">Signed-in devices</a></p>
   <form method="POST" action={resolve('/sign-out')}><button class="mt-8 rounded-xl border border-teal-700 px-4 py-3 text-teal-700">Sign out</button></form>
 </main>

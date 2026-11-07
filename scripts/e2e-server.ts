@@ -35,6 +35,22 @@ db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-failure-household', 'Validation example');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(multiParent.user.id, 'synthetic-failure-household', 'parent');
 db.exec("CREATE TRIGGER reject_synthetic_child_invite BEFORE INSERT ON household_invitation WHEN NEW.household_id = 'synthetic-failure-household' AND NEW.role = 'kid' BEGIN SELECT RAISE(ABORT, 'synthetic invitation failure'); END");
+// Member-disable journeys: one-shot fixtures, each disabled at most once per run.
+const revokeKid = await auth.api.signUpEmail({ body: { name: 'Revoke Kid', email: 'revoke-kid@example.test', password: 'synthetic-revoke-kid-password' } });
+const revokeParent = await auth.api.signUpEmail({ body: { name: 'Revoke Parent', email: 'revoke-parent@example.test', password: 'synthetic-revoke-parent-password' } });
+const raceOne = await auth.api.signUpEmail({ body: { name: 'Race One', email: 'race-one@example.test', password: 'synthetic-race-one-password' } });
+const raceTwo = await auth.api.signUpEmail({ body: { name: 'Race Two', email: 'race-two@example.test', password: 'synthetic-race-two-password' } });
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(revokeKid.user.id, household.id, 'kid');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(revokeParent.user.id, household.id, 'parent');
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-race-household', 'Race household');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(raceOne.user.id, 'synthetic-race-household', 'parent');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(raceTwo.user.id, 'synthetic-race-household', 'parent');
+const sessionKid = await auth.api.signUpEmail({ body: { name: 'Session Kid', email: 'session-kid@example.test', password: 'synthetic-session-kid-password' } });
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(sessionKid.user.id, household.id, 'kid');
+// Sign-up auto-created a session; the journey counts only the devices it signs in.
+db.prepare('DELETE FROM session WHERE userId = ?').run(sessionKid.user.id);
+const seededAt = new Date().toISOString();
+db.prepare("INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at) VALUES ('revoke-pending-chore', ?, ?, 'Revocation pending chore', '2026-11-01', 250, 'pending_verification', ?, ?)").run(household.id, revokeKid.user.id, seededAt, seededAt);
 db.close();
 const mockRecipeFetch = fileURLToPath(new URL('./mock-recipe-fetch.cjs', import.meta.url));
 const nodeOptions = [process.env.NODE_OPTIONS, '--require', mockRecipeFetch].filter(Boolean).join(' ');

@@ -15,9 +15,9 @@ it('keeps meal management parent-only and household-scoped, with opt-in display 
     db.pragma('foreign_keys = ON'); await migrate(db);
     for (const id of ['parent', 'kid', 'outsider']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     for (const id of ['home', 'other']) db.prepare('INSERT INTO household VALUES (?, ?)').run(id, id);
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('outsider', 'other', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('outsider', 'other', 'parent');
     const meal = { title: 'Soup', date: '2026-11-01', time: '18:00', servings: 4, ingredients: '2 cups beans\n1 onion', notes: 'Private notes', source: 'eMeals', recipeUrl: 'https://example.test/recipe', shared: false };
     expect(() => createMeal(db, 'kid', 'home', meal)).toThrow();
     expect(() => createMeal(db, 'outsider', 'home', meal)).toThrow();
@@ -51,8 +51,8 @@ it('deduplicates retried submissions while allowing the same recipe on another d
     db.pragma('foreign_keys = ON'); await migrate(db);
     for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'home');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     const recipe = { title: 'Synthetic bowls', date: '2026-11-02', ingredients: '2 cups synthetic chickpeas', recipeUrl: 'https://emeals.com/recipes/synthetic-bowls', shared: false };
     const first = createMeal(db, 'parent', 'home', { ...recipe, submissionKey: 'review-1' });
     const retry = createMeal(db, 'parent', 'home', { ...recipe, submissionKey: 'review-1' });
@@ -79,7 +79,7 @@ it('upgrades a meal database without losing existing meals when adding submissio
     migrateDrizzle(drizzle(db), { migrationsFolder: directory });
     db.prepare('INSERT INTO user VALUES (?)').run('parent');
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
     db.prepare("INSERT INTO meal (id, household_id, title, meal_date, ingredients, shared, created_at, updated_at) VALUES ('existing', 'home', 'Existing dinner', '2026-11-02', '', 0, '2026-11-02', '2026-11-02')").run();
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
@@ -96,8 +96,8 @@ it('persists and projects only recipe details that match the saved eMeals link',
     db.pragma('foreign_keys = ON'); await migrate(db);
     for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'home');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     const recipeUrl = 'https://emeals.com/recipes/synthetic-preview';
     const details = { sourceUrl: recipeUrl, title: 'Synthetic Preview Bowl', yield: '4 servings', totalTime: '25 min', groups: [{ name: 'Synthetic Main', lines: ['1½ cups synthetic rice'] }] };
     const id = createMeal(db, 'parent', 'home', { title: 'Synthetic dinner', date: '2026-11-05', ingredients: '1 family carrot', shared: true, recipeUrl, recipeDetails: details });
@@ -125,7 +125,7 @@ it('upgrades a meal database with recipe details without losing existing meals',
     migrateDrizzle(drizzle(db), { migrationsFolder: directory });
     db.prepare('INSERT INTO user VALUES (?)').run('parent');
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
     db.prepare("INSERT INTO meal (id, household_id, title, meal_date, ingredients, shared, created_at, updated_at) VALUES ('existing', 'home', 'Existing dinner', '2026-11-05', '', 0, '2026-11-05', '2026-11-05')").run();
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
@@ -148,7 +148,7 @@ it('upgrades the previous schema without losing household membership and is repe
     migrateDrizzle(drizzle(db), { migrationsFolder: directory });
     db.prepare('INSERT INTO user VALUES (?)').run('parent');
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
-    db.prepare('INSERT INTO membership VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
     expect(db.prepare('SELECT role FROM membership WHERE user_id = ?').get('parent')).toEqual({ role: 'parent' });

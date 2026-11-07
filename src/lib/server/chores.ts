@@ -7,7 +7,7 @@ export type CreateChoreInput = { title: string; description?: string; assigneeId
 
 export function changeChore(db: Database.Database, actor: string, household: string, id: string, action: ChoreAction, reason?: string): void {
   db.transaction(() => {
-    const member = db.prepare('SELECT role FROM membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: ChoreRole } | undefined;
+    const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: ChoreRole } | undefined;
     const chore = db.prepare('SELECT status, assignee_id, reward_cents FROM chore WHERE id = ? AND household_id = ?').get(id, household) as { status: ChoreState; assignee_id: string; reward_cents: number | null } | undefined;
     if (!member || !chore || (member.role === 'kid' && chore.assignee_id !== actor)) throw new Error('Not authorized');
     if (db.prepare('SELECT 1 FROM recurring_occurrence o JOIN recurring_skip s ON s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date WHERE o.chore_id = ?').get(id)) throw new Error('Occurrence skipped');
@@ -30,8 +30,8 @@ export function changeChore(db: Database.Database, actor: string, household: str
 }
 
 export function createChore(db: Database.Database, actor: string, household: string, input: CreateChoreInput): string {
-  const parent = db.prepare("SELECT 1 FROM membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household);
-  const child = db.prepare("SELECT 1 FROM membership WHERE user_id = ? AND household_id = ? AND role = 'kid'").get(input.assigneeId, household);
+  const parent = db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household);
+  const child = db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'kid'").get(input.assigneeId, household);
   if (!parent || !child) throw new Error('Not authorized');
   const title = input.title.trim();
   const description = input.description?.trim() || null;
