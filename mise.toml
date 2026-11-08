@@ -75,3 +75,15 @@ run = "./scripts/start.sh"
 [tasks.migrate]
 description = "Migrate an existing database"
 run = "pnpm exec tsx scripts/migrate.ts"
+
+[tasks.pilot-preflight]
+description = "Read-only macOS deployment preflight (pass options after --)"
+run = "node scripts/pilot/preflight.mjs"
+
+[tasks.pilot-health]
+description = "Local application health diagnostic (pass options after --)"
+run = "pnpm exec tsx scripts/pilot/health.ts"
+
+[tasks.pilot-launchd]
+description = "Preview or manage the LaunchAgent; dry run unless --apply (pass options after --)"
+run = "node scripts/pilot/launchd.mjs"
