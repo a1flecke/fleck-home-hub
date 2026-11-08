@@ -206,7 +206,15 @@ it('upgrades the current main migration history without skipping invitations', a
   const directory = mkdtempSync(join(tmpdir(), 'hub-main-upgrade-')); dirs.push(directory);
   const previous = join(directory, 'previous'); mkdirSync(join(previous, 'meta'), { recursive: true });
   const fullJournal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8'));
-  const journal = { ...fullJournal, entries: fullJournal.entries.filter((entry: { tag: string }) => entry.tag !== '0009_household_invitations' && entry.tag !== '0010_meal_recipe_details' && entry.tag !== '0011_membership_disable' && entry.tag !== '0012_display_pairing') };
+  const historicalEntries = (entries: typeof fullJournal.entries) => {
+    const boundary = entries.findIndex((entry: { tag: string }) => entry.tag === '0009_household_invitations');
+    if (boundary < 0) throw new Error('Invitation migration is missing from the journal');
+    return entries.slice(0, boundary);
+  };
+  const syntheticFuture = { ...fullJournal.entries.at(-1), idx: fullJournal.entries.length, when: fullJournal.entries.at(-1).when + 1, tag: '0013_synthetic_future' };
+  const journal = { ...fullJournal, entries: historicalEntries(fullJournal.entries) };
+  expect(historicalEntries([...fullJournal.entries, syntheticFuture])).toEqual(journal.entries);
+  expect(journal.entries.map((entry: { idx: number }) => entry.idx)).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
   writeFileSync(join(previous, 'meta/_journal.json'), JSON.stringify(journal));
   for (const entry of journal.entries) copyFileSync(`drizzle/${entry.tag}.sql`, join(previous, `${entry.tag}.sql`));
   const db = new Database(join(directory, 'synthetic.sqlite')); dbs.push(db);
