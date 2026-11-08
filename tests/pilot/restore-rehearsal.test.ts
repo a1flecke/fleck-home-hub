@@ -43,7 +43,7 @@ beforeEach(async () => {
   const wrong = recordPayout(db, ids.parent, household, { childId: ids.kid, amountCents: 50, date: '2026-10-30', note: '', requestId: 'r-wrong' });
   reversePayout(db, ids.parent, household, wrong, 'Recorded in error');
   recordPayout(db, ids.parent, household, { childId: ids.kid, amountCents: 100, date: '2026-10-30', note: '', requestId: 'r-paid' });
-  disableMember(db, ids.parent, household, ids.kid2);
+  await disableMember(db, config(), ids.parent, household, ids.kid2);
   const a = createPairing(db, ids.parent, household, 'Kitchen', Date.now()); activeDeviceToken = redeemPairing(db, a.secret, Date.now()).token;
   const b = createPairing(db, ids.parent, household, 'Garage', Date.now()); const rb = redeemPairing(db, b.secret, Date.now()); revokedDeviceToken = rb.token;
   revokeDisplay(db, ids.parent, household, rb.deviceId, Date.now());
