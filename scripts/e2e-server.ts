@@ -66,6 +66,11 @@ const sessionKid = await auth.api.signUpEmail({ body: { name: 'Session Kid', ema
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(sessionKid.user.id, household.id, 'kid');
 // Sign-up auto-created a session; the journey counts only the devices it signs in.
 db.prepare('DELETE FROM session WHERE userId = ?').run(sessionKid.user.id);
+// Grocery endpoint journeys: a valid sign-in with no active household membership.
+const disabledGrocery = await auth.api.signUpEmail({ body: { name: 'Disabled Grocery Member', email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' } });
+const bootstrapParent = db.prepare("SELECT id FROM user WHERE email = 'parent@example.test'").get() as { id: string };
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-disabled-grocery-household', 'Disabled grocery household');
+db.prepare('INSERT INTO membership (user_id, household_id, role, disabled_at, disabled_by) VALUES (?, ?, ?, ?, ?)').run(disabledGrocery.user.id, 'synthetic-disabled-grocery-household', 'kid', Date.now(), bootstrapParent.id);
 const seededAt = new Date().toISOString();
 db.prepare("INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at) VALUES ('revoke-pending-chore', ?, ?, 'Revocation pending chore', '2026-11-01', 250, 'pending_verification', ?, ?)").run(household.id, revokeKid.user.id, seededAt, seededAt);
 db.close();
