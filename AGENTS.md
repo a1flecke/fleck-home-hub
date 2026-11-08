@@ -16,7 +16,7 @@ When adding forms, controls, status regions or alerts, inspect existing browser 
 
 Browser tests that assert household-wide or per-person totals must use synthetic data isolated from concurrently running tests. Distinct record names alone do not isolate shared balances; preserve exact assertions and investigate shared-state interference instead of adding retries or weakening them.
 
-For editable forms, test an invalid submission and correction through the browser: preserve the entered values, keep the relevant form available, and provide an actionable error without losing unrelated data. Check the same behavior for native submissions as well as any enhanced path.
+For editable forms, test an invalid submission and correction through the browser: preserve the entered values, keep the relevant form available, and provide an actionable error without losing unrelated data. Check the same behavior for native submissions as well as any enhanced path. When a rejection test needs to forge a hidden or server-managed value, alter the serialized request and assert the server rejection before retrying. Direct DOM edits to those values can be overwritten during hydration and accidentally submit a valid mutation.
 
 When a form lives on a filtered or date-selected page, inspect how its action URL and subsequent navigation carry the selected context. A relative named action can replace the whole query string. Test both rejected and successful submissions on a non-default filter, and verify the saved record remains visible; when an edit changes the record's date or filter, verify navigation reaches its new context. Apply this to native and enhanced submissions as appropriate. Review neighboring forms for the same context loss before introducing a new pattern.
 

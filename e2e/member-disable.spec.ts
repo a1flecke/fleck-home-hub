@@ -147,16 +147,35 @@ for (const javaScriptEnabled of [true, false]) {
       const member = page.getByRole('listitem').filter({ hasText: `${target} · Child` });
       const openConfirmation = () => member.getByText(`Disable access for ${target}`, { exact: true }).click();
       const confirm = member.getByRole('button', { name: `Confirm disable ${target}`, exact: true });
+      const memberId = await member.locator('input[name="member"]').inputValue();
+      const disableAction = `${base}/settings/household?/disable&household=${selectedHousehold}`;
+      const status = page.getByRole('status');
+      await page.route(url => url.href === disableAction, async route => {
+        // Alter the submitted value after the browser serializes the form.
+        const data = new URLSearchParams(route.request().postData() ?? '');
+        expect(data.get('member')).toBe(memberId);
+        data.set('member', 'missing-synthetic-member');
+        await route.continue({ postData: data.toString() });
+      }, { times: 1 });
+
       await openConfirmation();
-      await member.locator('input[name="member"]').evaluate((input: HTMLInputElement) => { input.value = 'missing-synthetic-member'; });
-      await confirm.click();
-      await expect(page.getByRole('status')).toContainText('That person is not part of this household');
+      const [rejected] = await Promise.all([
+        page.waitForResponse(response => response.url() === disableAction && response.request().method() === 'POST'),
+        confirm.click()
+      ]);
+      expect(rejected.status()).toBe(400);
+      await expect(status).toHaveText('That person is not part of this household. Reload and try again.');
       await expect(page.getByRole('combobox', { name: 'Household', exact: true })).toHaveValue(selectedHousehold);
       await expect(member.getByText(`${target} · Child`, { exact: true })).toBeVisible();
 
       await openConfirmation();
-      await confirm.click();
-      await expect(page.getByRole('status')).toContainText('Access disabled');
+      const [corrected] = await Promise.all([
+        page.waitForResponse(response => response.url() === disableAction && response.request().method() === 'POST'),
+        confirm.click()
+      ]);
+      expect(corrected.status()).toBe(200);
+      expect(new URLSearchParams(corrected.request().postData() ?? '').get('member')).toBe(memberId);
+      await expect(status).toHaveText('Access disabled. They can no longer use this household.');
       await expect(member).toContainText('disabled');
       await expect(page.getByRole('combobox', { name: 'Household', exact: true })).toHaveValue(selectedHousehold);
     } finally { await context.close(); }
