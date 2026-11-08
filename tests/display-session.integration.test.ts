@@ -24,7 +24,8 @@ const ids: Record<string, string> = {};
 
 const post = (path: string, body: unknown) => new Request(`${origin}/api/auth/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', origin }, body: JSON.stringify(body) });
 const request = (cookie?: string) => new Request(`${origin}/display/data`, { headers: cookie ? { cookie } : {} });
-const today = () => new Date().toISOString().slice(0, 10);
+// The display view uses the household timezone (default America/Chicago), not UTC.
+const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date());
 const weather = async () => ({ status: 'unavailable' as const });
 
 async function signUp(name: string) {
