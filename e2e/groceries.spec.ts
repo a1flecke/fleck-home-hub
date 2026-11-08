@@ -52,7 +52,7 @@ test('a parent selects meal ingredients and confirms an existing item', async ({
   await expect(line.getByLabel('Quantity')).toHaveValue('2');
   await expect(line.getByLabel('Unit')).toHaveValue('cups');
   await review.getByRole('button', { name: 'Add reviewed items' }).click();
-  await expect(page.getByRole('status')).toContainText('Added 1 item and skipped 0');
+  await expect(page.getByRole('status').filter({ hasText: /^Added 1 item and skipped 0\.$/ })).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'synthetic lentils' })).toContainText('2 cups');
 
   await page.goto('/meals?date=2099-06-01');
@@ -66,7 +66,7 @@ test('a parent selects meal ingredients and confirms an existing item', async ({
   await expect(line.getByRole('radio', { name: 'Skip this item' })).toBeChecked();
   await line.getByRole('radio', { name: 'Keep separate duplicate' }).check();
   await review.getByRole('button', { name: 'Add reviewed items' }).click();
-  await expect(page.getByRole('status')).toContainText('Added 1 item and skipped 0');
+  await expect(page.getByRole('status').filter({ hasText: /^Added 1 item and skipped 0\.$/ })).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'synthetic lentils' })).toHaveCount(2);
   for (const item of await page.getByRole('article').filter({ hasText: 'synthetic lentils' }).all()) await expect(item).toContainText('2 cups');
 });
@@ -123,7 +123,7 @@ test('a parent reviews parsed quantities, edits one item, skips another and reso
   await basilLine.getByRole('radio', { name: 'Skip this item' }).check();
   await review.getByRole('button', { name: 'Add reviewed items' }).click();
 
-  await expect(page.getByRole('status')).toContainText('Added 2 items and skipped 1');
+  await expect(page.getByRole('status').filter({ hasText: /^Added 2 items and skipped 1\.$/ })).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: beans })).toContainText('3 cans');
   await expect(page.getByRole('article').filter({ hasText: onion })).toHaveCount(2);
   await expect(page.getByRole('article').filter({ hasText: basil })).toHaveCount(0);
@@ -160,7 +160,7 @@ test('reviewed ingredient edits work without JavaScript', async ({ page, browser
     await line.getByLabel('Quantity').fill('4');
     await line.getByLabel('Unit').fill('cups');
     await review.getByRole('button', { name: 'Add reviewed items' }).click();
-    await expect(native.getByRole('status')).toContainText('Added 1 item and skipped 0');
+    await expect(native.getByRole('status').filter({ hasText: /^Added 1 item and skipped 0\.$/ })).toBeVisible();
     await expect(native.getByRole('article').filter({ hasText: beans })).toContainText('4 cups');
     await expect(native.getByRole('article').filter({ hasText: basil })).toHaveCount(0);
   } finally { await context.close(); }
@@ -255,7 +255,7 @@ for (const javaScriptEnabled of [true, false]) test(`reviewed ingredient validat
     await expect(line.getByLabel('Unit')).toHaveValue('bags');
     await line.getByLabel('Item name').fill(`synthetic corrected onion ${stamp}`);
     await review.getByRole('button', { name: 'Add reviewed items' }).click();
-    await expect(view.getByRole('status')).toContainText('Added 1 item and skipped 0');
+    await expect(view.getByRole('status').filter({ hasText: /^Added 1 item and skipped 0\.$/ })).toBeVisible();
     await expect(view.getByRole('article').filter({ hasText: `synthetic corrected onion ${stamp}` })).toContainText('4 bags');
   } finally { await context.close(); }
 });
@@ -301,7 +301,7 @@ test('a grocery change during review asks for an explicit duplicate decision', a
     await expect(line.getByRole('radio', { name: 'Skip this item' })).toBeChecked();
     await line.getByRole('radio', { name: 'Keep separate duplicate' }).check();
     await review.getByRole('button', { name: 'Add reviewed items' }).click();
-    await expect(page.getByRole('status')).toContainText('Added 1 item and skipped 0');
+    await expect(page.getByRole('status').filter({ hasText: /^Added 1 item and skipped 0\.$/ })).toBeVisible();
     await expect(page.getByRole('article').filter({ hasText: beans })).toHaveCount(2);
     await expect(page.getByRole('article').filter({ hasText: beans }).filter({ hasText: '4 cups' })).toHaveCount(1);
   } finally { await context.close(); }
@@ -496,7 +496,10 @@ for (const javaScriptEnabled of [true, false]) test(`invalid grocery item can be
     await add.getByLabel('Item', { exact: true }).fill('   ');
     await add.getByLabel('Quantity', { exact: true }).fill('4');
     await add.getByRole('button', { name: 'Add item' }).click();
-    await expect(view.getByRole('status')).toContainText('Check the item name');
+    const liveUpdates = view.getByRole('status').filter({ hasText: /^Updates paused while you edit\.$/ });
+    if (javaScriptEnabled) await expect(liveUpdates).toBeVisible();
+    else await expect(liveUpdates).toHaveCount(0);
+    await expect(view.getByRole('status').filter({ hasText: /^Check the item name and details\.$/ })).toBeVisible();
     await expect(add.getByLabel('Quantity', { exact: true })).toHaveValue('4');
     await add.getByLabel('Item', { exact: true }).fill(`Synthetic corrected ${javaScriptEnabled}`);
     await add.getByRole('button', { name: 'Add item' }).click();
@@ -526,10 +529,10 @@ test('a stale edit does not overwrite another household session', async ({ page,
     await item.getByRole('button', { name: 'Mark bought' }).click();
     await expect(item).toContainText('Bought');
     await stale.getByRole('button', { name: 'Save item' }).click();
-    await expect(other.getByRole('status')).toContainText('may have changed');
+    await expect(other.getByRole('status').filter({ hasText: 'This item could not be saved. It may have changed' })).toBeVisible();
     await expect(stale.getByLabel('Quantity', { exact: true })).toHaveValue('3');
     await stale.getByRole('button', { name: 'Save item' }).click();
-    await expect(other.getByRole('status')).toContainText('may have changed');
+    await expect(other.getByRole('status').filter({ hasText: 'This item could not be saved. It may have changed' })).toBeVisible();
     await other.reload();
     await expect(otherItem).toContainText('Bought');
   } finally { await context.close(); }

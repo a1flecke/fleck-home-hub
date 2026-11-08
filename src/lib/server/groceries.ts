@@ -42,29 +42,39 @@ function insertGrocery(db: Database.Database, actor: string, household: string, 
   return id;
 }
 
-export function listGroceries(db: Database.Database, actor: string, household: string): Item[] {
-  authorize(db, actor, household);
+function groceryItems(db: Database.Database, household: string): Item[] {
   const rows = db.prepare('SELECT id, name, quantity, unit, completed, version FROM grocery_item WHERE household_id = ? ORDER BY completed, created_at, id').all(household) as (Omit<Item, 'completed'> & { completed: number })[];
   return rows.map(row => ({ ...row, completed: !!row.completed }));
 }
 
+export function listGroceries(db: Database.Database, actor: string, household: string): Item[] {
+  authorize(db, actor, household);
+  return groceryItems(db, household);
+}
+
 export function addGrocery(db: Database.Database, actor: string, household: string, input: ItemInput, allowDuplicate = false): string {
-  authorize(db, actor, household); const value = validate(input);
   return db.transaction(() => {
-    if (!allowDuplicate && listGroceries(db, actor, household).some(item => !item.completed && sameGroceryName(item.name, value.name))) throw new Error('Item already on list');
+    authorize(db, actor, household);
+    const value = validate(input);
+    if (!allowDuplicate && groceryItems(db, household).some(item => !item.completed && sameGroceryName(item.name, value.name))) throw new Error('Item already on list');
     return insertGrocery(db, actor, household, value);
   }).immediate();
 }
 
 export function changeGrocery(db: Database.Database, actor: string, household: string, id: string, version: number, input: ItemInput & { completed: boolean }): void {
-  authorize(db, actor, household); const value = validate(input);
-  const changed = db.prepare('UPDATE grocery_item SET name = ?, quantity = ?, unit = ?, completed = ?, version = version + 1, updated_by = ?, updated_at = ? WHERE id = ? AND household_id = ? AND version = ?').run(value.name, value.quantity, value.unit, Number(input.completed), actor, new Date().toISOString(), id, household, version).changes;
-  if (!changed) throw new Error('Item changed or is no longer available');
+  db.transaction(() => {
+    authorize(db, actor, household);
+    const value = validate(input);
+    const changed = db.prepare('UPDATE grocery_item SET name = ?, quantity = ?, unit = ?, completed = ?, version = version + 1, updated_by = ?, updated_at = ? WHERE id = ? AND household_id = ? AND version = ?').run(value.name, value.quantity, value.unit, Number(input.completed), actor, new Date().toISOString(), id, household, version).changes;
+    if (!changed) throw new Error('Item changed or is no longer available');
+  }).immediate();
 }
 
 export function removeGrocery(db: Database.Database, actor: string, household: string, id: string, version: number): void {
-  authorize(db, actor, household);
-  if (!db.prepare('DELETE FROM grocery_item WHERE id = ? AND household_id = ? AND version = ?').run(id, household, version).changes) throw new Error('Item changed or is no longer available');
+  db.transaction(() => {
+    authorize(db, actor, household);
+    if (!db.prepare('DELETE FROM grocery_item WHERE id = ? AND household_id = ? AND version = ?').run(id, household, version).changes) throw new Error('Item changed or is no longer available');
+  }).immediate();
 }
 
 function mealIngredients(db: Database.Database, actor: string, household: string, mealId: string): { title: string; refs: MealIngredientRef[] } {

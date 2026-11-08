@@ -275,7 +275,9 @@ test('disabling the pairing parent invalidates their displays but not the other 
     await expect(two.page.getByRole('listitem').filter({ hasText: `One screen ${stamp}` })).toContainText('Revoked');
     await expect(two.page.getByRole('listitem').filter({ hasText: `Two screen ${stamp}` })).toContainText('Active');
     // The disabled parent can no longer open display management or create codes.
-    expect((await one.page.request.get('/settings/displays')).status()).toBe(403);
+    const disabled = await one.page.request.get('/settings/displays', { maxRedirects: 0 });
+    expect(disabled.status()).toBe(303);
+    expect(disabled.headers().location).toBe('/sign-in');
   } finally {
     for (const item of [oneDisplay, twoDisplay, otherHousehold]) await item?.context.close();
     await one.context.close(); await two.context.close(); await bystander.context.close();

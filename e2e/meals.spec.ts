@@ -524,7 +524,8 @@ test('parent previews eMeals recipe details, saves them and adds a provider ingr
   await expect(cucumber).toContainText('Family-entered ingredients');
   await expect(cucumber.getByLabel('Item name')).toHaveValue('family cucumber');
   await review.getByRole('button', { name: 'Add reviewed items' }).click();
-  await expect(page.getByRole('status')).toContainText('Added 2 items and skipped 0');
+  await expect(page.getByRole('status').filter({ hasText: /^Live updates on\.$/ })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: /^Added 2 items and skipped 0\.$/ })).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'synthetic rice' })).toContainText('1½ cups');
   await expect(page.getByRole('article').filter({ hasText: 'family cucumber' })).toContainText('1');
 

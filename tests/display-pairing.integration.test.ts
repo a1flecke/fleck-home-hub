@@ -70,8 +70,8 @@ describe('pairing creation', () => {
   });
 
   it('rejects a disabled parent', async () => {
-    const db = await fixture();
-    disableMember(db, 'parent2', 'home', 'parent');
+    const db = await fixture(tempPath());
+    await disableMember(db, { secret: 'synthetic-display-pairing-secret-over-32-characters', origin: 'http://localhost:3000' }, 'parent2', 'home', 'parent');
     expect(() => createPairing(db, 'parent', 'home', 'Screen', 1)).toThrow(DisplayPairingError);
   });
 
@@ -245,12 +245,12 @@ describe('revocation and lifecycle', () => {
 
 describe('disabled parents', () => {
   it('revokes the disabled parent\'s pending pairings and displays, leaving other parents and households untouched', async () => {
-    const db = await fixture();
+    const db = await fixture(tempPath());
     const mine = pairedDevice(db, 'parent', 'home', 'Mine');
     const theirs = pairedDevice(db, 'parent2', 'home', 'Theirs');
     const foreign = pairedDevice(db, 'outsider', 'other', 'Foreign');
     const pending = createPairing(db, 'parent', 'home', 'Unredeemed', 1_100_000);
-    disableMember(db, 'parent2', 'home', 'parent');
+    await disableMember(db, { secret: 'synthetic-display-pairing-secret-over-32-characters', origin: 'http://localhost:3000' }, 'parent2', 'home', 'parent');
     expect(verifyDisplayCredential(db, mine.device.token, 1_200_000)).toBeNull();
     expect(() => redeemPairing(db, pending.secret, 1_200_000)).toThrow(DisplayPairingError);
     expect(verifyDisplayCredential(db, theirs.device.token, 1_200_000)).not.toBeNull();

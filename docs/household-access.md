@@ -1,6 +1,6 @@
 # Household access and revocation
 
-Two separate things grant access, and revoking one does not revoke the other:
+Household access requires both authentication and an active membership:
 
 - **Authentication** is a Better Auth session. It is global to the account and carries no household.
 - **Household membership** is a row in `membership`. A valid session authorizes nothing by itself; every household read and write checks membership on the server.
@@ -9,28 +9,29 @@ Two separate things grant access, and revoking one does not revoke the other:
 
 A parent can disable one member of one household. The row stays, with `disabled_at` and `disabled_by`; the global user, the person's other households, chores, earnings, payouts, transitions and audit actors are untouched. `chore`, `earning` and `payout` foreign-key to `membership`, which is why a member is never deleted.
 
-- **One authorization source.** The `active_membership` view (`disabled_at IS NULL`) is what every service, route and the invitation worker read. Only `src/lib/server/household-access.ts` names `membership` directly, pinned by `tests/architecture/membership-access.test.ts` (with a negative fixture). A new reader that forgets the filter fails that test.
+- **One authorization source.** The `active_membership` view (`disabled_at IS NULL`) is what every service, route and the invitation worker read. Only the household access service and its disable worker read or update `membership` directly, pinned by `tests/architecture/membership-access.test.ts` (with a negative fixture). A new reader that forgets the filter fails that test.
 - **Policy.** A parent may disable another member of the same household, never themselves. The actor is re-checked as an active parent inside an immediate (writer-locked) transaction, so two parents disabling each other serialize and the second is refused. Two triggers repeat the invariants in the database: a household cannot lose its last active parent, and a member cannot be disabled by themselves or by nobody.
+- **Concurrent household writes.** Membership and assignment checks for mutations run under the same SQLite writer lock as the write. If disable commits first, the former member cannot write with an earlier authorization check.
 - **Idempotent.** Repeating a disable succeeds with "already disabled" and never rewrites the original actor or time.
 - **No re-enable, no role change.** The application has no path to re-enable, and an invitation never links or revives an existing account. Restoring access needs an operator with database access. This is deliberate for the first version; a re-enable flow would need its own review.
 - **Invitations.** Disabling a member revokes the links they issued in the same transaction. Redemption also requires the issuer to be an active parent, so a link cannot be redeemed even if the revocation were bypassed.
-- **Multiple households.** Disabling affects one household. A person with another active membership keeps it; `primaryActiveMembership` then resolves to that household (existing behavior picks the lowest household id).
-- **History.** Ledger and chore rows are not modified. A disabled child's pending chores stay visible to parents by record; they cannot be assigned new work, and a payout to a disabled child is refused in this version (balance stays recorded). Follow-up if that proves a problem.
+- **Multiple households.** Disabling affects one household. A person with another active membership keeps it and their sessions; `primaryActiveMembership` then resolves to that household (existing behavior picks the lowest household id).
+- **History.** Ledger and chore rows are not modified. A disabled child's pending chores stay visible to parents by record; they cannot be assigned new work, and a payout to a disabled child is refused in this version (balance stays recorded). A recurring series with a disabled creator or assignee stops generating new occurrences. Its history and other series remain available.
 
 ## Threat model
 
 | Scenario | Outcome |
 |---|---|
-| Stolen authenticated session | Not addressed here: the session stays valid until sign-out/expiry. Disabling the member closes the household; session controls are PR B2. |
-| Parent revokes a child | Child's session stays valid but every household route and service returns 403 (reads and mutations), proven with real sessions. |
+| Stolen authenticated session | Disabling membership closes that household immediately. If the account has no other active membership, the transaction also revokes its existing sessions. |
+| Parent revokes a child | Subsequent requests cannot read or change the disabled household. An existing session survives only if another active membership remains. |
 | Parent revokes another parent | Same; the former parent cannot invite, approve, pay out or open settings. |
 | Last parent | Refused in the service and by a database trigger. |
 | Concurrent removal by two parents | Writer-locked transaction re-checks the actor; exactly one succeeds. |
 | Invitations from a disabled issuer | Revoked on disable; redemption rejects a disabled issuer. |
 | Disabled user accepting an invitation | A new invitation cannot link the existing account (duplicate email fails and rolls back). |
 | Cross-household access | Membership is checked per household id; other households are unaffected. |
-| Session revocation across households | Not touched by this PR; sessions are global (B2 will state this explicitly). |
-| Historical chores and money | Unchanged; asserted by snapshotting `chore`, `chore_transition`, `earning` and `payout` before and after. |
+| Session revocation across households | The worker checks for other active memberships before ending global sessions. |
+| Historical chores and money | Unchanged; asserted by comparing chore, earning, payout and calendar records before and after. |
 
 ## Known limits
 
@@ -42,7 +43,7 @@ A parent can disable one member of one household. The row stays, with `disabled_
 
 `/settings/sessions` (linked from the home page, any signed-in role) wraps the pinned Better Auth 1.7.14 session API: `listSessions`, `revokeSession` and `revokeOtherSessions`. No custom cookies or Better Auth internals are involved.
 
-- **Scope is the caller's own account.** Sessions are global to an account and carry no household. A parent cannot list or end another person's sessions, and ending a session never changes membership. Both directions are tested: membership denial leaves the session valid, and signing a device out leaves membership untouched.
+- **Scope is the caller's own account.** Sessions are global to an account and carry no household. The session settings page gives a parent no authority over another person's sessions, and ending a session never changes membership. Both directions are tested: membership denial leaves the session valid, and signing a device out leaves membership untouched.
 - **Cross-household effect is stated on the page.** Signing a device out ends it for every household the account belongs to.
 - **No raw tokens.** The page and responses carry only the session row id; the server maps an id to a token inside `src/lib/server/sessions.ts` and only for sessions that `listSessions` returned for the caller. An unknown, foreign or already-ended id changes nothing.
 - **Actions.** End one other session, or end all other sessions (the current one stays). Each is a native POST behind a confirmation disclosure, with the origin check used elsewhere.
@@ -50,7 +51,8 @@ A parent can disable one member of one household. The row stays, with `disabled_
 
 ### Limits
 
-- A parent **cannot end a disabled or other member's sessions**: the pinned framework exposes no administrator session API, and enabling the admin plugin is a separate, larger decision. Disabling membership blocks the household without it; the person's session remains valid for their other households, as intended.
+- Disabling the final active membership revokes the account's existing sessions. A later sign-in can still authenticate the account, but it gives no access to the disabled household. Accounts with other active memberships keep their sessions.
+- The disable worker uses Better Auth 1.7.14's typed plugin context to revoke sessions on its SQLite connection. Membership, invitations, displays and session deletion commit together or roll back together. Revalidate this framework contract when upgrading Better Auth. No admin plugin or HTTP revocation endpoint is enabled.
 - There is no "sign out everywhere including this device" action; use sign out after ending the others. There is no automatic revocation on password change because there is no password-change flow yet.
 - Device labels come from the User-Agent header and are only a hint. IP addresses are not shown because forwarded headers are not trusted.
 

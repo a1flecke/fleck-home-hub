@@ -1,5 +1,6 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
+import { readIdentityConfig } from '../../../lib/server/config';
 import { getIdentityServices } from '../../../lib/server/runtime';
 import { createInvitation, listHouseholdAccess, revokeInvitation } from '../../../lib/server/invitations';
 import { MemberDisableError, disableMember } from '../../../lib/server/household-access';
@@ -42,10 +43,11 @@ export const actions = {
     if (request.headers.get('origin') !== origin) return fail(403, { message: 'Request not authorized.' });
     const form = await request.formData();
     try {
-      const { changed } = disableMember(db, actor, householdId, String(form.get('member') ?? ''));
+      const { changed } = await disableMember(db, readIdentityConfig(process.env), actor, householdId, String(form.get('member') ?? ''));
       return { message: changed ? 'Access disabled. They can no longer use this household.' : 'That person already had their access disabled.' };
     } catch (error) {
-      const code = error instanceof MemberDisableError ? error.code : 'unavailable';
+      if (!(error instanceof MemberDisableError)) return fail(503, { message: 'Access could not be disabled. Please try again.' });
+      const code = error.code;
       const messages = { 'last-parent': 'A household must keep at least one active parent.', self: 'You cannot disable your own access.', 'not-authorized': 'Request not authorized.', unavailable: 'That person is not part of this household. Reload and try again.' } as const;
       return fail(code === 'not-authorized' ? 403 : 400, { message: messages[code] });
     }

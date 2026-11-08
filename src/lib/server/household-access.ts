@@ -1,14 +1,10 @@
 import type Database from 'better-sqlite3';
-import { revokeDisplayAuthorityOf } from './display-pairing';
+import { Worker } from 'node:worker_threads';
+import workerSource from './member-disable-worker.js?raw';
 
 export type HouseholdRole = 'parent' | 'kid';
 export type HouseholdMember = { id: string; name: string; role: HouseholdRole; disabledAt: number | null; disabledByName: string | null };
 
-/**
- * The only module that reads or writes the `membership` table directly. Every other
- * reader uses the `active_membership` view, so a disabled member is never authorized
- * by a missed `disabled_at` check. `tests/architecture/membership-access.test.ts` pins this.
- */
 export class MemberDisableError extends Error {
   constructor(readonly code: 'not-authorized' | 'self' | 'unavailable' | 'last-parent') { super(code); }
 }
@@ -32,31 +28,26 @@ export function listMembers(db: Database.Database, actorId: string, householdId:
 }
 
 /**
- * Soft-disables one member of one household. History, ledger rows and audit actors are
- * untouched; the global account and the member's other households are unaffected.
- * Disabling is permanent in the application: there is deliberately no re-enable path yet.
- * Self-disable is refused. The actor is re-checked inside a writer transaction, so two
- * parents disabling each other serialize and the second is rejected as no longer active.
+ * Disable one membership and end the account's existing sessions if this was
+ * its final active membership. The worker owns the entire writer transaction.
  */
-export function disableMember(db: Database.Database, actorId: string, householdId: string, targetId: string): { changed: boolean } {
-  try {
-    return db.transaction(() => {
-      if (activeMembership(db, actorId, householdId)?.role !== 'parent') throw new MemberDisableError('not-authorized');
-      if (actorId === targetId) throw new MemberDisableError('self');
-      const target = db.prepare('SELECT role, disabled_at AS disabledAt FROM membership WHERE user_id = ? AND household_id = ?').get(targetId, householdId) as { role: HouseholdRole; disabledAt: number | null } | undefined;
-      if (!target) throw new MemberDisableError('unavailable');
-      if (target.disabledAt !== null) return { changed: false };
-      const now = Date.now();
-      db.prepare('UPDATE membership SET disabled_at = ?, disabled_by = ? WHERE user_id = ? AND household_id = ? AND disabled_at IS NULL').run(now, actorId, targetId, householdId);
-      // Links the disabled member issued are unusable at redemption anyway; revoking makes that visible.
-      db.prepare('UPDATE household_invitation SET revoked_at = ? WHERE household_id = ? AND created_by = ? AND consumed_at IS NULL AND revoked_at IS NULL').run(now, householdId, targetId);
-      // Displays and pairing codes this member authorized stop working with them.
-      revokeDisplayAuthorityOf(db, householdId, targetId, actorId, now);
-      return { changed: true };
-    }).immediate();
-  } catch (error) {
-    if (error instanceof MemberDisableError) throw error;
-    if (error instanceof Error && error.message.includes('keep an active parent')) throw new MemberDisableError('last-parent');
-    throw error;
-  }
+export async function disableMember(db: Database.Database, config: { secret: string; origin: string }, actorId: string, householdId: string, targetId: string): Promise<{ changed: boolean }> {
+  if (db.memory || db.inTransaction) throw new Error('Member disabling requires a file-backed database outside an open transaction');
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(workerSource, {
+      eval: true, env: {}, workerData: { path: db.name, config: { secret: config.secret, origin: config.origin }, actorId, householdId, targetId }, stdout: true, stderr: true
+    });
+    let result: unknown;
+    worker.on('message', (message: unknown) => { result = message; });
+    const failed = () => reject(new Error('Member access could not be disabled'));
+    worker.on('error', failed);
+    worker.on('exit', (code) => {
+      if (code !== 0) return failed();
+      if (result === 'changed' || result === 'unchanged') return resolve({ changed: result === 'changed' });
+      if (result === 'not-authorized' || result === 'self' || result === 'unavailable' || result === 'last-parent') {
+        return reject(new MemberDisableError(result));
+      }
+      failed();
+    });
+  });
 }

@@ -7,10 +7,12 @@ type SeriesInput = { title: string; description?: string; assigneeId: string; st
 type Series = { id: string; creator_id: string; assignee_id: string; title: string; description: string | null; reward_cents: number | null; start_date: string; end_date: string | null; weekdays: string };
 
 export function setHouseholdTimezone(db: Database.Database, actor: string, household: string, timezone: string): void {
-  if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household)) throw new Error('Not authorized');
-  if (timezone.length > 100 || !timezone.includes('/')) throw new Error('Invalid timezone');
-  localDate(new Date(), timezone);
-  db.prepare('INSERT INTO household_settings (household_id, timezone) VALUES (?, ?) ON CONFLICT(household_id) DO UPDATE SET timezone = excluded.timezone').run(household, timezone);
+  db.transaction(() => {
+    if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household)) throw new Error('Not authorized');
+    if (timezone.length > 100 || !timezone.includes('/')) throw new Error('Invalid timezone');
+    localDate(new Date(), timezone);
+    db.prepare('INSERT INTO household_settings (household_id, timezone) VALUES (?, ?) ON CONFLICT(household_id) DO UPDATE SET timezone = excluded.timezone').run(household, timezone);
+  }).immediate();
 }
 
 function validateSeries(db: Database.Database, actor: string, household: string, input: SeriesInput) {
@@ -25,19 +27,24 @@ function validateSeries(db: Database.Database, actor: string, household: string,
 }
 
 export function createSeries(db: Database.Database, actor: string, household: string, input: SeriesInput): string {
-  const { title, description, weekdays } = validateSeries(db, actor, household, input);
-  const id = randomUUID();
-  const now = new Date().toISOString();
-  db.prepare('INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, description, reward_cents, start_date, end_date, weekdays, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, household, actor, input.assigneeId, title, description, input.rewardCents ?? null, input.startDate, input.endDate || null, weekdays, now, now);
-  return id;
+  return db.transaction(() => {
+    const { title, description, weekdays } = validateSeries(db, actor, household, input);
+    const id = randomUUID();
+    const now = new Date().toISOString();
+    db.prepare('INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, description, reward_cents, start_date, end_date, weekdays, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, household, actor, input.assigneeId, title, description, input.rewardCents ?? null, input.startDate, input.endDate || null, weekdays, now, now);
+    return id;
+  }).immediate();
 }
 
 export function generateOccurrences(db: Database.Database, actor: string, household: string, from: string, through: string): void {
-  const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
-  if (!member) throw new Error('Not authorized');
-  occurrenceDates(from, through, [0]);
   db.transaction(() => {
-    const series = db.prepare("SELECT * FROM recurring_series WHERE household_id = ? AND state = 'active' AND (? = 'parent' OR assignee_id = ?)").all(household, member.role, actor) as Series[];
+    const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
+    if (!member) throw new Error('Not authorized');
+    occurrenceDates(from, through, [0]);
+    const series = db.prepare(`SELECT s.* FROM recurring_series s
+      JOIN active_membership creator ON creator.household_id = s.household_id AND creator.user_id = s.creator_id AND creator.role = 'parent'
+      JOIN active_membership assignee ON assignee.household_id = s.household_id AND assignee.user_id = s.assignee_id AND assignee.role = 'kid'
+      WHERE s.household_id = ? AND s.state = 'active' AND (? = 'parent' OR s.assignee_id = ?)`).all(household, member.role, actor) as Series[];
     for (const item of series) {
       const start = from > item.start_date ? from : item.start_date;
       const end = item.end_date && item.end_date < through ? item.end_date : through;

@@ -5,9 +5,11 @@ import { nextPayday } from '../earnings/payday';
 type PayoutInput = { childId: string; amountCents: number; date: string; note: string; requestId: string };
 
 export function setPayday(db: Database.Database, actor: string, household: string, anchor: string, cadence: number): void {
-  if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household)) throw new Error('Not authorized');
-  nextPayday(anchor, anchor, cadence);
-  db.prepare('INSERT INTO payday_schedule (household_id, anchor_date, cadence_days, updated_by, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(household_id) DO UPDATE SET anchor_date = excluded.anchor_date, cadence_days = excluded.cadence_days, updated_by = excluded.updated_by, updated_at = excluded.updated_at').run(household, anchor, cadence, actor, new Date().toISOString());
+  db.transaction(() => {
+    if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household)) throw new Error('Not authorized');
+    nextPayday(anchor, anchor, cadence);
+    db.prepare('INSERT INTO payday_schedule (household_id, anchor_date, cadence_days, updated_by, updated_at) VALUES (?, ?, ?, ?, ?) ON CONFLICT(household_id) DO UPDATE SET anchor_date = excluded.anchor_date, cadence_days = excluded.cadence_days, updated_by = excluded.updated_by, updated_at = excluded.updated_at').run(household, anchor, cadence, actor, new Date().toISOString());
+  }).immediate();
 }
 
 export function balance(db: Database.Database, household: string, child: string) {
