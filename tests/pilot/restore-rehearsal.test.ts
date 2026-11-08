@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, existsSync, linkSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -83,9 +84,9 @@ describe('restore rehearsal', () => {
     const destination = join(work, 'restored.sqlite');
     const report = await rehearseRestore({ backup, destination, activeDatabase: source, now: Date.now() });
     const text = formatRehearsal(report, destination);
-    expect(find(report, 'sessions')[0].status).toBe('WARN');
-    expect(find(report, 'invitations')[0].status).toBe('WARN');
-    expect(find(report, 'displays')[0].status).toBe('WARN');
+    expect(find(report, 'sessions')).toEqual([expect.objectContaining({ status: 'WARN', message: expect.stringContaining('2 unexpired personal session(s)') })]);
+    expect(find(report, 'invitations')).toEqual([expect.objectContaining({ status: 'WARN', message: expect.stringContaining('1 unused, unexpired invitation link(s)') })]);
+    expect(find(report, 'displays')).toEqual([expect.objectContaining({ status: 'WARN', message: expect.stringContaining('1 active display credential(s), 1 revoked, 0 unredeemed') })]);
     expect(text).toMatch(/previously valid sessions/i);
     expect(text).toMatch(/Household displays/);
     expect(text).toContain('Cleanup');
@@ -121,6 +122,130 @@ describe('restore rehearsal', () => {
     if (existsSync(join(work, 'restored.sqlite'))) expect(readFileSync(join(work, 'restored.sqlite'), 'utf8')).toBe('keep');
   });
 
+  it('rejects the configured live database as a backup, even through a hard link', async () => {
+    const alias = join(dir, 'live-alias.sqlite');
+    linkSync(source, alias);
+    const before = sha(source);
+    for (const input of [source, alias]) {
+      const destination = join(work, 'restored.sqlite');
+      const report = await rehearseRestore({ backup: input, destination, activeDatabase: source });
+      expect(find(report, 'backup')).toEqual([expect.objectContaining({ status: 'FAIL' })]);
+      expect(existsSync(destination)).toBe(false);
+    }
+    expect(sha(source)).toBe(before);
+  });
+
+  it('rejects an input with uncheckpointed commits without changing its WAL', async () => {
+    const input = join(dir, 'not-a-standalone-backup.sqlite');
+    copyFileSync(backup, input);
+    const live = new Database(input);
+    try {
+      live.pragma('journal_mode = WAL');
+      live.pragma('wal_checkpoint(TRUNCATE)');
+      live.prepare("UPDATE household SET name = 'Only in the WAL'").run();
+      const wal = input + '-wal';
+      const before = sha(wal);
+      const destination = join(work, 'restored.sqlite');
+      const report = await rehearseRestore({ backup: input, destination, activeDatabase: source });
+      expect(find(report, 'backup')).toEqual([expect.objectContaining({ status: 'FAIL' })]);
+      expect(sha(wal)).toBe(before);
+      expect(existsSync(destination)).toBe(false);
+    } finally { live.close(); }
+  });
+
+  it.each(['-wal', '-shm', '-journal'])('rejects a destination with an existing %s before copying', async suffix => {
+    const destination = join(work, 'restored.sqlite');
+    const sidecar = destination + suffix;
+    writeFileSync(sidecar, 'preserve');
+    const report = await rehearseRestore({ backup, destination, activeDatabase: source });
+    expect(find(report, 'destination')).toEqual([expect.objectContaining({ status: 'FAIL' })]);
+    expect(readFileSync(sidecar, 'utf8')).toBe('preserve');
+    expect(existsSync(destination)).toBe(false);
+  });
+
+  it('restores a closed legacy WAL-format backup as a standalone file', async () => {
+    const legacy = new Database(backup);
+    try { expect(legacy.pragma('journal_mode = WAL', { simple: true })).toBe('wal'); }
+    finally { legacy.close(); }
+    const before = sha(backup);
+    const destination = join(work, 'restored.sqlite');
+    const report = await rehearseRestore({ backup, destination, activeDatabase: source });
+    expect(report.ok).toBe(true);
+    expect(sha(backup)).toBe(before);
+    expect(readdirSync(work)).toEqual(['restored.sqlite']);
+    const copy = new Database(destination, { readonly: true, fileMustExist: true });
+    try { expect(copy.pragma('journal_mode', { simple: true })).toBe('delete'); }
+    finally { copy.close(); }
+  });
+
+  it('rejects a backup changed between path validation and the first descriptor read', async () => {
+    const destination = join(work, 'restored.sqlite');
+    const pending = rehearseRestore({ backup, destination, activeDatabase: source });
+    const writer = new Database(backup, { fileMustExist: true });
+    try { writer.prepare("UPDATE household SET name = 'Changed during the copy'").run(); }
+    finally { writer.close(); }
+    const after = sha(backup);
+    const report = await pending;
+    expect(find(report, 'backup')).toEqual([expect.objectContaining({ status: 'FAIL' })]);
+    expect(sha(backup)).toBe(after);
+    expect(readdirSync(work)).toEqual([]);
+  });
+
+  it('rejects a source companion file created while copying without touching it', async () => {
+    const destination = join(work, 'restored.sqlite');
+    const pending = rehearseRestore({ backup, destination, activeDatabase: source });
+    writeFileSync(backup + '-journal', 'preserve', { flag: 'wx' });
+    const report = await pending;
+    expect(find(report, 'backup')).toEqual([expect.objectContaining({ status: 'FAIL' })]);
+    expect(readFileSync(backup + '-journal', 'utf8')).toBe('preserve');
+    expect(readdirSync(work)).toEqual([]);
+  });
+
+  it('leaves a destination created by a competing operation intact', async () => {
+    const destination = join(work, 'restored.sqlite');
+    const pending = rehearseRestore({ backup, destination, activeDatabase: source, migrate: true });
+    const appearedEarly = existsSync(destination);
+    if (!appearedEarly) writeFileSync(destination, 'competing writer', { flag: 'wx' });
+    const report = await pending;
+    expect(appearedEarly).toBe(false);
+    expect(report.ok).toBe(false);
+    expect(readFileSync(destination, 'utf8')).toBe('competing writer');
+    expect(readdirSync(work)).toEqual(['restored.sqlite']);
+  });
+
+  it.each([false, true])('rejects an unrelated SQLite file with migrate %s', async migrateBackup => {
+    const input = join(dir, 'unrelated.sqlite');
+    const unrelated = new Database(input);
+    try { unrelated.exec('CREATE TABLE unrelated (id INTEGER)'); }
+    finally { unrelated.close(); }
+    const destination = join(work, 'restored.sqlite');
+    const report = await rehearseRestore({ backup: input, destination, activeDatabase: source, migrate: migrateBackup });
+    expect(find(report, 'schema')).toEqual([expect.objectContaining({ status: 'FAIL' })]);
+    expect(existsSync(destination)).toBe(false);
+  });
+
+  it('validates the CLI config before publishing and reports failures without config values', () => {
+    const configFile = join(dir, 'synthetic.conf');
+    const destination = join(work, 'restored.sqlite');
+    const run = () => spawnSync(process.execPath, [
+      '--import', 'tsx', 'scripts/pilot/restore-rehearsal.ts',
+      '--backup', backup, '--destination', destination, '--config-file', configFile, '--migrate'
+    ], { encoding: 'utf8' });
+    writeFileSync(configFile, `DATABASE_PATH=${source}\nDATABASE_PATH=${backup}\nAUTH_SECRET=${secret}\n`, { mode: 0o600 });
+    const rejected = run();
+    expect(rejected.status).toBe(64);
+    expect(rejected.stderr.trim()).toBe('Could not read a valid restore configuration.');
+    expect(rejected.stdout).toBe('');
+    expect(existsSync(destination)).toBe(false);
+
+    writeFileSync(configFile, `DATABASE_PATH=${source}\n`);
+    const restored = run();
+    expect(restored.status).toBe(0);
+    expect(restored.stderr).toBe('');
+    expect(restored.stdout).toContain('published the verified copy');
+    expect(existsSync(destination)).toBe(true);
+  });
+
   it('fails a corrupt backup at the integrity check', async () => {
     const corrupt = join(dir, 'corrupt.sqlite'); writeFileSync(corrupt, 'not a database '.repeat(1000));
     const report = await rehearseRestore({ backup: corrupt, destination: join(work, 'restored.sqlite'), activeDatabase: source, now: Date.now() });
@@ -136,6 +261,7 @@ describe('restore rehearsal', () => {
     const failed = await rehearseRestore({ backup: bad, destination: join(work, 'bad.sqlite'), activeDatabase: source, now: Date.now(), migrate: true });
     expect(failed.ok).toBe(false);
     expect(find(failed, 'migration')[0].status).toBe('FAIL');
+    expect(existsSync(join(work, 'bad.sqlite'))).toBe(false);
     expect(JSON.stringify(failed)).not.toContain('unreviewed_schema_change');
     const restored = new Database(join(work, 'good.sqlite'), { readonly: true });
     expect(restored.pragma('integrity_check', { simple: true })).toBe('ok'); restored.close();

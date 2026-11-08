@@ -4,7 +4,7 @@ Everything here is a procedure to rehearse. **No restore on the real host, and n
 
 ## 1. Taking a backup
 
-`mise run backup /private/path/hub-YYYYMMDD.sqlite` (see [deployment](deployment.md)) uses SQLite's online backup, creates the file owner-only, refuses an existing path and runs `integrity_check`. A failed run can leave a new, incomplete destination: inspect and keep it, never reuse the name. Back up before every upgrade and on a schedule you will actually keep. A backup contains password hashes, session tokens, invitation and display-credential **hashes** and all household data: treat it as the most sensitive file you own.
+`mise run backup /private/path/hub-YYYYMMDD.sqlite` (see [deployment](deployment.md)) uses SQLite's online backup and publishes a verified, owner-only file. Use a new filename in an owner-only directory on a local filesystem. Back up before each upgrade and on a regular schedule. Treat every backup as sensitive because it contains household data, password hashes, session tokens, and hashes of invitations and display credentials.
 
 ## 2. Restore rehearsal (never touches the live database)
 
@@ -13,9 +13,11 @@ mkdir -m 700 "$HOME/hub-restore-rehearsal"
 mise run pilot-restore-rehearsal -- --backup /private/path/hub-YYYYMMDD.sqlite --destination "$HOME/hub-restore-rehearsal/restored.sqlite" --config-file "$HOME/.config/fleck-home-hub/hub.conf" --migrate
 ```
 
-What it does: validates absolute paths and a private destination directory; refuses an existing destination, the backup itself and the configured live database (and its `-wal`/`-shm`); copies the backup byte-for-byte into the new file (mode 600, no overwrite); runs `integrity_check` and `foreign_key_check`; with `--migrate`, applies migrations to the **copy** only (rehearses an upgrade, and reports a failed migration without touching anything else); then reports counts and PASS/WARN/FAIL for: every household has an active parent, disabled memberships remain disabled, every verified rewarded chore has exactly one earning and no earning belongs to an unverified chore, no child balance is negative, and how many unexpired sessions, unused invitations and active display credentials the snapshot contains. It prints **no** emails, names, ids, tokens, secrets or amounts, and it never deletes anything. It does not read your live database.
+Use a completed standalone backup, including one made by the earlier online backup command. Keep the source closed while it is copied. The rehearsal rejects the configured live database, symbolic or hard-linked sources, and existing WAL, SHM or rollback journals at either path. It checks for changes to the source during copying. When rehearsing on the hub host, pass the private service configuration or set `DATABASE_PATH` so the live path stays protected even if the database file is absent.
 
-Cleanup: when finished, stop anything using the copy and remove `restored.sqlite` (and any `-wal`/`-shm`) and the rehearsal directory yourself. A rehearsal copy of real data is as sensitive as the backup, so remove it promptly.
+The rehearsal checks SQLite integrity, foreign keys and the presence of household data in private staging. With `--migrate`, it migrates only the staged file and checks integrity again. It reports membership, earnings and credential checks as counts, without printing household data or credentials. A passing copy is published atomically as a new mode-600 file. A failed rehearsal leaves the requested output path available for a retry after resolving any path conflict.
+
+For cleanup, stop anything using the published copy, then remove the copy and its SQLite companion files. An interrupted process can leave a private `.hub-snapshot-*` staging directory. Remove it after confirming no rehearsal is running. Protect rehearsal copies as carefully as the backup.
 
 ### What the rehearsal does not prove
 
