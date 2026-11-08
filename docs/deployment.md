@@ -1,6 +1,6 @@
 # macOS hosting and recovery
 
-This is the runbook for hosting the hub on an always-on Mac. The tooling below is covered by synthetic automated tests, and parts were exercised locally on an Apple-silicon Mac (see [Verification status](#verification-status)). **launchd start-at-login, crash restart, reboot, sleep/wake, Tailscale Serve, iPhone and display behaviour have not been validated end to end.** Do not use real household data until the pilot test plan results (added in the follow-up recovery PR) are recorded and independently reviewed.
+This is the runbook for hosting the hub on an always-on Mac. The tooling below is covered by synthetic automated tests, and parts were exercised locally on an Apple-silicon Mac (see [Verification status](#verification-status)). **launchd start-at-login, crash restart, reboot, sleep/wake, Tailscale Serve, iPhone and display behaviour have not been validated end to end.** Do not use real household data until the [pilot test plan](pilot-test-plan.md) results are recorded and independently reviewed.
 
 ## Supported hosts
 
@@ -85,15 +85,15 @@ What the template does: `ProgramArguments` is only `scripts/pilot/launch.sh`; `W
 
 **Logs** go to `~/Library/Logs/fleck-home-hub/stdout.log` and `stderr.log` (directory mode 700). launchd does not rotate them; the launcher copy-truncates a file larger than 5 MiB (`HUB_LOG_MAX_BYTES`) to `*.log.1` at each (re)start. A long-running process is therefore bounded only across restarts; check the size occasionally. Logs must not be shared without review.
 
-Nothing here changes sleep settings. A sleeping Mac cannot serve requests: configure sleep for the household yourself and test it. The automated tests render and validate the plist and run the launcher against stubs; they never call `launchctl`. `plutil -lint` on the rendered file passed on one Mac, but loading the agent, restart after a crash, login and reboot behaviour remain to be tested (to be covered by the pilot test plan in the follow-up PR).
+Nothing here changes sleep settings. A sleeping Mac cannot serve requests: configure sleep for the household yourself and test it. The automated tests render and validate the plist and run the launcher against stubs; they never call `launchctl`. `plutil -lint` on the rendered file passed on one Mac, but loading the agent, restart after a crash, login and reboot behaviour remain to be tested ([pilot test plan](pilot-test-plan.md)).
 
 ## 6. Private remote access
 
-Mac service on loopback → Tailscale Serve HTTPS → authenticated browsers. Never Funnel, never router port forwarding. Review the official [Serve documentation](https://tailscale.com/docs/reference/tailscale-cli/serve) and inspect existing Serve configuration before enabling anything; use the resulting HTTPS URL as `AUTH_ORIGIN` and rebuild. Tailnet membership does not replace application authorization. A read-only validation checklist follows in the next PR.
+Mac service on loopback → Tailscale Serve HTTPS → authenticated browsers. Never Funnel, never router port forwarding. Review the official [Serve documentation](https://tailscale.com/docs/reference/tailscale-cli/serve) and inspect existing Serve configuration before enabling anything; use the resulting HTTPS URL as `AUTH_ORIGIN` and rebuild. Tailnet membership does not replace application authorization. Commands and the read-only checker: [Tailscale validation](tailscale-validation.md).
 
 ## 7. Backup, restore and update
 
-`mise run backup /private/path/new-backup.sqlite` makes an online SQLite backup with owner-only permissions, refuses an existing destination and integrity-checks the result. Restore only into a **new** location, never over the active database; rehearse it (a synthetic rehearsal procedure follows in the next PR), keeping in mind the warning that an older snapshot restores previously valid sessions, invitations and paired-display credentials.
+`mise run backup /private/path/new-backup.sqlite` makes an online SQLite backup with owner-only permissions, refuses an existing destination and integrity-checks the result. Restore only into a **new** location, never over the active database; rehearse it with `mise run pilot-restore-rehearsal` ([backup and restore](backup-restore.md), which also covers encrypted off-host copies), keeping in mind the warning that an older snapshot restores previously valid sessions, invitations and paired-display credentials.
 
 To update: create and verify a fresh backup, stop the service, install locked tools and frozen dependencies, run `mise run migrate` on the existing database, rebuild with the correct origin, start, run the health check. Auth and household migrations commit separately, so a later failure can leave the auth migration applied; on failure stop, preserve evidence, and restore a verified backup into a new path. To roll back code, restore the previous commit and its matching build together with a database from before the migration.
 
@@ -105,3 +105,5 @@ To update: create and verify a fresh backup, stop the service, install locked to
 | Verified locally on one Apple-silicon Mac, by hand, with synthetic data | The preflight and health scripts against the real production build started through the real launcher (not through launchd); `plutil -lint` of the generated plist; crash of that process reported as `NOT_LISTENING`. |
 | Verified on the actual household Mac, phone or display | **None recorded.** |
 | Not yet verified | `launchctl` load/restart, login and reboot behaviour, sleep/wake, Tailscale Serve and ACLs, secure cookies over the real origin, iPhone Safari and standalone, display hardware, host-specific restore and encrypted off-host backup. |
+
+See also: [troubleshooting](pilot-troubleshooting.md).

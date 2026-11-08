@@ -87,3 +87,11 @@ run = "pnpm exec tsx scripts/pilot/health.ts"
 [tasks.pilot-launchd]
 description = "Preview or manage the LaunchAgent; dry run unless --apply (pass options after --)"
 run = "node scripts/pilot/launchd.mjs"
+
+[tasks.pilot-restore-rehearsal]
+description = "Rehearse a restore of a backup into a new private file (pass options after --)"
+run = "pnpm exec tsx scripts/pilot/restore-rehearsal.ts"
+
+[tasks.pilot-tailscale-check]
+description = "Evaluate supplied Tailscale Serve JSON read-only (pass options after --)"
+run = "node scripts/pilot/tailscale-check.mjs"
