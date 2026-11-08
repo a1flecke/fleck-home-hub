@@ -763,6 +763,7 @@ test('live refresh does not start another request while one is still running', a
   const completed = page.waitForResponse(response => response.url().includes('/groceries/data'));
   release();
   await completed;
+  await expect(page.getByText('Live updates on.')).toBeVisible();
   await page.clock.runFor(25_000);
   await expect.poll(() => requests).toBe(2);
 });
