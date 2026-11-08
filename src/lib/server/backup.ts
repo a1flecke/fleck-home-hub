@@ -1,15 +1,20 @@
-import { closeSync, openSync } from 'node:fs';
 import Database from 'better-sqlite3';
+import { stageSqliteSnapshot } from './sqlite-snapshot';
 
 export async function backupDatabase(source: string, destination: string) {
-  const db = new Database(source, { readonly: true, fileMustExist: true });
+  const snapshot = stageSqliteSnapshot(destination);
   try {
-    const fd = openSync(destination, 'wx', 0o600);
-    closeSync(fd);
-    await db.backup(destination);
-    const copy = new Database(destination, { readonly: true, fileMustExist: true });
+    const db = new Database(source, { readonly: true, fileMustExist: true });
+    try { await db.backup(snapshot.path); }
+    finally { db.close(); }
+
+    const copy = new Database(snapshot.path, { fileMustExist: true });
     try {
+      if (copy.pragma('journal_mode = DELETE', { simple: true }) !== 'delete') {
+        throw new Error('Backup could not be made standalone');
+      }
       if (copy.pragma('integrity_check', { simple: true }) !== 'ok') throw new Error('Backup integrity check failed');
     } finally { copy.close(); }
-  } finally { db.close(); }
+    snapshot.publish();
+  } finally { snapshot.cleanup(); }
 }

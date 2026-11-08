@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { copyFileSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
@@ -22,6 +22,114 @@ it('makes a consistent recoverable backup without overwriting an existing file',
     writeFileSync(join(dir, 'existing'), 'preserve');
     await expect(backupDatabase(source, join(dir, 'existing'))).rejects.toThrow();
     expect(readFileSync(join(dir, 'existing'), 'utf8')).toBe('preserve');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+it.each(['-wal', '-shm', '-journal'])('refuses an existing %s without changing it', async suffix => {
+  const dir = mkdtempSync(join(tmpdir(), 'hub-backup-sidecar-'));
+  const source = join(dir, 'source.sqlite');
+  const destination = join(dir, 'backup.sqlite');
+  const sidecar = destination + suffix;
+  const db = new Database(source);
+  try {
+    db.pragma('journal_mode = WAL');
+    db.exec("CREATE TABLE sample (value TEXT); INSERT INTO sample VALUES ('synthetic');");
+    writeFileSync(sidecar, 'preserve');
+    await expect(backupDatabase(source, destination)).rejects.toThrow(/already exists/);
+    expect(readFileSync(sidecar, 'utf8')).toBe('preserve');
+    expect(existsSync(destination)).toBe(false);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it('refuses a dangling sidecar symlink and leaves it in place', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hub-backup-link-'));
+  const source = join(dir, 'source.sqlite');
+  const destination = join(dir, 'backup.sqlite');
+  const db = new Database(source);
+  try {
+    db.exec('CREATE TABLE sample (value TEXT)');
+    symlinkSync(join(dir, 'missing'), destination + '-journal');
+    await expect(backupDatabase(source, destination)).rejects.toThrow(/already exists/);
+    expect(readdirSync(dir).sort()).toEqual(['backup.sqlite-journal', 'source.sqlite']);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it('does not publish a partial file or overwrite a destination created during the backup', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hub-backup-race-'));
+  const source = join(dir, 'source.sqlite');
+  const destination = join(dir, 'backup.sqlite');
+  const db = new Database(source);
+  try {
+    db.exec('CREATE TABLE sample (value TEXT)');
+    const pending = backupDatabase(source, destination);
+    const rejected = expect(pending).rejects.toThrow(/already exists/);
+    const publishedEarly = existsSync(destination);
+    if (!publishedEarly) writeFileSync(destination, 'competing writer', { flag: 'wx' });
+    await rejected;
+    expect(publishedEarly).toBe(false);
+    expect(readFileSync(destination, 'utf8')).toBe('competing writer');
+    expect(readdirSync(dir).sort()).toEqual(['backup.sqlite', 'source.sqlite']);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it('refuses a sidecar created while the backup is in progress', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hub-backup-sidecar-race-'));
+  const source = join(dir, 'source.sqlite');
+  const destination = join(dir, 'backup.sqlite');
+  const sidecar = destination + '-journal';
+  const db = new Database(source);
+  try {
+    db.exec('CREATE TABLE sample (value TEXT)');
+    const pending = backupDatabase(source, destination);
+    const rejected = expect(pending).rejects.toThrow(/already exists/);
+    writeFileSync(sidecar, 'competing writer', { flag: 'wx' });
+    await rejected;
+    expect(readFileSync(sidecar, 'utf8')).toBe('competing writer');
+    expect(existsSync(destination)).toBe(false);
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it('publishes exactly one complete, private copy when two backups use the same destination', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hub-backup-concurrent-'));
+  const source = join(dir, 'source.sqlite');
+  const destination = join(dir, 'backup.sqlite');
+  const db = new Database(source);
+  try {
+    db.exec("CREATE TABLE sample (value TEXT); INSERT INTO sample VALUES ('synthetic');");
+    const results = await Promise.allSettled([backupDatabase(source, destination), backupDatabase(source, destination)]);
+    expect(results.map(result => result.status).sort()).toEqual(['fulfilled', 'rejected']);
+    expect(statSync(destination).mode & 0o777).toBe(0o600);
+    expect(readdirSync(dir).sort()).toEqual(['backup.sqlite', 'source.sqlite']);
+    const copy = new Database(destination, { readonly: true, fileMustExist: true });
+    try {
+      expect(copy.prepare('SELECT value FROM sample').get()).toEqual({ value: 'synthetic' });
+    } finally { copy.close(); }
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+it('cleans up when a corrupt source fails during copying', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hub-backup-corrupt-'));
+  const source = join(dir, 'source.sqlite');
+  const destination = join(dir, 'backup.sqlite');
+  try {
+    writeFileSync(source, 'corrupt synthetic source'.repeat(1000));
+    await expect(backupDatabase(source, destination)).rejects.toThrow();
+    expect(readdirSync(dir)).toEqual(['source.sqlite']);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
@@ -49,6 +157,7 @@ it('restores authentication, membership and verified earnings after a failed mig
     reversePayout(db, parentId, household, corrected, 'Recorded in error');
     recordPayout(db, parentId, household, { childId: kidId, amountCents: 100, date: '2026-10-30', note: '', requestId: 'synthetic-payment' });
     await backupDatabase(source, backup);
+    expect([...readFileSync(backup).subarray(18, 20)]).toEqual([1, 1]); // SQLite's standalone rollback-journal format.
     db.exec('ALTER TABLE user ADD COLUMN unreviewed_schema_change TEXT');
     await expect(migrate(db)).rejects.toThrow();
     db.close(); db = undefined;
