@@ -482,6 +482,65 @@ test('grocery routes enforce sessions and origin checks', async ({ page }) => {
   await expect(page.getByRole('article').filter({ hasText: 'Synthetic kid item' })).toBeVisible();
 });
 
+test('the grocery data endpoint requires a session and never crosses households', async ({ page, browser }) => {
+  const name = `Synthetic endpoint oats ${Date.now()}`;
+  await signIn(page);
+  await page.goto('/groceries');
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill(name);
+  await add.getByLabel('Quantity', { exact: true }).fill('2');
+  await add.getByRole('button', { name: 'Add item' }).click();
+  const article = page.getByRole('article').filter({ hasText: name });
+  await expect(article).toContainText('2');
+  const origin = 'http://127.0.0.1:4173';
+
+  const anonymous = await browser.newContext();
+  try {
+    const response = await anonymous.request.get(`${origin}/groceries/data`);
+    expect(response.status()).toBe(401);
+    expect(response.headers()['cache-control']).toContain('no-store');
+    expect(await response.json()).toEqual({ error: 'unauthenticated' });
+  } finally { await anonymous.close(); }
+
+  const kidContext = await browser.newContext();
+  try {
+    const login = await kidContext.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'kid@example.test', password: 'synthetic-kid-password' } });
+    expect(login.status()).toBe(200);
+    const response = await kidContext.request.get(`${origin}/groceries/data`);
+    expect(response.status()).toBe(200);
+    expect(response.headers()['cache-control']).toContain('no-store');
+    const body = await response.json() as { items: Record<string, unknown>[] };
+    const item = body.items.find(value => value.name === name);
+    expect(item).toMatchObject({ name, quantity: '2', unit: '', completed: false });
+    expect(Object.keys(item ?? {}).sort()).toEqual(['completed', 'id', 'name', 'quantity', 'unit', 'version']);
+  } finally { await kidContext.close(); }
+
+  const otherContext = await browser.newContext();
+  try {
+    const login = await otherContext.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'other-parent@example.test', password: 'synthetic-other-parent-password' } });
+    expect(login.status()).toBe(200);
+    const response = await otherContext.request.get(`${origin}/groceries/data`);
+    expect(response.status()).toBe(200);
+    expect(response.headers()['cache-control']).toContain('no-store');
+    const body = await response.json() as { items: { name: string }[] };
+    expect(body.items.some(value => value.name === name)).toBe(false);
+  } finally { await otherContext.close(); }
+});
+
+test('a disabled household member is denied grocery data instead of looking like a temporary outage', async ({ browser }) => {
+  const origin = 'http://127.0.0.1:4173';
+  const context = await browser.newContext();
+  try {
+    const login = await context.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' } });
+    expect(login.status()).toBe(200);
+    const response = await context.request.get(`${origin}/groceries/data`);
+    expect(response.status()).toBe(403);
+    expect(response.headers()['cache-control']).toContain('no-store');
+    expect(await response.json()).toEqual({ error: 'forbidden' });
+    expect((await context.request.get(`${origin}/groceries`)).status()).toBe(403);
+  } finally { await context.close(); }
+});
+
 for (const javaScriptEnabled of [true, false]) test(`invalid grocery item can be corrected (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill('parent@example.test');
@@ -672,7 +731,7 @@ test('leaving the page disposes the live refresh timer', async ({ page }) => {
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
   let dataRequests = 0;
-  page.on('request', request => { if (request.url().includes('/__data.json')) dataRequests++; });
+  page.on('request', request => { if (request.url().includes('/groceries/data')) dataRequests++; });
   await page.getByRole('link', { name: 'Back to home' }).click();
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.waitForLoadState('networkidle');
@@ -691,7 +750,7 @@ test('live refresh does not start another request while one is still running', a
   const gate = new Promise<void>(resolve => { release = resolve; });
   let started!: () => void;
   const firstStarted = new Promise<void>(resolve => { started = resolve; });
-  await page.route('**/groceries/__data.json*', async route => {
+  await page.route('**/groceries/data', async route => {
     requests++;
     if (requests === 1) { started(); await gate; }
     await route.continue();
@@ -699,9 +758,9 @@ test('live refresh does not start another request while one is still running', a
   await page.clock.runFor(25_000);
   await firstStarted;
   expect(requests).toBe(1);
-  await page.clock.runFor(75_000);
+  await page.clock.runFor(5_000);
   expect(requests).toBe(1);
-  const completed = page.waitForResponse(response => response.url().includes('/groceries/__data.json'));
+  const completed = page.waitForResponse(response => response.url().includes('/groceries/data'));
   release();
   await completed;
   await page.clock.runFor(25_000);
@@ -734,7 +793,7 @@ test('an edit typed during a slow refresh survives the arriving server data', as
     const gate = new Promise<void>(resolve => { release = resolve; });
     let started!: () => void;
     const firstStarted = new Promise<void>(resolve => { started = resolve; });
-    await page.route('**/groceries/__data.json*', async route => {
+    await page.route('**/groceries/data', async route => {
       started();
       await gate;
       await route.continue();
@@ -754,6 +813,247 @@ test('an edit typed during a slow refresh survives the arriving server data', as
     await baseItem.getByText('Edit item', { exact: true }).click();
     await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('5');
   } finally { await otherContext.close(); }
+});
+
+test('an unreachable server while the browser is online keeps the current list and recovers', async ({ page, browser }) => {
+  const base = 'Synthetic outage beans';
+  const remote = 'Synthetic outage rice';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(base);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(remote);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: remote })).toBeVisible();
+
+    let serverReachable = false;
+    await page.route('**/groceries/data', route => serverReachable ? route.continue() : route.abort('failed'));
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('status').filter({ hasText: 'Unable to refresh right now.' })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: remote })).toHaveCount(0);
+    await expect(page.getByText('Live updates on.')).toHaveCount(0);
+
+    serverReachable = true;
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('status').filter({ hasText: 'Live updates on.' })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: remote })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+  } finally { await otherContext.close(); }
+});
+
+test('a temporary 503 keeps the current list and recovers on the next refresh', async ({ page, browser }) => {
+  const base = 'Synthetic 503 oats';
+  const remote = 'Synthetic 503 plums';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(base);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(remote);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: remote })).toBeVisible();
+
+    let unavailable = true;
+    await page.route('**/groceries/data', route => unavailable
+      ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"unavailable"}' })
+      : route.continue());
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('status').filter({ hasText: 'Unable to refresh right now.' })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: remote })).toHaveCount(0);
+
+    unavailable = false;
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('status').filter({ hasText: 'Live updates on.' })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: remote })).toBeVisible();
+  } finally { await otherContext.close(); }
+});
+
+test('a refresh that exceeds its time limit keeps the current list', async ({ page }) => {
+  await signIn(page);
+  await page.clock.install();
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill('Synthetic timeout bread');
+  await add.getByRole('button', { name: 'Add item' }).click();
+  await expect(page.getByRole('article').filter({ hasText: 'Synthetic timeout bread' })).toBeVisible();
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+
+  let release!: () => void;
+  const stalled = new Promise<void>(resolve => { release = resolve; });
+  await page.route('**/groceries/data', async route => {
+    await stalled;
+    await route.abort('failed').catch(() => {});
+  });
+  await page.clock.runFor(25_000);
+  await page.clock.runFor(8_000);
+  await expect(page.getByRole('status').filter({ hasText: 'Unable to refresh right now.' })).toBeVisible();
+  await expect(page.getByRole('article').filter({ hasText: 'Synthetic timeout bread' })).toBeVisible();
+  release();
+});
+
+test('repeated failed refreshes keep the list without reloading and recover once', async ({ page, browser }) => {
+  const base = 'Synthetic repeated outage beans';
+  const remote = 'Synthetic repeated outage rice';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(base);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+    await page.evaluate(() => { (window as unknown as { __outageMarker?: boolean }).__outageMarker = true; });
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(remote);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: remote })).toBeVisible();
+
+    let requests = 0;
+    await page.route('**/groceries/data', route => { requests++; return route.abort('failed'); });
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await page.clock.runFor(25_000);
+      await expect.poll(() => requests).toBe(attempt);
+      await expect(page.getByRole('status').filter({ hasText: 'Unable to refresh right now.' })).toBeVisible();
+      await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+      await expect(page.getByRole('article').filter({ hasText: remote })).toHaveCount(0);
+    }
+    expect(await page.evaluate(() => (window as unknown as { __outageMarker?: boolean }).__outageMarker)).toBe(true);
+    await expect(page.getByText('Live updates on.')).toHaveCount(0);
+
+    await page.unroute('**/groceries/data');
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('status').filter({ hasText: 'Live updates on.' })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: remote })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: base })).toBeVisible();
+    expect(await page.evaluate(() => (window as unknown as { __outageMarker?: boolean }).__outageMarker)).toBe(true);
+  } finally { await otherContext.close(); }
+});
+
+test('a remote removal of an open but unedited item explains the conflict before saving', async ({ page, browser }) => {
+  const base = 'Synthetic clean conflict beans';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(base);
+    await add.getByLabel('Quantity', { exact: true }).fill('2');
+    await add.getByRole('button', { name: 'Add item' }).click();
+    const item = page.getByRole('article').filter({ hasText: base });
+    await expect(item).toContainText('2');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    await item.getByText('Edit item', { exact: true }).click();
+    const edit = item.getByRole('form', { name: `Edit ${base}` });
+    await expect(edit).toBeVisible();
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    await other.getByRole('article').filter({ hasText: base }).getByRole('button', { name: 'Remove item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: base })).toHaveCount(0);
+
+    await page.clock.runFor(25_000);
+    await expect(item).toBeVisible();
+    await expect(edit).toBeVisible();
+    await expect(item.getByRole('status')).toContainText('removed in another session');
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('2');
+  } finally { await otherContext.close(); }
+});
+
+test('a remote removal keeps the open edit draft and explains the conflict', async ({ page, browser }) => {
+  const base = 'Synthetic conflicted beans';
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(base);
+    await add.getByLabel('Quantity', { exact: true }).fill('2');
+    await add.getByRole('button', { name: 'Add item' }).click();
+    const item = page.getByRole('article').filter({ hasText: base });
+    await expect(item).toContainText('2');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    await item.getByText('Edit item', { exact: true }).click();
+    const edit = item.getByRole('form', { name: `Edit ${base}` });
+    await edit.getByLabel('Quantity', { exact: true }).fill('7');
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    await other.getByRole('article').filter({ hasText: base }).getByRole('button', { name: 'Remove item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: base })).toHaveCount(0);
+
+    await edit.getByRole('button', { name: 'Save item' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'may have changed' })).toBeVisible();
+    await expect(edit).toBeVisible();
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('7');
+    await expect(item.getByRole('status')).toContainText('removed in another session');
+  } finally { await otherContext.close(); }
+});
+
+test('a forbidden refresh clears the list and stops protected updates', async ({ page }) => {
+  await signIn(page);
+  await page.clock.install();
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill('Synthetic forbidden squash');
+  await add.getByRole('button', { name: 'Add item' }).click();
+  await expect(page.getByRole('article').filter({ hasText: 'Synthetic forbidden squash' })).toBeVisible();
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+
+  let requests = 0;
+  await page.route('**/groceries/data', route => {
+    requests++;
+    return route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"forbidden"}' });
+  });
+  await page.clock.runFor(25_000);
+  await expect(page.getByRole('status').filter({ hasText: 'no longer have access' })).toBeVisible();
+  await expect(page.getByRole('article').filter({ hasText: 'Synthetic forbidden squash' })).toHaveCount(0);
+  await page.clock.runFor(75_000);
+  expect(requests).toBe(1);
+});
+
+test('an HTML sign-in response is treated as an expired session', async ({ page }) => {
+  await signIn(page);
+  await page.clock.install();
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  await page.route('**/groceries/data', route => route.fulfill({ status: 303, headers: { location: '/sign-in' } }));
+  await page.clock.runFor(25_000);
+  await expect(page).toHaveURL(/\/sign-in/);
+  await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 });
 
 test('a failed refresh keeps the current list visible and recovers automatically', async ({ page, browser }) => {
