@@ -26,9 +26,9 @@ function validate(input: MealInput) {
 }
 
 export function createMeal(db: Database.Database, actor: string, household: string, input: MealInput): string {
-  authorize(db, actor, household, true);
-  const value = validate(input);
   return db.transaction(() => {
+    authorize(db, actor, household, true);
+    const value = validate(input);
     if (value.submissionKey) {
       const existing = db.prepare('SELECT id FROM meal WHERE household_id = ? AND submission_key = ?').get(household, value.submissionKey) as { id: string } | undefined;
       if (existing) return existing.id;
@@ -48,8 +48,11 @@ export function createMeal(db: Database.Database, actor: string, household: stri
 }
 
 export function updateMeal(db: Database.Database, actor: string, household: string, id: string, input: MealInput): void {
-  authorize(db, actor, household, true); const value = validate(input);
-  if (!db.prepare('UPDATE meal SET title = ?, meal_date = ?, meal_time = ?, servings = ?, ingredients = ?, notes = ?, source = ?, recipe_url = ?, recipe_details = ?, shared = ?, updated_at = ? WHERE id = ? AND household_id = ?').run(value.title, input.date, input.time || null, input.servings ?? null, value.ingredients, value.notes, value.source, value.recipeUrl, value.recipeDetails ? JSON.stringify(value.recipeDetails) : null, Number(input.shared), new Date().toISOString(), id, household).changes) throw new Error('Meal not found');
+  db.transaction(() => {
+    authorize(db, actor, household, true);
+    const value = validate(input);
+    if (!db.prepare('UPDATE meal SET title = ?, meal_date = ?, meal_time = ?, servings = ?, ingredients = ?, notes = ?, source = ?, recipe_url = ?, recipe_details = ?, shared = ?, updated_at = ? WHERE id = ? AND household_id = ?').run(value.title, input.date, input.time || null, input.servings ?? null, value.ingredients, value.notes, value.source, value.recipeUrl, value.recipeDetails ? JSON.stringify(value.recipeDetails) : null, Number(input.shared), new Date().toISOString(), id, household).changes) throw new Error('Meal not found');
+  }).immediate();
 }
 
 export function listMeals(db: Database.Database, actor: string, household: string, date: string): Meal[] {

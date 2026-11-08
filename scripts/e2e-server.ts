@@ -45,6 +45,17 @@ db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-race-household', 'Race household');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(raceOne.user.id, 'synthetic-race-household', 'parent');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(raceTwo.user.id, 'synthetic-race-household', 'parent');
+const retainedParent = await auth.api.signUpEmail({ body: { name: 'Retained Parent', email: 'retained-parent@example.test', password: 'synthetic-retained-parent-password' } });
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?), (?, ?)').run('synthetic-disable-selected', 'Revocation example', 'synthetic-disable-retained', 'Remaining household');
+const addMembership = db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)');
+addMembership.run(multiParent.user.id, 'synthetic-disable-selected', 'parent');
+addMembership.run(retainedParent.user.id, 'synthetic-disable-selected', 'parent');
+addMembership.run(retainedParent.user.id, 'synthetic-disable-retained', 'parent');
+for (const mode of ['Script', 'Native']) {
+  const email = `retry-${mode.toLowerCase()}@example.test`;
+  const child = await auth.api.signUpEmail({ body: { name: `Retry ${mode}`, email, password: 'synthetic-disable-retry-password' } });
+  addMembership.run(child.user.id, 'synthetic-disable-selected', 'kid');
+}
 // Display-pairing journeys: a household with two parents so one can be disabled.
 const displayOne = await auth.api.signUpEmail({ body: { name: 'Display Parent One', email: 'display-one@example.test', password: 'synthetic-display-one-password' } });
 const displayTwo = await auth.api.signUpEmail({ body: { name: 'Display Parent Two', email: 'display-two@example.test', password: 'synthetic-display-two-password' } });

@@ -1,18 +1,23 @@
 import { afterEach, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { createAuth, migrate, authorizeRequest } from '../src/lib/server/identity';
 import { SessionManagementError, listAccountSessions, revokeAccountSession, revokeOtherAccountSessions } from '../src/lib/server/sessions';
 import { disableMember } from '../src/lib/server/household-access';
 
 const origin = 'http://localhost:3000';
+const secret = 'synthetic-session-test-secret-over-32-characters';
+const dirs: string[] = [];
 const dbs: Database.Database[] = [];
-afterEach(() => { for (const db of dbs.splice(0)) db.close(); });
+afterEach(() => { for (const db of dbs.splice(0)) db.close(); for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
 const post = (path: string, body: unknown) => new Request(`${origin}/api/auth/${path}`, { method: 'POST', headers: { 'content-type': 'application/json', origin, 'user-agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Version/17.0 Mobile/15E148 Safari/604.1' }, body: JSON.stringify(body) });
 
-async function fixture() {
-  const db = new Database(':memory:'); dbs.push(db); db.pragma('foreign_keys = ON');
+async function fixture(path = ':memory:') {
+  const db = new Database(path); dbs.push(db); db.pragma('foreign_keys = ON');
   await migrate(db);
-  const auth = createAuth(db, { secret: 'synthetic-session-test-secret-over-32-characters', origin, allowSignUp: true, autoSignIn: false });
+  const auth = createAuth(db, { secret, origin, allowSignUp: true, autoSignIn: false });
   const make = async (name: string, email: string) => (await auth.api.signUpEmail({ body: { name, email, password: 'synthetic-password-123' } })).user.id;
   const parent = await make('Parent', 'parent@example.test'), kid = await make('Kid', 'kid@example.test');
   db.prepare('INSERT INTO household (id, name) VALUES (?, ?), (?, ?)').run('house-a', 'A', 'house-b', 'B');
@@ -64,9 +69,11 @@ it('signs out other devices across every household without touching membership o
 });
 
 it('keeps session management separate from household membership', async () => {
-  const f = await fixture();
+  const dir = mkdtempSync(join(tmpdir(), 'hub-session-membership-'));
+  dirs.push(dir);
+  const f = await fixture(join(dir, 'synthetic.sqlite'));
   const kid = await f.signIn('kid@example.test');
-  disableMember(f.db, f.parent, 'house-a', f.kid);
+  await disableMember(f.db, { secret, origin }, f.parent, 'house-a', f.kid);
   expect(await listAccountSessions(f.auth, kid)).toHaveLength(1);
   expect(await authorizeRequest(f.auth, f.db, kid, 'house-a', 'read')).toBe(false);
   expect(await authorizeRequest(f.auth, f.db, kid, 'house-b', 'read')).toBe(true);

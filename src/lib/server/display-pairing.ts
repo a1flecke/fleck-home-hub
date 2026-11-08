@@ -10,7 +10,7 @@ import type Database from 'better-sqlite3';
  *
  * Authority comes from the parent who paired the display. If that parent is no longer an
  * active parent of the household, the display stops working (revoked eagerly by
- * `revokeDisplayAuthorityOf` and re-checked at every verification).
+ * the member-disable worker and re-checked at every verification).
  */
 export const PAIRING_TTL_MS = 10 * 60 * 1000;
 export const DEVICE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -139,15 +139,6 @@ export function revokePairing(db: Database.Database, actorId: string, householdI
     const result = db.prepare('UPDATE display_pairing SET revoked_at = ? WHERE id = ? AND household_id = ? AND revoked_at IS NULL AND consumed_at IS NULL AND expires_at > ?').run(now, pairingId, householdId, now);
     if (result.changes !== 1) throw new DisplayPairingError('unavailable');
   }).immediate();
-}
-
-/**
- * Called inside the member-disable transaction: everything a parent authorized stops working
- * with them. Other parents' displays and other households are untouched.
- */
-export function revokeDisplayAuthorityOf(db: Database.Database, householdId: string, userId: string, revokedBy: string, now: number) {
-  db.prepare('UPDATE display_pairing SET revoked_at = ? WHERE household_id = ? AND created_by = ? AND consumed_at IS NULL AND revoked_at IS NULL').run(now, householdId, userId);
-  db.prepare('UPDATE display_device SET revoked_at = ?, revoked_by = ? WHERE household_id = ? AND created_by = ? AND revoked_at IS NULL').run(now, revokedBy, householdId, userId);
 }
 
 /**

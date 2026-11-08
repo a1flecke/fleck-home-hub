@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -40,6 +40,8 @@ const pair = (household: string, parent: string, label = 'Kitchen') => redeemPai
 const displayCookie = (token: string) => `${displayCookieName(origin)}=${token}`;
 
 beforeAll(async () => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-11-08T03:00:00Z'));
   dir = mkdtempSync(join(tmpdir(), 'hub-display-session-'));
   db = new Database(join(dir, 'synthetic.sqlite'));
   db.pragma('foreign_keys = ON');
@@ -58,7 +60,7 @@ beforeAll(async () => {
   const foreign = createEvent(db, ids.parentOther, 'other', { title: 'Foreign event', date: today(), allDay: true });
   setDisplayVisibility(db, ids.parentOther, 'other', 'event', foreign, true);
 });
-afterAll(() => { db.close(); rmSync(dir, { recursive: true, force: true }); });
+afterAll(() => { vi.useRealTimers(); db.close(); rmSync(dir, { recursive: true, force: true }); });
 
 describe('display cookie', () => {
   it('is HttpOnly, SameSite=Strict, scoped to /display and Secure on HTTPS', () => {
@@ -123,7 +125,7 @@ describe('paired display view', () => {
   it('invalidates the displays of a parent who is disabled, but not the other parent\'s', async () => {
     const mine = pair('home', 'parentA', 'Mine');
     const theirs = pair('home', 'parentB', 'Theirs');
-    disableMember(db, ids.parentB, 'home', ids.parentA);
+    await disableMember(db, { secret, origin }, ids.parentB, 'home', ids.parentA);
     expect(await resolveDisplayView(request(displayCookie(mine)), { services, weather })).toEqual({ mode: 'unpaired' });
     expect((await resolveDisplayView(request(displayCookie(theirs)), { services, weather })).mode).toBe('device');
   });

@@ -3,10 +3,10 @@ import { join, relative } from 'node:path';
 import { expect, it } from 'vitest';
 
 // A direct read of `membership` ignores `disabled_at`, so a disabled member would stay authorized.
-// Only household-access.ts (explicit all-state listing and the disable write) and the creation
+// Only household-access.ts (all-state listing), member-disable-worker.js (disable write) and the creation
 // paths that INSERT a new row may name the table; everything else reads `active_membership`.
 const direct = /\b(FROM|JOIN|UPDATE|DELETE\s+FROM)\s+membership\b/i;
-const allowed = new Set(['src/lib/server/household-access.ts']);
+const allowed = new Set(['src/lib/server/household-access.ts', 'src/lib/server/member-disable-worker.js']);
 
 export function directMembershipUses(files: Record<string, string>) {
   return Object.entries(files).filter(([path, text]) => !allowed.has(path) && direct.test(text)).map(([path]) => path);

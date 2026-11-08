@@ -80,8 +80,10 @@ export function updateEvent(db: Database.Database, actor: string, household: str
 }
 
 export function cancelEvent(db: Database.Database, actor: string, household: string, id: string): void {
-  requireMember(db, actor, household, true);
-  if (!db.prepare('UPDATE calendar_event SET cancelled = 1, updated_at = ? WHERE id = ? AND household_id = ? AND cancelled = 0').run(new Date().toISOString(), id, household).changes) throw new Error('Event not found');
+  db.transaction(() => {
+    requireMember(db, actor, household, true);
+    if (!db.prepare('UPDATE calendar_event SET cancelled = 1, updated_at = ? WHERE id = ? AND household_id = ? AND cancelled = 0').run(new Date().toISOString(), id, household).changes) throw new Error('Event not found');
+  }).immediate();
 }
 
 type InboxInput = { title: string; description?: string; ownerId?: string };
@@ -92,24 +94,30 @@ function validateInbox(db: Database.Database, household: string, input: InboxInp
   return { title, description };
 }
 export function addUnscheduled(db: Database.Database, actor: string, household: string, input: InboxInput): string {
-  requireMember(db, actor, household, true);
-  const values = validateInbox(db, household, input);
-  const id = randomUUID(), now = new Date().toISOString();
-  db.prepare('INSERT INTO calendar_inbox (id, household_id, creator_id, title, description, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, household, actor, values.title, values.description, input.ownerId || null, now, now);
-  return id;
+  return db.transaction(() => {
+    requireMember(db, actor, household, true);
+    const values = validateInbox(db, household, input);
+    const id = randomUUID(), now = new Date().toISOString();
+    db.prepare('INSERT INTO calendar_inbox (id, household_id, creator_id, title, description, owner_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, household, actor, values.title, values.description, input.ownerId || null, now, now);
+    return id;
+  }).immediate();
 }
 export function listUnscheduled(db: Database.Database, actor: string, household: string) {
   requireMember(db, actor, household);
   return db.prepare("SELECT id, title, description, owner_id AS ownerId FROM calendar_inbox WHERE household_id = ? AND state = 'open' ORDER BY created_at, id").all(household) as { id: string; title: string; description: string | null; ownerId: string | null }[];
 }
 export function updateUnscheduled(db: Database.Database, actor: string, household: string, id: string, input: InboxInput): void {
-  requireMember(db, actor, household, true);
-  const values = validateInbox(db, household, input);
-  if (!db.prepare("UPDATE calendar_inbox SET title = ?, description = ?, owner_id = ?, updated_at = ? WHERE id = ? AND household_id = ? AND state = 'open'").run(values.title, values.description, input.ownerId || null, new Date().toISOString(), id, household).changes) throw new Error('Item not found');
+  db.transaction(() => {
+    requireMember(db, actor, household, true);
+    const values = validateInbox(db, household, input);
+    if (!db.prepare("UPDATE calendar_inbox SET title = ?, description = ?, owner_id = ?, updated_at = ? WHERE id = ? AND household_id = ? AND state = 'open'").run(values.title, values.description, input.ownerId || null, new Date().toISOString(), id, household).changes) throw new Error('Item not found');
+  }).immediate();
 }
 export function archiveUnscheduled(db: Database.Database, actor: string, household: string, id: string): void {
-  requireMember(db, actor, household, true);
-  if (!db.prepare("UPDATE calendar_inbox SET state = 'archived', updated_at = ? WHERE id = ? AND household_id = ? AND state = 'open'").run(new Date().toISOString(), id, household).changes) throw new Error('Item not found');
+  db.transaction(() => {
+    requireMember(db, actor, household, true);
+    if (!db.prepare("UPDATE calendar_inbox SET state = 'archived', updated_at = ? WHERE id = ? AND household_id = ? AND state = 'open'").run(new Date().toISOString(), id, household).changes) throw new Error('Item not found');
+  }).immediate();
 }
 export function scheduleUnscheduled(db: Database.Database, actor: string, household: string, id: string, input: EventInput): string {
   return db.transaction(() => {
