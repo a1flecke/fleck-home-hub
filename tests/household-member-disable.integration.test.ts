@@ -263,6 +263,26 @@ describe('invitations from a disabled issuer', () => {
     expect(f.db.prepare("SELECT count(*) AS n FROM user WHERE email = 'late@example.test'").get()).toEqual({ n: 0 });
   });
 
+  it('lets disabling the pairing parent win over a display redeeming that parent\'s code at the same time', async () => {
+    const f = await fixture();
+    const pairing = createPairing(f.db, f.parentB, 'house-a', 'Racing display');
+    const other = createPairing(f.db, f.outsider, 'house-b', 'Other household display');
+    const display = new Database(f.path); dbs.push(display);
+    display.pragma('foreign_keys = ON'); display.pragma('busy_timeout = 0');
+    const disabling = pauseWorker('COMMIT', () => disableMember(f.db, config, f.parentA, 'house-a', f.parentB));
+    try {
+      await disabling.reached();
+      // The disable transaction holds the writer lock, so the redemption cannot slip in before it.
+      expect(() => redeemPairing(display, pairing.secret)).toThrow(/locked|busy/i);
+    } finally { disabling.release(); }
+    disabling.waitForCommit();
+    await expect(disabling.result).resolves.toEqual({ changed: true });
+    expect(() => redeemPairing(display, pairing.secret)).toThrow(expect.objectContaining({ code: 'invalid' }));
+    expect(f.db.prepare("SELECT count(*) AS n FROM display_device WHERE household_id = 'house-a'").get()).toEqual({ n: 0 });
+    // Another household's pending code is untouched and still redeems exactly once.
+    expect(redeemPairing(display, other.secret).householdId).toBe('house-b');
+  }, 15000);
+
   it('does not link or re-enable an existing disabled account through a new invitation', async () => {
     const f = await fixture();
     await disableMember(f.db, config, f.parentA, 'house-a', f.kid);

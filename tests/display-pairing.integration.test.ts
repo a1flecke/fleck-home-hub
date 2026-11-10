@@ -145,6 +145,21 @@ describe('pairing redemption', () => {
     expect(first.prepare('SELECT count(*) AS n FROM display_device').get()).toEqual({ n: 1 });
   });
 
+  it('rejects an invalid secret without waiting for the writer lock', async () => {
+    const path = tempPath();
+    const writer = await fixture(path); writer.pragma('journal_mode = WAL');
+    const reader = new Database(path); dbs.push(reader); reader.pragma('busy_timeout = 0');
+    const pairing = createPairing(writer, 'parent', 'home', 'Locked', 1000);
+    writer.exec('BEGIN IMMEDIATE');
+    try {
+      // Unauthenticated garbage must not queue on (or fail with) the household writer lock.
+      expect(() => redeemPairing(reader, 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA', 2000)).toThrow(DisplayPairingError);
+      // A genuine code still needs the lock to be consumed, so it waits for other writers.
+      expect(() => redeemPairing(reader, pairing.secret, 2000)).toThrow(/locked|busy/i);
+    } finally { writer.exec('ROLLBACK'); }
+    expect(redeemPairing(reader, pairing.secret, 2000).householdId).toBe('home');
+  });
+
   it('is structurally limited to one device per pairing even if the consume check were bypassed', async () => {
     const db = await fixture();
     const { device } = pairedDevice(db);
