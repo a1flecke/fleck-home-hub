@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
-import { Worker } from 'node:worker_threads';
+import { runDatabaseWorkers } from './helpers/database-workers';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -132,30 +132,16 @@ describe('pairing redemption', () => {
     expect(db.prepare('SELECT count(*) AS n FROM display_device').get()).toEqual({ n: 0 });
   });
 
-  it('allows at most one session when several threads redeem the same secret at once', async () => {
+  it('allows at most one session when several processes redeem the same secret at once', async () => {
     const path = tempPath();
     const db = await fixture(path); db.pragma('journal_mode = WAL');
     const pairing = createPairing(db, 'parent', 'home', 'Race', 1000);
-    const contenders = 4;
-    // [0] counts ready workers; [1] releases them together once every connection is open.
-    const barrier = new Int32Array(new SharedArrayBuffer(2 * Int32Array.BYTES_PER_ELEMENT));
-    const workers = Array.from({ length: contenders }, () => new Worker(new URL('./fixtures/redeem-pairing-worker.ts', import.meta.url), {
-      execArgv: ['--import', 'tsx'], workerData: { path, secret: pairing.secret, now: 2000, barrier }
-    }));
-    try {
-      const results = workers.map(worker => new Promise<{ ok: boolean; code?: string }>((resolve, reject) => { worker.once('message', resolve); worker.once('error', reject); }));
-      for (let ready = Atomics.load(barrier, 0); ready < contenders; ready = Atomics.load(barrier, 0)) {
-        expect(await Atomics.waitAsync(barrier, 0, ready, 10_000).value, 'every worker opened its connection').not.toBe('timed-out');
-      }
-      Atomics.store(barrier, 1, 1);
-      Atomics.notify(barrier, 1);
-      const outcomes = await Promise.all(results);
-      expect(outcomes.filter(outcome => outcome.ok)).toHaveLength(1);
-      expect(outcomes.filter(outcome => !outcome.ok).map(outcome => outcome.code)).toEqual(Array(contenders - 1).fill('invalid'));
-    } finally { await Promise.all(workers.map(worker => worker.terminate())); }
+    // Separate processes and connections, released together once every connection is open.
+    const outcomes = await runDatabaseWorkers('tests/fixtures/redeem-pairing-worker.ts', Array.from({ length: 4 }, () => [path, pairing.secret, '2000']));
+    expect(outcomes.sort()).toEqual(['invalid', 'invalid', 'invalid', 'redeemed']);
     expect(db.prepare('SELECT count(*) AS n FROM display_device').get()).toEqual({ n: 1 });
     expect(db.prepare('SELECT consumed_at FROM display_pairing').get()).toEqual({ consumed_at: 2000 });
-  }, 20_000);
+  });
 
   it('rejects an invalid secret without waiting for the writer lock', async () => {
     const path = tempPath();
