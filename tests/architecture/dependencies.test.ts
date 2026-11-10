@@ -34,10 +34,19 @@ function check(files: Record<string, string>, alias = true) {
 
 describe('architecture dependency rules', () => {
   it('enforces the dependency rules against the application', () => {
-    const result = spawnSync(executable, ['--config', config, 'src'], { cwd: root, encoding: 'utf8' });
+    const result = spawnSync(executable, ['--config', config, 'src'], {
+      cwd: root,
+      encoding: 'utf8',
+      // The whole-application cruise measured 6.1-8.3 s alongside the full
+      // parallel suite on the pinned local toolchain while still passing in
+      // isolation. Bound the operation below this test's explicit deadline
+      // instead of relying on Vitest's shorter default.
+      timeout: 20_000
+    });
+    expect(result.error).toBeUndefined();
     expect(result.stderr).toBe('');
     expect(result.status).toBe(0);
-  });
+  }, 30_000);
 
   it('allows a domain dependency between pure modules', () => {
     const result = check({
