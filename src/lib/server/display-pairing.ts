@@ -81,6 +81,10 @@ export function createPairing(db: Database.Database, actorId: string, householdI
 export function redeemPairing(db: Database.Database, secret: string, now = Date.now()) {
   const compact = normalizeSecret(secret);
   if (!compact) throw new DisplayPairingError('invalid');
+  // Unauthenticated callers reach this point. Reject unknown secrets with a plain read so they never
+  // queue on the household writer lock; the transaction below repeats every check before consuming.
+  const candidate = db.prepare('SELECT 1 FROM display_pairing WHERE secret_hash = ? AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > ?').get(digest(compact), now);
+  if (!candidate) throw new DisplayPairingError('invalid');
   const token = randomBytes(32).toString('base64url');
   const deviceId = randomUUID();
   return db.transaction(() => {
@@ -108,8 +112,13 @@ export function verifyDisplayCredential(db: Database.Database, token: string, no
     WHERE d.token_hash = ? AND d.revoked_at IS NULL AND d.expires_at > ?`).get(digest(token), now) as (VerifiedDisplay & { lastSeenAt: number | null }) | undefined;
   if (!row) return null;
   if (row.lastSeenAt === null || now - row.lastSeenAt >= LAST_SEEN_INTERVAL_MS) {
-    // Bookkeeping must never turn a valid read into a failure (e.g. a busy writer).
+    // Bookkeeping must never fail or delay a valid read. better-sqlite3 waits synchronously for a
+    // busy writer, which would stall the whole event loop, so skip the write when the lock is held;
+    // the next request retries it. Nothing else runs on this connection between set and restore.
+    const timeout = db.pragma('busy_timeout', { simple: true }) as number;
+    db.pragma('busy_timeout = 0');
     try { db.prepare('UPDATE display_device SET last_seen_at = ? WHERE id = ?').run(now, row.deviceId); } catch { /* best effort */ }
+    finally { db.pragma(`busy_timeout = ${Number(timeout)}`); }
   }
   return { deviceId: row.deviceId, householdId: row.householdId, label: row.label };
 }
@@ -143,8 +152,9 @@ export function revokePairing(db: Database.Database, actorId: string, householdI
 
 /**
  * Process-wide failed-redemption throttle. Pairing codes carry 120 bits, so guessing is not the
- * threat; this keeps an unauthenticated endpoint from being a cheap hammering target. Client
- * addresses are deliberately not used because proxy headers are not trusted here.
+ * threat; this tells a client hammering with invalid codes to back off. Callers consult it only
+ * after a code has failed, so it can never block a valid code. Client addresses are deliberately
+ * not used because proxy headers are not trusted here.
  */
 export function createFailureLimiter(max: number, windowMs: number, clock: () => number = Date.now) {
   let failures: number[] = [];

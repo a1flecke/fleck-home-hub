@@ -89,8 +89,14 @@ describe('pairing route', () => {
     }
     expect(messages.size).toBe(1);
     expect(last.status).toBe(429);
-    const { secret: code } = createPairing(db, parent, 'home', 'Throttled');
+    // The throttle is process-wide, so it must never stop a parent's genuine code: otherwise anyone
+    // who can reach the host could keep the household from pairing by sending bad codes.
+    const { secret: code } = createPairing(db, parent, 'home', 'Paired during throttle');
+    const paired = await run(submit(code));
+    expect(paired.thrown).toMatchObject({ status: 303, location: '/display' });
+    expect(paired.cookies).toHaveLength(1);
+    expect(db.prepare("SELECT consumed_at IS NOT NULL AS consumed FROM display_pairing WHERE label = 'Paired during throttle'").get()).toEqual({ consumed: 1 });
+    // A consumed code is invalid like any other and is still throttled.
     expect((await run(submit(code))).result).toMatchObject({ status: 429 });
-    expect(db.prepare("SELECT consumed_at FROM display_pairing WHERE label = 'Throttled'").get()).toEqual({ consumed_at: null });
   });
 });

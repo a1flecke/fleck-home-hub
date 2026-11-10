@@ -29,9 +29,9 @@ A **display** is not a household member. It has no Better Auth account, no `memb
 | Child or visitor using the display | The display has no write endpoints and no navigation; the credential reaches no other route. Physical access still shows whatever is on screen. |
 | Stolen or copied credential | Parent revocation works on the next request; 90-day expiry; cookie is HttpOnly and not readable by page scripts. A thief with the browser profile can use it until revoked. |
 | Intercepted unused code | 10-minute expiry, single use, revocable pending codes; a code intercepted and used first wins, which the parent sees as a display they did not pair. Transfer the code privately. |
-| Code replay or guessing | Consumed codes fail; 120-bit codes; process-wide failure throttle (10 failures/minute) on the only unauthenticated endpoint. |
+| Code replay or guessing | Consumed codes fail; 120-bit codes. Unknown codes are rejected by a read-only lookup without taking the SQLite writer lock. A process-wide throttle (10 failures/minute) answers further invalid codes with 429, but is consulted only after a code fails: a shared throttle checked first would let anyone who can reach the host block every household pairing. |
 | Cross-origin forced pairing or revoke | Origin must equal `AUTH_ORIGIN` on every mutation; cookie is SameSite=Strict. |
-| Concurrent redeem/revoke | Immediate transactions; a revoke that commits first makes the redeem fail, and the reverse leaves a revoked device. |
+| Concurrent redeem/revoke | Immediate transactions; a revoke that commits first makes the redeem fail, and the reverse leaves a revoked device. A two-connection barrier test holds a parent-disable transaction before `COMMIT` and shows the competing redemption cannot proceed, then fails once the disable commits. |
 | Disabled parent | See invariant 5. |
 | Stale content after revoke | All `/display*` responses are `no-store`; the page refresh switches to a pairing-required state. A dead credential stays in the browser (it is inert) so a reload keeps showing the pairing-required screen. Content already rendered on an offline or compromised device cannot be erased remotely. |
 | Tailnet access alone | Reaching the host is not authorization; a code or sign-in is required. |
