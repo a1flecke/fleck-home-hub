@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import { createSeries, generateOccurrences, setHouseholdTimezone, setSeriesState, skipOccurrence, updateSeries } from '../src/lib/server/recurring';
 import { changeChore } from '../src/lib/server/chores';
-import { spawn } from 'node:child_process';
+import { runDatabaseWorkers } from './helpers/database-workers';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -65,18 +65,8 @@ it('serializes generation from independent processes without duplicate occurrenc
     db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
     db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
     createSeries(db, 'parent', 'home', { title: 'Race', assigneeId: 'kid', startDate: '2099-01-01', weekdays: [0, 1, 2, 3, 4, 5, 6] });
-    const workers = [0, 1].map(() => spawn(process.execPath, ['--import', 'tsx', 'tests/fixtures/generate-occurrences.ts', path], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] }));
-    const outcomes = workers.map(worker => new Promise<string>((resolve, reject) => {
-      worker.on('error', reject);
-      worker.on('message', message => { if (message !== 'ready') resolve(String(message)); });
-      worker.on('exit', code => { if (code !== 0) reject(new Error(`worker exited ${code}`)); });
-    }));
-    await Promise.all(workers.map(worker => new Promise<void>((resolve, reject) => {
-      worker.on('message', message => { if (message === 'ready') resolve(); });
-      worker.on('error', reject);
-    })));
-    for (const worker of workers) worker.send('go');
-    expect(await Promise.all(outcomes)).toEqual(['generated', 'generated']);
+    const outcomes = await runDatabaseWorkers('tests/fixtures/generate-occurrences.ts', [[path], [path]]);
+    expect(outcomes).toEqual(['generated', 'generated']);
     expect(db.prepare('SELECT count(*) AS count, count(DISTINCT scheduled_date) AS dates FROM recurring_occurrence').get()).toEqual({ count: 7, dates: 7 });
     expect(db.prepare('SELECT count(*) AS count FROM chore').get()).toEqual({ count: 7 });
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }

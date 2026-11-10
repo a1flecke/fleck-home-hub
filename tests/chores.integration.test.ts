@@ -2,7 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import { createChore, changeChore } from '../src/lib/server/chores';
-import { spawn } from 'node:child_process';
+import { runDatabaseWorkers } from './helpers/database-workers';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -37,18 +37,8 @@ it('serializes competing approvals across independent SQLite connections', async
     db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent2', 'home', 'parent');
     const id = createChore(db, 'parent', 'home', { title: 'Race', assigneeId: 'kid', dueDate: '2026-10-30', rewardCents: 200 });
     changeChore(db, 'kid', 'home', id, 'submit');
-    const workers = ['parent', 'parent2'].map(actor => spawn(process.execPath, ['--import', 'tsx', 'tests/fixtures/verify-chore.ts', path, actor, id], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] }));
-    const outcomes = workers.map(worker => new Promise<string>((resolve, reject) => {
-      worker.on('error', reject);
-      worker.on('message', message => { if (message === 'ready') return; resolve(String(message)); });
-      worker.on('exit', code => { if (code !== 0) reject(new Error(`worker exited ${code}`)); });
-    }));
-    await Promise.all(workers.map(worker => new Promise<void>((resolve, reject) => {
-      worker.on('message', message => { if (message === 'ready') resolve(); });
-      worker.on('error', reject);
-    })));
-    for (const worker of workers) worker.send('go');
-    expect((await Promise.all(outcomes)).sort()).toEqual(['rejected', 'verified']);
+    const outcomes = await runDatabaseWorkers('tests/fixtures/verify-chore.ts', ['parent', 'parent2'].map(actor => [path, actor, id]));
+    expect(outcomes.sort()).toEqual(['rejected', 'verified']);
     expect(db.prepare('SELECT count(*) AS count, sum(amount_cents) AS total FROM earning').get()).toEqual({ count: 1, total: 200 });
     db.close(); opened.splice(opened.indexOf(db), 1);
   } finally { rmSync(dir, { recursive: true, force: true }); }

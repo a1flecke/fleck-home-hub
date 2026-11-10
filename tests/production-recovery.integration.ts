@@ -50,13 +50,13 @@ async function waitForStart(child: ChildProcessWithoutNullStreams, origin: strin
 }
 
 test('a verified backup reopens in the localhost production server after a failed migration', { timeout: 60_000 }, async () => {
+  const port = await freePort();
   const root = process.cwd();
   const directory = mkdtempSync(join(root, '.synthetic-recovery-'));
   const app = join(directory, 'app');
   const source = join(directory, 'source.sqlite');
   const backup = join(directory, 'backup.sqlite');
   const restored = join(directory, 'restored.sqlite');
-  const port = await freePort();
   const origin = `http://127.0.0.1:${port}`;
   const secret = 'synthetic-production-recovery-secret-32-plus';
   const invitationToken = randomBytes(32).toString('base64url');
