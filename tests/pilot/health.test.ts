@@ -5,6 +5,7 @@ import { mkdtempSync, rmSync, writeFileSync, chmodSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
+import { once } from 'node:events';
 import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 import Database from 'better-sqlite3';
@@ -16,6 +17,10 @@ let servers: { close: () => void }[] = [];
 let requests: { method?: string; url?: string; headers: IncomingMessage['headers'] }[] = [];
 const origin = 'https://hub.example.ts.net';
 
+async function listen(server: ReturnType<typeof createNet>, port = 0) {
+  await once(server.listen(port, '127.0.0.1'), 'listening');
+}
+
 async function serve(handler: (url: string) => { status: number; body?: string } | 'destroy') {
   const server: Server = createHttp((req, res) => {
     requests.push({ method: req.method, url: req.url, headers: req.headers });
@@ -23,12 +28,12 @@ async function serve(handler: (url: string) => { status: number; body?: string }
     if (out === 'destroy') { req.socket.destroy(); return; }
     res.writeHead(out.status, { 'content-type': 'text/plain' }); res.end(out.body ?? '');
   });
-  await new Promise<void>(r => server.listen(0, '127.0.0.1', r));
+  await listen(server);
   servers.push({ close: () => { server.closeAllConnections(); server.close(); } });
   return (server.address() as { port: number }).port;
 }
 async function freePort() {
-  const s = createNet(); await new Promise<void>(r => s.listen(0, '127.0.0.1', r));
+  const s = createNet(); await listen(s);
   const port = (s.address() as { port: number }).port; await new Promise(r => s.close(r)); return port;
 }
 let counter = 0;
@@ -42,13 +47,23 @@ const env = (port: number, db: string, extra: Record<string, string | undefined>
 beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'hub-health-')); requests = []; });
 afterEach(() => { servers.forEach(s => s.close()); servers = []; rmSync(dir, { recursive: true, force: true }); });
 
+it('rejects readiness with the bind error when the port is occupied', async () => {
+  const port = await serve(() => ({ status: 200 }));
+  const second = createNet();
+  try {
+    await expect(listen(second, port)).rejects.toMatchObject({ code: 'EADDRINUSE' });
+  } finally {
+    if (second.listening) second.close();
+  }
+});
+
 describe('health states', () => {
   it('reports NOT_LISTENING when nothing is listening', async () => {
     const result = await diagnose({ env: env(await freePort(), makeDb()) });
     expect(result.state).toBe('NOT_LISTENING');
   });
   it('reports RUNTIME_UNAVAILABLE for a listener that is not HTTP-responsive', async () => {
-    const s = createNet(socket => socket.destroy()); await new Promise<void>(r => s.listen(0, '127.0.0.1', r));
+    const s = createNet(socket => socket.destroy()); await listen(s);
     servers.push({ close: () => s.close() });
     expect((await diagnose({ env: env((s.address() as { port: number }).port, makeDb()), timeoutMs: 1000 })).state).toBe('RUNTIME_UNAVAILABLE');
   });
