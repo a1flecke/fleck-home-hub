@@ -1046,6 +1046,30 @@ test('a forbidden refresh clears the list and stops protected updates', async ({
   expect(requests).toBe(1);
 });
 
+test('the Refresh list link performs a full reload after access is lost', async ({ page }) => {
+  const item = 'Synthetic access fallback oats';
+  await signIn(page);
+  await page.clock.install();
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill(item);
+  await add.getByRole('button', { name: 'Add item' }).click();
+  await expect(page.getByRole('article').filter({ hasText: item })).toBeVisible();
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+
+  await page.route('**/groceries/data', route => route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"forbidden"}' }));
+  await page.clock.runFor(25_000);
+  await expect(page.getByRole('status').filter({ hasText: 'no longer have access' })).toBeVisible();
+  await expect(page.getByRole('article').filter({ hasText: item })).toHaveCount(0);
+  await page.evaluate(() => { (window as unknown as { __accessFallbackMarker?: boolean }).__accessFallbackMarker = true; });
+
+  await page.getByRole('link', { name: 'Refresh list' }).click();
+  await expect(page.getByRole('heading', { name: 'Grocery list' })).toBeVisible();
+  await expect(page.getByRole('article').filter({ hasText: item })).toBeVisible();
+  expect(await page.evaluate(() => (window as unknown as { __accessFallbackMarker?: boolean }).__accessFallbackMarker)).toBeUndefined();
+});
+
 test('an HTML sign-in response is treated as an expired session', async ({ page }) => {
   await signIn(page);
   await page.clock.install();
