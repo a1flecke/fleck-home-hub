@@ -112,8 +112,13 @@ export function verifyDisplayCredential(db: Database.Database, token: string, no
     WHERE d.token_hash = ? AND d.revoked_at IS NULL AND d.expires_at > ?`).get(digest(token), now) as (VerifiedDisplay & { lastSeenAt: number | null }) | undefined;
   if (!row) return null;
   if (row.lastSeenAt === null || now - row.lastSeenAt >= LAST_SEEN_INTERVAL_MS) {
-    // Bookkeeping must never turn a valid read into a failure (e.g. a busy writer).
+    // Bookkeeping must never fail or delay a valid read. better-sqlite3 waits synchronously for a
+    // busy writer, which would stall the whole event loop, so skip the write when the lock is held;
+    // the next request retries it. Nothing else runs on this connection between set and restore.
+    const timeout = db.pragma('busy_timeout', { simple: true }) as number;
+    db.pragma('busy_timeout = 0');
     try { db.prepare('UPDATE display_device SET last_seen_at = ? WHERE id = ?').run(now, row.deviceId); } catch { /* best effort */ }
+    finally { db.pragma(`busy_timeout = ${Number(timeout)}`); }
   }
   return { deviceId: row.deviceId, householdId: row.householdId, label: row.label };
 }
