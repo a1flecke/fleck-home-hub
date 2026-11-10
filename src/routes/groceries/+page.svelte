@@ -126,6 +126,7 @@
   function manualRefresh(event: MouseEvent) {
     if (!ready) return;
     if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    if (authorizationLost) return;
     event.preventDefault();
     void runRefresh(true);
   }
