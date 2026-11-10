@@ -3,7 +3,7 @@ import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import { createChore, changeChore } from '../src/lib/server/chores';
 import { balance, recordPayout, reversePayout, setPayday } from '../src/lib/server/payouts';
-import { spawn } from 'node:child_process';
+import { runDatabaseWorkers } from './helpers/database-workers';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -40,18 +40,8 @@ it('rejects concurrent overpayment across independent connections', async () => 
   const path = join(dir, 'synthetic.sqlite');
   const db = await fixture(path);
   try {
-    const workers = ['one', 'two'].map(key => spawn(process.execPath, ['--import', 'tsx', 'tests/fixtures/record-payout.ts', path, key], { stdio: ['ignore', 'ignore', 'pipe', 'ipc'] }));
-    const outcomes = workers.map(worker => new Promise<string>((resolve, reject) => {
-      worker.on('error', reject);
-      worker.on('message', message => { if (message !== 'ready') resolve(String(message)); });
-      worker.on('exit', code => { if (code !== 0) reject(new Error(`worker exited ${code}`)); });
-    }));
-    await Promise.all(workers.map(worker => new Promise<void>((resolve, reject) => {
-      worker.on('message', message => { if (message === 'ready') resolve(); });
-      worker.on('error', reject);
-    })));
-    for (const worker of workers) worker.send('go');
-    expect((await Promise.all(outcomes)).sort()).toEqual(['paid', 'rejected']);
+    const outcomes = await runDatabaseWorkers('tests/fixtures/record-payout.ts', [[path, 'one'], [path, 'two']]);
+    expect(outcomes.sort()).toEqual(['paid', 'rejected']);
     expect(balance(db, 'home', 'kid')).toEqual({ earned: 500, paid: 400, owed: 100 });
   } finally { db.close(); rmSync(dir, { recursive: true, force: true }); }
 });
