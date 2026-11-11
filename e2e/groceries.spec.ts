@@ -1073,6 +1073,7 @@ test('losing access does not restore an item retained for a failed edit', async 
     await edit.getByRole('button', { name: 'Save item' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'This item could not be saved.' })).toBeVisible();
     await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('7');
+    await expect(page.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
 
     // Closing the failed edit clears the draft pause, but the recovery values
     // remain in the page's form prop. A later access denial must not re-add it.
@@ -1119,6 +1120,7 @@ test('a closed failed edit does not restore a remotely removed item', async ({ p
     await edit.getByRole('button', { name: 'Save item' }).click();
     await expect(page.getByRole('status').filter({ hasText: 'This item could not be saved.' })).toBeVisible();
     await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('7');
+    await expect(page.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
 
     await item.getByText('Edit item', { exact: true }).click();
     await expect(edit).toBeHidden();
