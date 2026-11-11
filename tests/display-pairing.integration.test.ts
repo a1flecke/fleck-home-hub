@@ -286,9 +286,14 @@ describe('read-only projection', () => {
     expect(data.chores.map(chore => chore.title)).toEqual(['Shared chore']);
     expect(data.meals.map(meal => meal.title)).toEqual(['Shared meal']);
     const body = JSON.stringify(data);
-    expect(body).not.toMatch(/PRIVATE|987|rewardCents|reward|notes|assignee|participants|Unshared|Foreign|choices/i);
+    // Do not match the bare reward amount: random UUID fragments can contain
+    // the same digits. The exact projection keys below prove the private
+    // reward, assignee, notes and description fields are absent.
+    expect(body).not.toMatch(/PRIVATE|rewardCents|reward|notes|assignee|participants|Unshared|Foreign|choices/i);
     expect(Object.keys(data).sort()).toEqual(['chores', 'events', 'meals']);
     expect(Object.keys(data.events[0]).sort()).toEqual(['allDay', 'date', 'endTime', 'id', 'startTime', 'title']);
+    expect(Object.keys(data.chores[0]).sort()).toEqual(['id', 'status', 'title']);
+    expect(Object.keys(data.meals[0]).sort()).toEqual(['id', 'ingredients', 'recipeDetails', 'recipeUrl', 'servings', 'source', 'time', 'title']);
   });
 
   it('follows another household\'s data only through its own verified credential', async () => {
