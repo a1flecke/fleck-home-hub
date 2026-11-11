@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
+import { runDatabaseWorkers } from './helpers/database-workers';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -131,18 +132,30 @@ describe('pairing redemption', () => {
     expect(db.prepare('SELECT count(*) AS n FROM display_device').get()).toEqual({ n: 0 });
   });
 
-  it('allows at most one session when two connections redeem the same secret', async () => {
+  it('allows at most one session when several processes redeem the same secret at once', async () => {
     const path = tempPath();
-    const first = await fixture(path); first.pragma('journal_mode = WAL');
-    const second = new Database(path); dbs.push(second); second.pragma('foreign_keys = ON'); second.pragma('busy_timeout = 5000');
-    const pairing = createPairing(first, 'parent', 'home', 'Race', 1000);
-    const results = await Promise.allSettled([
-      Promise.resolve().then(() => redeemPairing(first, pairing.secret, 2000)),
-      Promise.resolve().then(() => redeemPairing(second, pairing.secret, 2000)),
-      Promise.resolve().then(() => redeemPairing(first, pairing.secret, 2000))
-    ]);
-    expect(results.filter(result => result.status === 'fulfilled')).toHaveLength(1);
-    expect(first.prepare('SELECT count(*) AS n FROM display_device').get()).toEqual({ n: 1 });
+    const db = await fixture(path); db.pragma('journal_mode = WAL');
+    const pairing = createPairing(db, 'parent', 'home', 'Race', 1000);
+    // Separate processes and connections, released together once every connection is open.
+    const outcomes = await runDatabaseWorkers('tests/fixtures/redeem-pairing-worker.ts', Array.from({ length: 4 }, () => [path, pairing.secret, '2000']));
+    expect(outcomes.sort()).toEqual(['invalid', 'invalid', 'invalid', 'redeemed']);
+    expect(db.prepare('SELECT count(*) AS n FROM display_device').get()).toEqual({ n: 1 });
+    expect(db.prepare('SELECT consumed_at FROM display_pairing').get()).toEqual({ consumed_at: 2000 });
+  });
+
+  it('rejects an invalid secret without waiting for the writer lock', async () => {
+    const path = tempPath();
+    const writer = await fixture(path); writer.pragma('journal_mode = WAL');
+    const reader = new Database(path); dbs.push(reader); reader.pragma('busy_timeout = 0');
+    const pairing = createPairing(writer, 'parent', 'home', 'Locked', 1000);
+    writer.exec('BEGIN IMMEDIATE');
+    try {
+      // Unauthenticated garbage must not queue on (or fail with) the household writer lock.
+      expect(() => redeemPairing(reader, 'AAAA-AAAA-AAAA-AAAA-AAAA-AAAA', 2000)).toThrow(DisplayPairingError);
+      // A genuine code still needs the lock to be consumed, so it waits for other writers.
+      expect(() => redeemPairing(reader, pairing.secret, 2000)).toThrow(/locked|busy/i);
+    } finally { writer.exec('ROLLBACK'); }
+    expect(redeemPairing(reader, pairing.secret, 2000).householdId).toBe('home');
   });
 
   it('is structurally limited to one device per pairing even if the consume check were bypassed', async () => {
@@ -185,6 +198,26 @@ describe('display credential verification', () => {
     expect(shown.devices[0]).toMatchObject({ label: 'Kitchen screen', status: 'active', pairedAt: 1_001_000, lastSeenAt: 2_000_000 });
     expect(JSON.stringify(shown)).not.toContain(device.token);
     expect(JSON.stringify(shown)).not.toMatch(/hash|token|secret/i);
+  });
+
+  it('serves a valid display without waiting for another writer to record last access', async () => {
+    const path = tempPath();
+    const writer = await fixture(path); writer.pragma('journal_mode = WAL');
+    const { device } = pairedDevice(writer);
+    // The production connection keeps better-sqlite3's default 5-second busy timeout.
+    const server = new Database(path, { fileMustExist: true }); dbs.push(server);
+    const timeout = server.pragma('busy_timeout', { simple: true });
+    writer.exec('BEGIN IMMEDIATE');
+    try {
+      const started = performance.now();
+      expect(verifyDisplayCredential(server, device.token, 2_000_000)).toMatchObject({ deviceId: device.deviceId });
+      // A synchronous wait here would block every request on the Node event loop.
+      expect(performance.now() - started).toBeLessThan(500);
+    } finally { writer.exec('ROLLBACK'); }
+    expect(server.pragma('busy_timeout', { simple: true })).toBe(timeout);
+    // The skipped bookkeeping is retried on the next request once the writer is free.
+    verifyDisplayCredential(server, device.token, 2_000_100);
+    expect(writer.prepare('SELECT last_seen_at FROM display_device').get()).toEqual({ last_seen_at: 2_000_100 });
   });
 
   it('is not accepted when presented as a household member credential', async () => {

@@ -24,13 +24,15 @@ export const actions = {
     const { db, origin } = services();
     if (request.headers.get('origin') !== origin) return fail(403, { signedIn: false, message: 'Request not authorized.' });
     if (await hasMemberSession(request)) return fail(409, { signedIn: true, message: 'Sign out of this account before pairing it as a display.' });
-    if (failures.blocked()) return fail(429, { signedIn: false, message: 'Too many attempts. Wait a minute and try again.' });
     const code = String((await request.formData()).get('code') ?? '').slice(0, 64);
     try {
+      // Always try the code: with 120-bit codes the throttle is not what stops guessing, and checking
+      // it first would let anyone who can reach the host block every genuine pairing in the household.
       const device = redeemPairing(db, code);
       cookies.set(displayCookieName(origin), device.token, displayCookieOptions(origin, device.expiresAt));
     } catch (cause) {
       if (!(cause instanceof DisplayPairingError)) throw cause;
+      if (failures.blocked()) return fail(429, { signedIn: false, message: 'Too many attempts. Check the code, or wait a minute and try again.' });
       failures.failure();
       // One message for every failure; the submitted code is never echoed back.
       return fail(400, { signedIn: false, message: 'That pairing code is not valid. Ask a parent for a new one.' });
