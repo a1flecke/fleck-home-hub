@@ -1046,6 +1046,154 @@ test('a forbidden refresh clears the list and stops protected updates', async ({
   expect(requests).toBe(1);
 });
 
+test('losing access does not restore an item retained for a failed edit', async ({ page, browser }) => {
+  const name = `Synthetic access leak oats ${Date.now()}`;
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState() });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(name);
+    await add.getByLabel('Quantity', { exact: true }).fill('2');
+    await add.getByRole('button', { name: 'Add item' }).click();
+    const item = page.getByRole('article').filter({ hasText: name });
+    await expect(item).toContainText('2');
+
+    await item.getByText('Edit item', { exact: true }).click();
+    const edit = item.getByRole('form', { name: `Edit ${name}` });
+    await edit.getByLabel('Quantity', { exact: true }).fill('7');
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    await other.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Mark bought' }).click();
+    await expect(other.getByRole('article').filter({ hasText: name })).toContainText('Bought');
+
+    await edit.getByRole('button', { name: 'Save item' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'This item could not be saved.' })).toBeVisible();
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('7');
+    await expect(page.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
+
+    // Closing the failed edit clears the draft pause, but the recovery values
+    // remain in the page's form prop. A later access denial must not re-add it.
+    await item.getByText('Edit item', { exact: true }).click();
+    await expect(edit).toBeHidden();
+
+    let requests = 0;
+    await page.route('**/groceries/data', route => {
+      requests++;
+      return route.fulfill({ status: 403, contentType: 'application/json', body: '{"error":"forbidden"}' });
+    });
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('status').filter({ hasText: 'no longer have access' })).toBeVisible();
+    await expect(page.getByRole('article').filter({ hasText: name })).toHaveCount(0);
+    expect(requests).toBe(1);
+  } finally { await otherContext.close(); }
+});
+
+test('a closed failed edit does not restore a remotely removed item', async ({ page, browser }) => {
+  const name = `Synthetic closed recovery oats ${Date.now()}`;
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState() });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(name);
+    await add.getByLabel('Quantity', { exact: true }).fill('2');
+    await add.getByRole('button', { name: 'Add item' }).click();
+    const item = page.getByRole('article').filter({ hasText: name });
+    await expect(item).toContainText('2');
+
+    await item.getByText('Edit item', { exact: true }).click();
+    const edit = item.getByRole('form', { name: `Edit ${name}` });
+    await edit.getByLabel('Quantity', { exact: true }).fill('7');
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherItem = other.getByRole('article').filter({ hasText: name });
+    await otherItem.getByRole('button', { name: 'Mark bought' }).click();
+    await expect(otherItem).toContainText('Bought');
+
+    await edit.getByRole('button', { name: 'Save item' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'This item could not be saved.' })).toBeVisible();
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('7');
+    await expect(page.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
+
+    await item.getByText('Edit item', { exact: true }).click();
+    await expect(edit).toBeHidden();
+
+    await otherItem.getByRole('button', { name: 'Remove item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: name })).toHaveCount(0);
+
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: name })).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'Live updates on.' })).toBeVisible();
+  } finally { await otherContext.close(); }
+});
+
+test('a reopened failed edit keeps updates paused until corrected', async ({ page, browser }) => {
+  const name = `Synthetic recovery reopen oats ${Date.now()}`;
+  const remote = `Synthetic recovery reopen rice ${Date.now()}`;
+  await signIn(page);
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState() });
+  try {
+    await page.clock.install();
+    await page.goto('/groceries');
+    await expect(page.getByText('Live updates on.')).toBeVisible();
+    const add = page.getByRole('form', { name: 'Add grocery item' });
+    await add.getByLabel('Item', { exact: true }).fill(name);
+    await add.getByLabel('Quantity', { exact: true }).fill('2');
+    await add.getByRole('button', { name: 'Add item' }).click();
+    const item = page.getByRole('article').filter({ hasText: name });
+    await expect(item).toContainText('2');
+
+    await item.getByText('Edit item', { exact: true }).click();
+    const edit = item.getByRole('form', { name: `Edit ${name}` });
+    await edit.getByLabel('Item', { exact: true }).fill('   ');
+    await edit.getByRole('button', { name: 'Save item' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'This item could not be saved.' })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
+
+    await item.getByText('Edit item', { exact: true }).click();
+    await expect(edit).toBeHidden();
+    await item.getByText('Edit item', { exact: true }).click();
+    await expect(edit).toBeVisible();
+    await expect(edit.getByLabel('Item', { exact: true })).toHaveValue('   ');
+    await expect(page.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
+
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(remote);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(other.getByRole('article').filter({ hasText: remote })).toBeVisible();
+
+    await page.clock.runFor(25_000);
+    await expect(page.getByRole('article').filter({ hasText: remote })).toHaveCount(0);
+
+    await edit.getByLabel('Item', { exact: true }).fill(name);
+    await edit.getByRole('button', { name: 'Save item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: remote })).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'Live updates on.' })).toBeVisible();
+  } finally { await otherContext.close(); }
+});
+
+test('a manual refresh while the browser reports offline shows the outage state', async ({ page }) => {
+  await signIn(page);
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+  });
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  await page.getByRole('link', { name: 'Refresh list' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Unable to refresh right now.' })).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'You appear to be offline.' })).toBeVisible();
+  await expect(page.getByText('Live updates on.')).toHaveCount(0);
+});
+
 test('the Refresh list link performs a full reload after access is lost', async ({ page }) => {
   const item = 'Synthetic access fallback oats';
   await signIn(page);

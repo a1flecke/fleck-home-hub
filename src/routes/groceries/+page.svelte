@@ -28,7 +28,8 @@
   let autoPaused = $state(false);
   let manualNotice = $state('');
   let editRounds = $state<Record<string, number>>({});
-  let editingPaused = $derived(addDirty || dirtyEdits.length > 0);
+  let recoveryOpen = $derived(Boolean(form?.edit && openEdits.includes(form.edit.id)));
+  let editingPaused = $derived(addDirty || dirtyEdits.length > 0 || recoveryOpen);
   let items = $state<Item[]>(untrack(() => data.items));
   let inFlight = false;
   let disposed = false;
@@ -74,6 +75,7 @@
   }
 
   $effect(() => {
+    if (authorizationLost) return;
     const next = data.items;
     if (next === serverItems) return;
     serverItems = next;
@@ -83,7 +85,7 @@
 
   $effect(() => {
     const edit = form?.edit;
-    if (!edit) return;
+    if (!edit || authorizationLost || !openEditIds().includes(edit.id)) return;
     if (items.some(item => item.id === edit.id)) return;
     if (!removedWhileEditing.includes(edit.id)) removedWhileEditing = [...removedWhileEditing, edit.id];
     if (!items.some(item => item.id === edit.id)) {
@@ -161,8 +163,8 @@
       return;
     }
     if (!navigator.onLine) {
+      refreshFailed = true;
       if (manual) manualNotice = 'You appear to be offline. The list will update when the connection returns.';
-      else refreshFailed = true;
       return;
     }
     if (inFlight) return;
