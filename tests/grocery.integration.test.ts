@@ -4,7 +4,10 @@ import { migrate } from '../src/lib/server/identity';
 import {
   addGrocery,
   changeGrocery,
+  clearBoughtGroceries,
   confirmMealIngredients,
+  GroceryClearConflictError,
+  GroceryClearValidationError,
   IngredientConflictError,
   IngredientValidationError,
   listGroceries,
@@ -18,12 +21,20 @@ async function setup() {
   const db = new Database(':memory:');
   db.pragma('foreign_keys = ON');
   await migrate(db);
-  for (const id of ['parent', 'kid', 'outsider']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+  for (const id of ['parent', 'kid', 'outsider', 'disabled-parent']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
   for (const id of ['home', 'other']) db.prepare('INSERT INTO household VALUES (?, ?)').run(id, id);
   db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
   db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
   db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('outsider', 'other', 'parent');
+  db.prepare('INSERT INTO membership (user_id, household_id, role, disabled_at, disabled_by) VALUES (?, ?, ?, ?, ?)').run('disabled-parent', 'home', 'parent', Date.now(), 'parent');
   return db;
+}
+
+function addBought(db: Database.Database, actor: string, household: string, input: { name: string; quantity?: string; unit?: string }) {
+  const value = { name: input.name, quantity: input.quantity ?? '', unit: input.unit ?? '' };
+  const id = addGrocery(db, actor, household, value);
+  changeGrocery(db, actor, household, id, 1, { ...value, completed: true });
+  return { id, version: 2 };
 }
 
 function decisions(review: IngredientReview, change: (item: IngredientReview['items'][number]) => Partial<IngredientDecision> = () => ({})): IngredientDecision[] {
@@ -269,5 +280,103 @@ it('shares grocery items within the household and rejects stale edits', async ()
     expect(() => removeGrocery(db, 'parent', 'home', id, 1)).toThrow(/changed/i);
     removeGrocery(db, 'parent', 'home', id, 2);
     expect(listGroceries(db, 'kid', 'home')).toEqual([]);
+  } finally { db.close(); }
+});
+
+it('clears only the reviewed bought items for an active parent', async () => {
+  const db = await setup();
+  try {
+    const apples = addGrocery(db, 'parent', 'home', { name: 'Synthetic apples', quantity: '2', unit: 'bags' });
+    const bread = addBought(db, 'parent', 'home', { name: 'Synthetic bread', quantity: '1', unit: 'loaf' });
+    const milk = addBought(db, 'parent', 'home', { name: 'Synthetic milk', quantity: '2', unit: 'bottles' });
+
+    expect(clearBoughtGroceries(db, 'parent', 'home', [bread, milk])).toEqual({ cleared: 2 });
+    expect(listGroceries(db, 'kid', 'home')).toMatchObject([
+      { id: apples, name: 'Synthetic apples', quantity: '2', unit: 'bags', completed: false, version: 1 }
+    ]);
+  } finally { db.close(); }
+});
+
+it('rejects non-parent, disabled, unknown and cross-household clears without deleting anything', async () => {
+  const db = await setup();
+  try {
+    const bread = addBought(db, 'parent', 'home', { name: 'Synthetic protected bread' });
+    const otherBread = addBought(db, 'outsider', 'other', { name: 'Synthetic other bread' });
+    const selection = [bread];
+
+    expect(() => clearBoughtGroceries(db, 'kid', 'home', selection)).toThrow(/Not authorized/);
+    expect(() => clearBoughtGroceries(db, 'kid', 'home', [])).toThrow(/Not authorized/);
+    expect(() => clearBoughtGroceries(db, 'disabled-parent', 'home', selection)).toThrow(/Not authorized/);
+    expect(() => clearBoughtGroceries(db, 'anonymous', 'home', selection)).toThrow(/Not authorized/);
+    expect(() => clearBoughtGroceries(db, 'outsider', 'other', selection)).toThrow(GroceryClearConflictError);
+    expect(() => clearBoughtGroceries(db, 'parent', 'home', [otherBread])).toThrow(GroceryClearConflictError);
+
+    expect(itemNamed(db, 'home', 'Synthetic protected bread')).toHaveLength(1);
+    expect(listGroceries(db, 'outsider', 'other')).toMatchObject([{ name: 'Synthetic other bread', completed: true }]);
+  } finally { db.close(); }
+});
+
+it('rejects forged, duplicate, stale and completion-changed rows as one atomic batch', async () => {
+  const db = await setup();
+  try {
+    const apples = addBought(db, 'parent', 'home', { name: 'Synthetic batch apples' });
+    const bread = addBought(db, 'parent', 'home', { name: 'Synthetic batch bread' });
+    const milk = addBought(db, 'parent', 'home', { name: 'Synthetic batch milk' });
+
+    expect(() => clearBoughtGroceries(db, 'parent', 'home', [apples, { id: 'forged-item', version: 1 }])).toThrow(GroceryClearConflictError);
+    expect(() => clearBoughtGroceries(db, 'parent', 'home', [apples, { id: bread.id, version: bread.version + 4 }])).toThrow(GroceryClearConflictError);
+    expect(() => clearBoughtGroceries(db, 'parent', 'home', [apples, apples])).toThrow(GroceryClearValidationError);
+    expect(() => clearBoughtGroceries(db, 'parent', 'home', [{ id: apples.id, version: 0 }])).toThrow(GroceryClearValidationError);
+    expect(() => clearBoughtGroceries(db, 'parent', 'home', Array.from({ length: 201 }, () => apples))).toThrow(GroceryClearValidationError);
+    expect(listGroceries(db, 'parent', 'home')).toHaveLength(3);
+
+    changeGrocery(db, 'parent', 'home', bread.id, bread.version, { name: 'Synthetic batch bread', quantity: '', unit: '', completed: false });
+    expect(() => clearBoughtGroceries(db, 'parent', 'home', [apples, { id: bread.id, version: bread.version + 1 }])).toThrow(GroceryClearConflictError);
+    expect(listGroceries(db, 'parent', 'home')).toHaveLength(3);
+    expect(listGroceries(db, 'parent', 'home').find(item => item.id === bread.id)?.completed).toBe(false);
+
+    expect(clearBoughtGroceries(db, 'parent', 'home', [apples, milk])).toEqual({ cleared: 2 });
+    expect(listGroceries(db, 'parent', 'home')).toMatchObject([{ id: bread.id, completed: false }]);
+  } finally { db.close(); }
+});
+
+it('leaves newly added bought items alone and handles empty or repeated submissions', async () => {
+  const db = await setup();
+  try {
+    expect(clearBoughtGroceries(db, 'parent', 'home', [])).toEqual({ cleared: 0 });
+
+    const reviewed = addBought(db, 'parent', 'home', { name: 'Synthetic reviewed rice' });
+    const addedLater = addBought(db, 'parent', 'home', { name: 'Synthetic later rice' });
+    expect(clearBoughtGroceries(db, 'parent', 'home', [reviewed])).toEqual({ cleared: 1 });
+
+    const fresh = addBought(db, 'parent', 'home', { name: 'Synthetic fresh rice' });
+    expect(() => clearBoughtGroceries(db, 'parent', 'home', [reviewed])).toThrow(GroceryClearConflictError);
+    expect(listGroceries(db, 'parent', 'home')).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: addedLater.id, completed: true }),
+      expect.objectContaining({ id: fresh.id, completed: true })
+    ]));
+    expect(listGroceries(db, 'parent', 'home')).toHaveLength(2);
+    expect(clearBoughtGroceries(db, 'parent', 'home', [addedLater, fresh])).toEqual({ cleared: 2 });
+    expect(listGroceries(db, 'parent', 'home')).toEqual([]);
+  } finally { db.close(); }
+});
+
+it('keeps per-item changes, removals and meal handoff working after a clear', async () => {
+  const db = await setup();
+  try {
+    const cleared = addBought(db, 'parent', 'home', { name: 'Synthetic cleared oats' });
+    const remaining = addGrocery(db, 'parent', 'home', { name: 'Synthetic remaining oats', quantity: '1', unit: 'bag' });
+    expect(clearBoughtGroceries(db, 'parent', 'home', [cleared])).toEqual({ cleared: 1 });
+
+    changeGrocery(db, 'kid', 'home', remaining, 1, { name: 'Synthetic remaining oats', quantity: '2', unit: 'bags', completed: false });
+    expect(listGroceries(db, 'parent', 'home')).toMatchObject([{ id: remaining, quantity: '2', unit: 'bags' }]);
+
+    const meal = createMeal(db, 'parent', 'home', { title: 'Synthetic after clear dinner', date: '2099-01-11', ingredients: '1 onion', shared: false });
+    const review = reviewMealIngredients(db, 'parent', 'home', meal, [familyIngredientKey(0)]);
+    expect(confirmMealIngredients(db, 'parent', 'home', meal, decisions(review))).toEqual({ added: 1, skipped: 0 });
+    expect(itemNamed(db, 'home', 'onion')).toHaveLength(1);
+
+    removeGrocery(db, 'kid', 'home', remaining, 2);
+    expect(listGroceries(db, 'parent', 'home')).toMatchObject([{ name: 'onion' }]);
   } finally { db.close(); }
 });

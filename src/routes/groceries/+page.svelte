@@ -3,6 +3,7 @@
   import { resolve } from '$app/paths';
   import { onMount, untrack } from 'svelte';
   import Disclosure from '../calendar/Disclosure.svelte';
+  import { groupGroceryItems, type GroceryGroupName } from '../../lib/grocery/grouping';
   import {
     classifyGroceryRefreshResponse,
     GROCERY_DATA_PATH,
@@ -16,7 +17,8 @@
   import type { PageData } from './$types';
   type Input = { name: string; quantity: string; unit: string };
   type Item = PageData['items'][number];
-  let { data, form }: { data: PageData; form: { message: string; item?: Input; duplicate?: boolean; edit?: Input & { id: string; version: number; completed: boolean } } | null } = $props();
+  type ClearFeedback = { ok: boolean; cleared?: number; changed?: boolean; message?: string };
+  let { data, form }: { data: PageData; form: { message?: string; item?: Input; duplicate?: boolean; edit?: Input & { id: string; version: number; completed: boolean }; clear?: ClearFeedback } | null } = $props();
 
   let ready = $state(false);
   let refreshFailed = $state(false);
@@ -28,9 +30,12 @@
   let autoPaused = $state(false);
   let manualNotice = $state('');
   let editRounds = $state<Record<string, number>>({});
+  let pinnedGroups = $state<Record<string, GroceryGroupName>>({});
+  let failedBoughtEdit = $derived(Boolean(form?.edit?.completed));
   let recoveryOpen = $derived(Boolean(form?.edit && openEdits.includes(form.edit.id)));
   let editingPaused = $derived(addDirty || dirtyEdits.length > 0 || recoveryOpen);
   let items = $state<Item[]>(untrack(() => data.items));
+  let groups = $derived(groupGroceryItems(items, pinnedGroups));
   let inFlight = false;
   let disposed = false;
   let request: AbortController | null = null;
@@ -60,6 +65,22 @@
     return values.includes(value) ? values : [...values, value];
   }
 
+  function groupOf(item: Item): GroceryGroupName {
+    return item.completed ? 'bought' : 'toBuy';
+  }
+
+  function pinGroup(id: string, group: GroceryGroupName) {
+    if (pinnedGroups[id]) return;
+    pinnedGroups = { ...pinnedGroups, [id]: group };
+  }
+
+  function unpinGroup(id: string) {
+    if (!(id in pinnedGroups)) return;
+    const next = { ...pinnedGroups };
+    delete next[id];
+    pinnedGroups = next;
+  }
+
   function applyServerItems(next: Item[]) {
     const open = openEditIds();
     const removed = items.filter(item => !next.some(value => value.id === item.id) && open.includes(item.id)).map(item => item.id);
@@ -71,6 +92,7 @@
       merged.splice(Math.min(oldIndex, merged.length), 0, item);
     }
     removedWhileEditing = removedWhileEditing.filter(id => !next.some(item => item.id === id) && retained.some(item => item.id === id));
+    for (const id of Object.keys(pinnedGroups)) if (!merged.some(item => item.id === id)) unpinGroup(id);
     items = merged;
   }
 
@@ -86,11 +108,10 @@
   $effect(() => {
     const edit = form?.edit;
     if (!edit || authorizationLost || !openEditIds().includes(edit.id)) return;
+    pinGroup(edit.id, edit.completed ? 'bought' : 'toBuy');
     if (items.some(item => item.id === edit.id)) return;
     if (!removedWhileEditing.includes(edit.id)) removedWhileEditing = [...removedWhileEditing, edit.id];
-    if (!items.some(item => item.id === edit.id)) {
-      items = [...items, { id: edit.id, name: edit.name, quantity: edit.quantity, unit: edit.unit, completed: edit.completed, version: edit.version }];
-    }
+    items = [...items, { id: edit.id, name: edit.name, quantity: edit.quantity, unit: edit.unit, completed: edit.completed, version: edit.version }];
   });
 
   function addFormChanged(event: Event) {
@@ -109,17 +130,23 @@
   function handleToggle(event: Event) {
     const target = event.target;
     if (!(target instanceof HTMLDetailsElement)) return;
+    if (target.dataset.groceryGroup) return;
     const formElement = target.querySelector<HTMLFormElement>('form[data-grocery-edit]');
     const id = formElement?.dataset.groceryEdit ?? '';
     if (!id) return;
     if (target.open) {
       openEdits = addUnique(openEdits, id);
+      const item = items.find(value => value.id === id);
+      if (item) pinGroup(id, groupOf(item));
       return;
     }
     const wasRemoved = removedWhileEditing.includes(id);
     openEdits = openEdits.filter(value => value !== id);
     dirtyEdits = dirtyEdits.filter(value => value !== id);
     removedWhileEditing = removedWhileEditing.filter(value => value !== id);
+    // A failed edit still referenced by the form prop must not move to the other group,
+    // because remounting its disclosure would force it open again.
+    if (form?.edit?.id !== id) unpinGroup(id);
     if (wasRemoved) items = items.filter(item => item.id !== id);
     editRounds = { ...editRounds, [id]: (editRounds[id] ?? 0) + 1 };
     manualNotice = '';
@@ -154,6 +181,7 @@
     removedWhileEditing = [];
     dirtyEdits = [];
     openEdits = [];
+    pinnedGroups = {};
   }
 
   async function runRefresh(manual = false) {
@@ -213,8 +241,13 @@
       const saved = data.items.find(item => item.id === failedForm.edit?.id);
       if (saved && groceryDraftIsDirty(failedForm.edit, saved)) dirtyEdits = [saved.id];
       openEdits = addUnique(openEdits, failedForm.edit.id);
+      pinGroup(failedForm.edit.id, failedForm.edit.completed ? 'bought' : 'toBuy');
     }
-    for (const id of openEditIds()) openEdits = addUnique(openEdits, id);
+    for (const id of openEditIds()) {
+      openEdits = addUnique(openEdits, id);
+      const item = items.find(value => value.id === id);
+      if (item) pinGroup(id, groupOf(item));
+    }
 
     const tick = () => {
       if (document.visibilityState !== 'visible' || autoPaused) return;
@@ -240,6 +273,54 @@
     };
   });
 </script>
+{#snippet groceryItem(item: Item)}
+  <article class="rounded-2xl bg-white p-5 shadow-sm">
+    <h3 class="text-xl font-bold">{item.name}</h3>
+    {#if item.quantity || item.unit}<p class="mt-1 text-lg">{item.quantity} {item.unit}</p>{/if}
+    <p class="mt-1 text-sm text-slate-700">{item.completed ? 'Bought' : 'To buy'}</p>
+    {#if removedWhileEditing.includes(item.id)}<p role="status" class="mt-2 rounded-xl bg-amber-50 p-3 text-sm">This item was removed in another session. Your unsaved changes are kept here, but saving will be rejected.</p>{/if}
+    <form method="POST" action="?/change" class="mt-3">
+      <input type="hidden" name="id" value={item.id} /><input type="hidden" name="version" value={item.version} />
+      <input type="hidden" name="name" value={item.name} /><input type="hidden" name="quantity" value={item.quantity} /><input type="hidden" name="unit" value={item.unit} />
+      <input type="hidden" name="completed" value={item.completed ? 'no' : 'yes'} />
+      <button class={item.completed ? 'w-full rounded-xl border border-teal-700 px-4 py-3 text-lg font-bold' : 'w-full rounded-xl bg-teal-700 px-4 py-3 text-lg font-bold text-white'}>{item.completed ? 'Mark to buy' : 'Mark bought'}</button>
+    </form>
+    <Disclosure class="mt-3" expanded={form?.edit?.id === item.id}><summary class="cursor-pointer font-bold">Edit item</summary>
+      <form method="POST" action="?/change" aria-label={`Edit ${item.name}`} data-grocery-edit={item.id} oninput={(event) => editFormChanged(event, item)} onchange={(event) => editFormChanged(event, item)} class="mt-3 grid gap-3">
+        <input type="hidden" name="id" value={item.id} /><input type="hidden" name="version" value={form?.edit?.id === item.id ? form.edit.version : item.version} /><input type="hidden" name="completed" value={(form?.edit?.id === item.id ? form.edit.completed : item.completed) ? 'yes' : 'no'} />
+        {#key editRounds[item.id] ?? 0}
+          <GroceryFields initial={form?.edit?.id === item.id ? form.edit : item} />
+        {/key}
+        <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Save item</button>
+      </form>
+    </Disclosure>
+    <form method="POST" action="?/remove" class="mt-3"><input type="hidden" name="id" value={item.id} /><input type="hidden" name="version" value={item.version} /><button class="w-full rounded-xl border border-teal-700 px-4 py-3">Remove item</button></form>
+  </article>
+{/snippet}
+{#snippet boughtPanel()}
+  <summary class="cursor-pointer p-5 text-xl font-bold"><span id="bought-heading">Bought</span> <span class="ml-1 rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-800">{groups.bought.length}</span></summary>
+  <div class="px-5 pb-5">
+    {#if groups.bought.length}
+      <p class="text-sm text-slate-700">Bought items stay here until a parent clears them.</p>
+      <div class="mt-4 grid gap-4">{#each groups.bought as item (item.id)}{@render groceryItem(item)}{/each}</div>
+      {#if data.role === 'parent'}
+        <details class="mt-5 rounded-xl border border-slate-200 p-4">
+          <summary class="cursor-pointer font-bold">Clear bought items…</summary>
+          <form method="POST" action="?/clearBought" aria-label="Clear bought items" class="mt-3 grid gap-3">
+            <p class="text-sm text-slate-700">This permanently removes these {groups.bought.length} bought {groups.bought.length === 1 ? 'record' : 'records'} from the active list. It is not a hide or archive, and there is no undo.</p>
+            {#each groups.bought as item (item.id)}
+              <input type="hidden" name="id" value={item.id} />
+              <input type="hidden" name="version" value={item.version} />
+            {/each}
+            <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Clear {groups.bought.length} bought {groups.bought.length === 1 ? 'item' : 'items'}</button>
+          </form>
+        </details>
+      {/if}
+    {:else}
+      <p class="text-slate-700">No bought items right now.</p>
+    {/if}
+  </div>
+{/snippet}
 <svelte:head><title>Groceries · Fleck Home Hub</title></svelte:head>
 <main class="mx-auto max-w-3xl px-5 py-8">
   <a href={resolve('/dashboard')} class="text-teal-700">Back to home</a>
@@ -253,35 +334,29 @@
   {#if manualNotice}<p role="status" class="mt-2 rounded-xl bg-amber-50 p-3 text-sm">{manualNotice}</p>{/if}
   {#if data.summary}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">Added {data.summary.added} {data.summary.added === 1 ? 'item' : 'items'} and skipped {data.summary.skipped}.</p>{/if}
   {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">{form.message}</p>{/if}
+  {#if form?.clear?.ok}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">Cleared {form.clear.cleared} bought {form.clear.cleared === 1 ? 'item' : 'items'}. The rest of the list is unchanged.</p>{/if}
+  {#if form?.clear && !form.clear.ok}<p role="alert" class="mt-4 rounded-xl bg-amber-50 p-4">{form.clear.message}</p>{/if}
   <form method="POST" action="?/add" aria-label="Add grocery item" oninput={addFormChanged} onchange={addFormChanged} class="mt-6 grid gap-3 rounded-2xl bg-white p-5 shadow-sm">
     <GroceryFields initial={form?.item ?? { name: '', quantity: '', unit: '' }} />
     {#if form?.duplicate}<label><input type="checkbox" name="allowDuplicate" value="yes" required /> Add another anyway</label>{/if}
     <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Add item</button>
   </form>
-  <section aria-label="Grocery items" class="mt-6"><h2 class="text-2xl font-bold">Your list</h2>
-    {#each items as item (item.id)}
-      <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-        <h3 class="text-xl font-bold">{item.name}</h3>
-        {#if item.quantity || item.unit}<p>{item.quantity} {item.unit}</p>{/if}
-        <p>{item.completed ? 'Bought' : 'To buy'}</p>
-        {#if removedWhileEditing.includes(item.id)}<p role="status" class="mt-2 rounded-xl bg-amber-50 p-3 text-sm">This item was removed in another session. Your unsaved changes are kept here, but saving will be rejected.</p>{/if}
-        <form method="POST" action="?/change" class="mt-3">
-          <input type="hidden" name="id" value={item.id} /><input type="hidden" name="version" value={item.version} />
-          <input type="hidden" name="name" value={item.name} /><input type="hidden" name="quantity" value={item.quantity} /><input type="hidden" name="unit" value={item.unit} />
-          <input type="hidden" name="completed" value={item.completed ? 'no' : 'yes'} />
-          <button class="rounded-xl border border-teal-700 px-4 py-3">{item.completed ? 'Mark to buy' : 'Mark bought'}</button>
-        </form>
-        <Disclosure class="mt-3" expanded={form?.edit?.id === item.id}><summary class="cursor-pointer font-bold">Edit item</summary>
-          <form method="POST" action="?/change" aria-label={`Edit ${item.name}`} data-grocery-edit={item.id} oninput={(event) => editFormChanged(event, item)} onchange={(event) => editFormChanged(event, item)} class="mt-3 grid gap-3">
-            <input type="hidden" name="id" value={item.id} /><input type="hidden" name="version" value={form?.edit?.id === item.id ? form.edit.version : item.version} /><input type="hidden" name="completed" value={(form?.edit?.id === item.id ? form.edit.completed : item.completed) ? 'yes' : 'no'} />
-            {#key editRounds[item.id] ?? 0}
-              <GroceryFields initial={form?.edit?.id === item.id ? form.edit : item} />
-            {/key}
-            <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Save item</button>
-          </form>
-        </Disclosure>
-        <form method="POST" action="?/remove" class="mt-3"><input type="hidden" name="id" value={item.id} /><input type="hidden" name="version" value={item.version} /><button class="rounded-xl border border-teal-700 px-4 py-3">Remove item</button></form>
-      </article>
-    {:else}<p class="mt-4">Your grocery list is empty.</p>{/each}
+  <section aria-labelledby="to-buy-heading" class="mt-6">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 id="to-buy-heading" class="text-2xl font-bold">To buy</h2>
+      <p class="rounded-full bg-teal-50 px-3 py-1 text-sm font-bold text-teal-900">{groups.toBuy.length} {groups.toBuy.length === 1 ? 'item' : 'items'} to buy</p>
+    </div>
+    {#if groups.toBuy.length}
+      <div class="mt-4 grid gap-4">{#each groups.toBuy as item (item.id)}{@render groceryItem(item)}{/each}</div>
+    {:else}
+      <p class="mt-4 rounded-2xl bg-white p-5 text-slate-700">Nothing left to buy.</p>
+    {/if}
+  </section>
+  <section aria-labelledby="bought-heading" class="mt-6">
+    {#if failedBoughtEdit}
+      <details open data-grocery-group="bought" class="rounded-2xl bg-white shadow-sm">{@render boughtPanel()}</details>
+    {:else}
+      <details data-grocery-group="bought" class="rounded-2xl bg-white shadow-sm">{@render boughtPanel()}</details>
+    {/if}
   </section>
 </main>
