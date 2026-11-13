@@ -27,7 +27,9 @@ export function expenseDates(anchor: string, cadence: ExpenseCadence, from: stri
       continue;
     }
     if (cadence === 'yearly' && date.getUTCMonth() !== original.getUTCMonth()) continue;
-    const lastDay = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 0)).getUTCDate();
+    const endOfMonth = new Date(time);
+    endOfMonth.setUTCMonth(endOfMonth.getUTCMonth() + 1, 0);
+    const lastDay = endOfMonth.getUTCDate();
     if (date.getUTCDate() === Math.min(original.getUTCDate(), lastDay)) result.push(date.toISOString().slice(0, 10));
   }
   return result;

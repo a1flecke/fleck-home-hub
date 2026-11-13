@@ -26,3 +26,12 @@ it('rejects invalid dates, reversed ranges, and ranges over the limit', () => {
   expect(() => expenseDates('2026-01-01', 'weekly', '2026-02-01', '2026-01-01')).toThrow();
   expect(() => expenseDates('2026-01-01', 'weekly', '2026-01-01', '2027-01-01')).toThrow();
 });
+
+it('honors month ends for valid dates in the first century', () => {
+  expect(expenseDates('0096-02-29', 'yearly', '0097-02-01', '0097-03-01')).toEqual(['0097-02-28']);
+  expect(expenseDates('0096-02-29', 'yearly', '0100-02-01', '0100-03-01')).toEqual(['0100-02-28']);
+});
+
+it('treats year zero as a leap year when clamping month ends', () => {
+  expect(expenseDates('0000-01-31', 'monthly', '0000-02-01', '0000-03-01')).toEqual(['0000-02-29']);
+});

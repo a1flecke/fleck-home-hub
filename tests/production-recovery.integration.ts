@@ -13,6 +13,8 @@ import { bootstrap, addKid } from '../src/lib/server/bootstrap';
 import { createChore, changeChore } from '../src/lib/server/chores';
 import { migrate } from '../src/lib/server/identity';
 import { recordPayout } from '../src/lib/server/payouts';
+import { createExpense } from '../src/lib/server/expenses';
+import { recordExpensePayment, reverseExpensePayment } from '../src/lib/server/expense-payments';
 
 const execFileAsync = promisify(execFile);
 
@@ -83,6 +85,9 @@ test('a verified backup reopens in the localhost production server after a faile
     changeChore(db, parentId, household, chore, 'verify');
     recordPayout(db, parentId, household, { childId: kidId, amountCents: 100, date: '2026-10-30', note: '', requestId: 'synthetic-recovery-payment' });
     db.prepare('INSERT INTO household_invitation (id, token_hash, household_id, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)').run('synthetic-recovery-invite', createHash('sha256').update(invitationToken).digest('hex'), household, 'kid', parentId, Date.now() + 600_000);
+    const expenseId = createExpense(db, parentId, household, { title: 'Recovered expense', amountCents: 7000, dueDate: '2099-01-31', cadence: 'once', payee: '', category: '', notes: '' });
+    const expensePayment = recordExpensePayment(db, parentId, household, { expenseId, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 6900, note: '', requestId: 'recovery-expense' });
+    reverseExpensePayment(db, parentId, household, expensePayment, 'Correct amount');
     await backupDatabase(source, backup);
     db.exec('ALTER TABLE user ADD COLUMN unreviewed_schema_change TEXT');
     await assert.rejects(migrate(db));
@@ -91,6 +96,9 @@ test('a verified backup reopens in the localhost production server after a faile
     db = new Database(restored, { fileMustExist: true });
     assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');
     await migrate(db);
+    assert.deepEqual(db.prepare('SELECT planned_title, amount_cents FROM expense_payment').get(), { planned_title: 'Recovered expense', amount_cents: 6900 });
+    assert.deepEqual(db.prepare('SELECT reason FROM expense_payment_reversal').get(), { reason: 'Correct amount' });
+    assert.deepEqual(db.pragma('foreign_key_check'), []);
     db.close(); db = undefined;
 
     await execFileAsync('mise', ['exec', '--', 'pnpm', 'run', 'build'], { cwd: app, env: { ...process.env, AUTH_ORIGIN: origin } });
