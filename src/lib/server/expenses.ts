@@ -45,6 +45,7 @@ export function updateExpense(db: Database.Database, actor: string, household: s
     const item = getExpense(db, household, id);
     validate(input);
     if (item.state === 'ended' || (item.cadence !== 'once' && item.due_date !== input.dueDate) || item.cadence !== input.cadence) throw new Error('Schedule cannot be changed');
+    if (item.cadence === 'once' && item.due_date !== input.dueDate && db.prepare('SELECT 1 FROM expense_payment WHERE expense_id = ?').get(id)) throw new Error('Payment history exists');
     const next = new Date(`${today(db, household)}T00:00:00Z`);
     next.setUTCDate(next.getUTCDate() + 1);
     const effective = next.toISOString().slice(0, 10);
@@ -72,6 +73,7 @@ export function skipExpense(db: Database.Database, actor: string, household: str
     requireParent(db, actor, household);
     const item = getExpense(db, household, id);
     if (item.cadence === 'once' || item.state !== 'active' || date <= today(db, household) || !expenseDates(item.due_date, item.cadence, date, date).length) throw new Error('Invalid occurrence');
+    if (db.prepare('SELECT 1 FROM expense_payment WHERE expense_id = ? AND scheduled_date = ?').get(id, date)) throw new Error('Payment history exists');
     db.prepare('INSERT INTO expense_skip VALUES (?, ?, ?, ?)').run(id, date, actor, new Date().toISOString());
   }).immediate();
 }
