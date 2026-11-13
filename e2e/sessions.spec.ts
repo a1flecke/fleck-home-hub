@@ -12,7 +12,7 @@ async function device(browser: Browser) {
   return { context, page };
 }
 
-test('a user signs out one other device, then all others, against real sessions', async ({ browser }) => {
+test('a user signs out one other device, then all others, against real sessions', async ({ browser }, testInfo) => {
   const phone = await device(browser), laptop = await device(browser), tablet = await device(browser);
   try {
     await phone.page.goto('/settings/sessions');
@@ -28,7 +28,7 @@ test('a user signs out one other device, then all others, against real sessions'
     await other.getByRole('button', { name: /Confirm sign out of/ }).click();
     await expect(phone.page.getByRole('status')).toContainText('was signed out');
     await expect(rows).toHaveCount(2);
-    await phone.page.screenshot({ path: 'docs/screenshots/sessions-mobile.png' });
+    await phone.page.screenshot({ path: testInfo.outputPath('sessions-mobile.png') });
     const forged = await phone.page.request.post('/settings/sessions?/revoke', { form: { id: 'not-a-session' }, headers: { origin: base } });
     expect(JSON.stringify(await forged.json())).toContain('already gone');
     const crossOrigin = await phone.page.request.post('/settings/sessions?/revokeOthers', { form: {}, headers: { origin: 'https://attacker.example.test' } });

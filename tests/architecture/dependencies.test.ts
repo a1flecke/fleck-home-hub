@@ -182,3 +182,11 @@ describe('architecture dependency rules', { timeout: 20_000 }, () => {
     expect(result.stdout + result.stderr).toContain('error client-no-server:');
   });
 });
+
+it('rejects expense domain dependencies on server infrastructure', async () => {
+  const result = await check({
+    'src/lib/expenses/domain.ts': "import { value } from '../server/store'; export const result = value;",
+    'src/lib/server/store.ts': 'export const value = 1;'
+  });
+  expect(result.stdout + result.stderr).toContain('error domain-independent:');
+});

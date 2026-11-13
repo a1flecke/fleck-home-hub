@@ -24,7 +24,7 @@ async function signedInContext(browser: Browser, email: string, password: string
   return { context, page };
 }
 
-test('disabling the final membership signs out the child in their existing browser', async ({ page, browser }) => {
+test('disabling the final membership signs out the child in their existing browser', async ({ page, browser }, testInfo) => {
   await page.setViewportSize({ width: 375, height: 812 });
   const kid = await signedInContext(browser, 'revoke-kid@example.test', 'synthetic-revoke-kid-password', "Revoke Kid's My Day");
   try {
@@ -38,7 +38,7 @@ test('disabling the final membership signs out the child in their existing brows
     await expect(page.getByRole('status')).toContainText('Access disabled');
     await expect(page.getByRole('heading', { name: 'Disabled access' })).toBeVisible();
     await expect(page.getByRole('listitem').filter({ hasText: 'disabled' }).filter({ hasText: 'Revoke Kid' })).toContainText('by Sample Parent');
-    await page.screenshot({ path: 'docs/screenshots/household-member-disabled-mobile.png' });
+    await page.screenshot({ path: testInfo.outputPath('household-member-disabled-mobile.png') });
     for (const path of ['/dashboard', '/groceries', '/calendar', '/display/data']) {
       await expectSignInRedirect(kid.page, path);
     }

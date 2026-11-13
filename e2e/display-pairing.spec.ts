@@ -53,7 +53,7 @@ async function displayToken(context: BrowserContext) {
   return cookie;
 }
 
-test('a parent pairs a kitchen display that shows only approved information (Journey A)', async ({ browser }) => {
+test('a parent pairs a kitchen display that shows only approved information (Journey A)', async ({ browser }, testInfo) => {
   const stamp = Date.now();
   const shared = `Kitchen shared event ${stamp}`;
   const hidden = `Kitchen private event ${stamp}`;
@@ -76,9 +76,9 @@ test('a parent pairs a kitchen display that shows only approved information (Jou
     await expect(page.locator('body')).not.toContainText('PRIVATE-PAIRED-DESCRIPTION');
     await expect(page.getByRole('link', { name: 'Back to My Day' })).toHaveCount(0);
     await expect(page.getByRole('link', { name: 'Choose what to share' })).toHaveCount(0);
-    await page.screenshot({ path: 'docs/screenshots/display-paired-landscape.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('display-paired-landscape.png'), fullPage: true });
     await page.setViewportSize({ width: 375, height: 812 });
-    await page.screenshot({ path: 'docs/screenshots/display-paired-mobile.png', fullPage: true });
+    await page.screenshot({ path: testInfo.outputPath('display-paired-mobile.png'), fullPage: true });
 
     // No ordinary account login exists on this device; the only credential is the restricted cookie.
     const cookies = await display.context.cookies();
@@ -105,7 +105,7 @@ test('a parent pairs a kitchen display that shows only approved information (Jou
     await expect(device).toContainText('Paired');
     await expect(parent.page.getByRole('region', { name: 'Unused pairing codes' })).toHaveCount(0);
     // Captured only after reload, so the one-time code never appears in a committed screenshot.
-    await parent.page.screenshot({ path: 'docs/screenshots/displays-settings-mobile.png', fullPage: true });
+    await parent.page.screenshot({ path: testInfo.outputPath('displays-settings-mobile.png'), fullPage: true });
     await expect(parent.page.locator('body')).not.toContainText((await displayToken(display.context)).value);
   } finally { await display?.context.close(); await parent.context.close(); }
 });
@@ -177,7 +177,7 @@ test('a paired display cannot perform any ordinary household action (Journey B)'
   } finally { await display.context.close(); await parent.context.close(); }
 });
 
-test('revoking a display sends it to the pairing-required screen and the credential stays dead (Journey C)', async ({ browser }) => {
+test('revoking a display sends it to the pairing-required screen and the credential stays dead (Journey C)', async ({ browser }, testInfo) => {
   const stamp = Date.now();
   const label = `Revocable screen ${stamp}`;
   const parent = await signedIn(browser, 'parent@example.test', 'synthetic-parent-password', 'Hello, Sample Parent', { width: 375, height: 812 });
@@ -198,7 +198,7 @@ test('revoking a display sends it to the pairing-required screen and the credent
     await display.page.clock.fastForward(60_000);
     await expect(display.page.getByRole('heading', { name: 'Pairing required' })).toBeVisible();
     await expect(display.page.getByText('Family display')).toHaveCount(0);
-    await display.page.screenshot({ path: 'docs/screenshots/display-pairing-required-mobile.png', fullPage: true });
+    await display.page.screenshot({ path: testInfo.outputPath('display-pairing-required-mobile.png'), fullPage: true });
 
     // Reloading cannot restore access, and the old credential is refused even when presented by hand.
     await display.page.reload();
