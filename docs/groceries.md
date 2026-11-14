@@ -2,6 +2,31 @@
 
 Household members can add, edit, mark bought, and remove grocery items. Quantity and unit are optional text. Every change is household scoped and requires a normal member session. Item creators and most recent editors are recorded; removal deletes the item and is not an audit ledger.
 
+## Shopping view
+
+The active list is split into two labelled groups:
+
+- **To buy** contains every incomplete item and shows how many items are still outstanding. Each item shows its name and quantity/unit, a large **Mark bought** control, and the existing edit and remove controls. The existing order is preserved.
+- **Bought** contains completed items and shows the bought count. It is a native collapsible section, closed by default, so the shopping view stays focused. Completed records stay in the list while it is closed; they are hidden by the disclosure, not deleted. **Mark to buy**, edit and remove remain available when it is opened.
+
+Opening an edit form pins that item to its current group. A background refresh that changes the item's completion state does not move or remount the form, so keyboard focus and typed values stay in place. The item joins its new group after the edit is closed or the page is reloaded. A failed edit for a bought item opens the Bought section and keeps the form, submitted values and error visible so it can be corrected.
+
+## Clearing bought items
+
+An active parent can remove the bought records shown in the Bought section. The parent opens the section, opens **Clear bought items…**, reviews a confirmation that explains the records are permanently removed rather than hidden, and submits the final **Clear … bought item(s)** button. The confirmation is native markup, so it works without JavaScript.
+
+The action is deliberately explicit:
+
+- It only accepts identifiers and versions for the bought rows that were rendered for review.
+- It is parent-only. Children do not see the control, and a direct child or display-only request is rejected server-side.
+- It never removes incomplete items, items in another household, or rows added after review.
+- It requires the normal mutation origin check and is bounded in request size and row count.
+- It re-reads every submitted row and the active parent membership inside one SQLite immediate transaction. A missing, forged, duplicate, cross-household, stale, or no-longer-bought row rejects the whole batch and nothing is deleted.
+- An empty selection is a safe no-op. A repeated submission cannot remove new or unrelated rows.
+- A successful clear reloads the authoritative server list and reports how many records were cleared. A conflict reports that the list changed, deletes nothing and asks the parent to refresh and review again.
+
+This is permanent deletion. The application does not keep an audit ledger for removed grocery items, so there is no undo or history. Clearing is never automatic; items are not removed by age, and no background job deletes bought records.
+
 ## Adding meal ingredients
 
 A parent selects ingredient lines from a meal and chooses **Review selected ingredients**. Nothing is written at that point. The review shows every selected line with:
@@ -59,7 +84,7 @@ No schema change is required: `grocery_item` already stores `name`, `quantity` a
 
 ## Live updates
 
-While the page is open and visible, it reads the authenticated `GET /groceries/data` endpoint about every 25 seconds. Items added, completed, changed or removed in another session appear without a full browser reload, and the current scroll position and focused control are left alone. A refresh is skipped while another refresh is running, while the tab is hidden, while the browser reports that it is offline, and while a grocery draft is active.
+While the page is open and visible, it reads the authenticated `GET /groceries/data` endpoint about every 25 seconds. Items added, completed, changed or removed in another session appear without a full browser reload, and the current scroll position and focused control are left alone. The To buy and Bought groups and their counts follow the same refresh. An item whose edit form is open stays in its current group until the edit closes, so a remote completion cannot move the form out from under the member. A refresh is skipped while another refresh is running, while the tab is hidden, while the browser reports that it is offline, and while a grocery draft is active.
 
 The add form counts as a draft when any value is present or the duplicate confirmation is shown. An edit form counts as a draft when its name, quantity or unit differs from the saved item. Validation recovery keeps the submitted values and message and pauses updates until the member corrects or clears them. The status line states that updates are paused, and **Refresh list** does not replace the draft. Closing an edit form discards that draft and lets the next refresh use the current server values; reopening a failed edit's recovery values pauses updates again until they are corrected or cleared. An input the member already changed is not rewritten by a refresh response that was already in flight. Members can pause and resume automatic updates; hiding the tab also stops requests, and showing it or reconnecting resumes them unless updates are paused.
 
@@ -67,7 +92,7 @@ The add form counts as a draft when any value is present or the duplicate confir
 
 An expired session, a disabled household membership or any other access-denied response is not reported as a temporary connection problem. A 401, or a followed sign-in HTML response, returns to sign-in; a 403 clears the displayed list, including any item retained for a failed-edit recovery, and stops automatic protected requests. **Refresh list** then performs a normal full reload so the member can re-check access instead of finding an inert link. The endpoint verifies the Better Auth session and an active household membership, returns only that household's items as JSON, and sends `Cache-Control: no-store`. The list is not copied to localStorage, IndexedDB or a service-worker cache, and no WebSocket, message queue or generalized synchronization service is used.
 
-If an item is removed in another session while its edit form is open, the form and its unsaved values stay in place with a conflict explanation; a failed-edit recovery form that has been closed is not retained, so a later refresh removes the item. Saving still uses the server's item-version check and is rejected rather than replayed automatically. Live refresh never combines quantities or retries a grocery mutation.
+If an item is removed or cleared in another session while its edit form is open, the form and its unsaved values stay in place with a conflict explanation; a failed-edit recovery form that has been closed is not retained, so a later refresh removes the item. Saving still uses the server's item-version check and is rejected rather than replayed automatically. Live refresh never combines quantities or retries a grocery mutation. A clear performed by another parent appears through the same refresh, and a successful clear here shows the authoritative server list.
 
 ## Unsupported
 

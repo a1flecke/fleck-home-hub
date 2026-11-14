@@ -34,6 +34,21 @@ db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(multiParent.user.id, 'synthetic-other-household', 'parent');
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-failure-household', 'Validation example');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(multiParent.user.id, 'synthetic-failure-household', 'parent');
+// Shopping journeys: one isolated household per scenario so list-wide counts and bulk
+// clears are independent of every other grocery test.
+for (const fixture of [
+  { key: 'a', name: 'Grocery Parent A', role: 'parent' },
+  { key: 'c', name: 'Grocery Parent C', role: 'parent' },
+  { key: 'd', name: 'Grocery Parent D', role: 'parent' },
+  { key: 'e', name: 'Grocery Parent E', role: 'parent' },
+  { key: 'f', name: 'Grocery Parent F', role: 'parent' },
+  { key: 'kid', name: 'Grocery Kid', role: 'kid' }
+] as const) {
+  const created = await auth.api.signUpEmail({ body: { name: fixture.name, email: `grocery-parent-${fixture.key}@example.test`, password: `synthetic-grocery-parent-${fixture.key}-password` } });
+  const householdId = `synthetic-grocery-${fixture.key}-household`;
+  db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run(householdId, fixture.name);
+  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(created.user.id, householdId, fixture.role);
+}
 db.exec("CREATE TRIGGER reject_synthetic_child_invite BEFORE INSERT ON household_invitation WHEN NEW.household_id = 'synthetic-failure-household' AND NEW.role = 'kid' BEGIN SELECT RAISE(ABORT, 'synthetic invitation failure'); END");
 // Member-disable journeys: one-shot fixtures, each disabled at most once per run.
 const revokeKid = await auth.api.signUpEmail({ body: { name: 'Revoke Kid', email: 'revoke-kid@example.test', password: 'synthetic-revoke-kid-password' } });

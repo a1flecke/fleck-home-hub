@@ -8,6 +8,15 @@ async function signIn(page: Page, email = 'parent@example.test', password = 'syn
   await expect(page.getByRole('heading', { name: /Hello, |My Day/ })).toBeVisible();
 }
 
+async function showBought(page: Page) {
+  const bought = page.locator('details[data-grocery-group="bought"]');
+  if (!(await bought.evaluate(element => (element as HTMLDetailsElement).open))) await bought.locator(':scope > summary').click();
+}
+
+async function signInAsGroceryParent(page: Page, key = 'a') {
+  await signIn(page, `grocery-parent-${key}@example.test`, `synthetic-grocery-parent-${key}-password`);
+}
+
 test('a household member adds and completes an item', async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await page.goto('/sign-in');
@@ -24,6 +33,7 @@ test('a household member adds and completes an item', async ({ page }) => {
   const item = page.getByRole('article').filter({ hasText: 'Synthetic apples' });
   await expect(item).toContainText('2 bags');
   await item.getByRole('button', { name: 'Mark bought' }).click();
+  await showBought(page);
   await expect(item).toContainText('Bought');
 });
 
@@ -355,8 +365,10 @@ test('a shared meal becomes a household grocery task without exposing private no
     await expect(kidItem).toContainText('To buy');
     await expect(kid.getByRole('article').filter({ hasText: unselected })).toHaveCount(0);
     await kidItem.getByRole('button', { name: 'Mark bought' }).click();
+    await showBought(kid);
     await expect(kidItem).toContainText('Bought');
     await page.reload();
+    await showBought(page);
     await expect(parentItem).toContainText('Bought');
   } finally { await context.close(); }
 });
@@ -586,6 +598,7 @@ test('a stale edit does not overwrite another household session', async ({ page,
     const stale = otherItem.getByRole('form', { name: 'Edit Synthetic shared oats' });
     await stale.getByLabel('Quantity', { exact: true }).fill('3');
     await item.getByRole('button', { name: 'Mark bought' }).click();
+    await showBought(page);
     await expect(item).toContainText('Bought');
     await stale.getByRole('button', { name: 'Save item' }).click();
     await expect(other.getByRole('status').filter({ hasText: 'This item could not be saved. It may have changed' })).toBeVisible();
@@ -593,6 +606,7 @@ test('a stale edit does not overwrite another household session', async ({ page,
     await stale.getByRole('button', { name: 'Save item' }).click();
     await expect(other.getByRole('status').filter({ hasText: 'This item could not be saved. It may have changed' })).toBeVisible();
     await other.reload();
+    await showBought(other);
     await expect(otherItem).toContainText('Bought');
   } finally { await context.close(); }
 });
@@ -621,8 +635,10 @@ test('a visible grocery list receives additions, completions and removals from a
     expect(await page.evaluate(() => (window as unknown as { __manualRefreshMarker?: boolean }).__manualRefreshMarker)).toBe(true);
 
     await other.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Mark bought' }).click();
+    await showBought(other);
     await expect(other.getByRole('article').filter({ hasText: name })).toContainText('Bought');
     await page.clock.runFor(25_000);
+    await showBought(page);
     await expect(item).toContainText('Bought');
 
     await other.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Remove item' }).click();
@@ -1068,6 +1084,7 @@ test('losing access does not restore an item retained for a failed edit', async 
     const other = await otherContext.newPage();
     await other.goto('/groceries');
     await other.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Mark bought' }).click();
+    await showBought(other);
     await expect(other.getByRole('article').filter({ hasText: name })).toContainText('Bought');
 
     await edit.getByRole('button', { name: 'Save item' }).click();
@@ -1115,6 +1132,7 @@ test('a closed failed edit does not restore a remotely removed item', async ({ p
     await other.goto('/groceries');
     const otherItem = other.getByRole('article').filter({ hasText: name });
     await otherItem.getByRole('button', { name: 'Mark bought' }).click();
+    await showBought(other);
     await expect(otherItem).toContainText('Bought');
 
     await edit.getByRole('button', { name: 'Save item' }).click();
@@ -1370,4 +1388,328 @@ test('validation recovery keeps entered values and pauses refresh until correcte
     await expect(page.getByRole('article').filter({ hasText: corrected })).toBeVisible();
     await expect(page.getByRole('article').filter({ hasText: remote })).toBeVisible();
   } finally { await otherContext.close(); }
+});
+
+test('a parent separates shopping items, reviews Bought, and clears reviewed rows', async ({ page }) => {
+  const stamp = Date.now();
+  const apples = `Synthetic shopping apples ${stamp}`;
+  const bread = `Synthetic shopping bread ${stamp}`;
+  await page.setViewportSize({ width: 375, height: 812 });
+  await signInAsGroceryParent(page);
+  await page.goto('/groceries');
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  for (const item of [{ name: apples, quantity: '2', unit: 'bags' }, { name: bread, quantity: '1', unit: 'loaf' }]) {
+    await add.getByLabel('Item', { exact: true }).fill(item.name);
+    await add.getByLabel('Quantity', { exact: true }).fill(item.quantity);
+    await add.getByLabel('Unit', { exact: true }).fill(item.unit);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: item.name })).toContainText(item.quantity);
+  }
+  await expect(page.getByText('2 items to buy', { exact: true })).toBeVisible();
+  const boughtSection = page.locator('details[data-grocery-group="bought"]');
+  await expect(boughtSection.locator(':scope > summary')).toContainText('Bought');
+  await expect(boughtSection.locator(':scope > summary')).toContainText(/0/);
+  expect(await boughtSection.evaluate(element => (element as HTMLDetailsElement).open)).toBe(false);
+
+  await page.getByRole('article').filter({ hasText: bread }).getByRole('button', { name: 'Mark bought' }).click();
+  await expect(page.getByText('1 item to buy', { exact: true })).toBeVisible();
+  await expect(boughtSection.locator(':scope > summary')).toContainText(/1/);
+  await expect(page.getByRole('article').filter({ hasText: bread })).toHaveCount(0);
+  expect(await boughtSection.locator('article').filter({ hasText: bread }).count()).toBe(1);
+
+  await boughtSection.locator(':scope > summary').click();
+  const boughtBread = page.getByRole('article').filter({ hasText: bread });
+  await expect(boughtBread).toContainText('Bought');
+  await boughtSection.locator(':scope > summary').click();
+  await expect(page.getByRole('article').filter({ hasText: bread })).toHaveCount(0);
+  await boughtSection.locator(':scope > summary').click();
+  await expect(boughtBread).toBeVisible();
+
+  await boughtBread.getByRole('button', { name: 'Mark to buy' }).click();
+  await expect(page.getByText('2 items to buy', { exact: true })).toBeVisible();
+  await expect(page.getByRole('article').filter({ hasText: bread })).toContainText('To buy');
+  await page.getByRole('article').filter({ hasText: bread }).getByRole('button', { name: 'Mark bought' }).click();
+  await showBought(page);
+  await expect(page.getByRole('article').filter({ hasText: bread })).toContainText('Bought');
+
+  await page.getByText('Clear bought items…', { exact: true }).click();
+  const clear = page.getByRole('form', { name: 'Clear bought items' });
+  await expect(clear).toContainText('permanently removes these 1 bought record');
+  await expect(clear).toContainText('there is no undo');
+  await clear.getByRole('button', { name: 'Clear 1 bought item' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Cleared 1 bought item.' })).toBeVisible();
+  await expect(page.getByText('1 item to buy', { exact: true })).toBeVisible();
+  await expect(page.getByRole('article').filter({ hasText: apples })).toContainText('To buy');
+
+  await showBought(page);
+  await expect(page.getByText('No bought items right now.')).toBeVisible();
+  await expect(page.locator('details[data-grocery-group="bought"] > summary')).toContainText(/0/);
+  await expect(page.getByText('Clear bought items…', { exact: true })).toHaveCount(0);
+});
+
+test('a child sees no bulk clear and a direct child or disabled-member request is rejected', async ({ page, browser }) => {
+  const name = `Synthetic child bought ${Date.now()}`;
+  await signIn(page, 'grocery-parent-kid@example.test', 'synthetic-grocery-parent-kid-password');
+  await page.goto('/groceries');
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill(name);
+  await add.getByRole('button', { name: 'Add item' }).click();
+  await page.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Mark bought' }).click();
+  await showBought(page);
+  await expect(page.getByRole('article').filter({ hasText: name })).toContainText('Bought');
+  await expect(page.getByText('Clear bought items…', { exact: true })).toHaveCount(0);
+
+  const origin = 'http://127.0.0.1:4173';
+  const childResponse = await page.request.post(`${origin}/groceries?/clearBought`, {
+    form: { id: 'synthetic-forged', version: '1' },
+    headers: { origin }
+  });
+  expect(childResponse.status()).toBe(403);
+
+  const disabledContext = await browser.newContext();
+  try {
+    const login = await disabledContext.request.post(`${origin}/api/auth/sign-in/email`, {
+      headers: { origin },
+      data: { email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' }
+    });
+    expect(login.status()).toBe(200);
+    const response = await disabledContext.request.post(`${origin}/groceries?/clearBought`, {
+      form: { id: 'synthetic-forged', version: '1' },
+      headers: { origin }
+    });
+    expect(response.status()).toBe(403);
+  } finally { await disabledContext.close(); }
+});
+
+test('a concurrent bought change rejects the whole clear and a later addition survives', async ({ page, browser }) => {
+  const stamp = Date.now();
+  const first = `Synthetic race first ${stamp}`;
+  const second = `Synthetic race second ${stamp}`;
+  const later = `Synthetic race later ${stamp}`;
+  await signInAsGroceryParent(page, 'c');
+  await page.goto('/groceries');
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  for (const name of [first, second]) {
+    await add.getByLabel('Item', { exact: true }).fill(name);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: name })).toBeVisible();
+  }
+  for (const name of [first, second]) {
+    await page.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Mark bought' }).click();
+    await expect(page.getByRole('article').filter({ hasText: name })).toHaveCount(0);
+  }
+  await showBought(page);
+  await expect(page.getByRole('article').filter({ hasText: first })).toContainText('Bought');
+
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    await showBought(other);
+    await other.getByRole('article').filter({ hasText: first }).getByRole('button', { name: 'Mark to buy' }).click();
+    await expect(other.getByText('1 item to buy', { exact: true })).toBeVisible();
+
+    await page.getByText('Clear bought items…', { exact: true }).click();
+    await page.getByRole('form', { name: 'Clear bought items' }).getByRole('button', { name: 'Clear 2 bought items' }).click();
+    await expect(page.getByRole('alert')).toContainText('changed in another session');
+    await expect(page.getByRole('alert')).toContainText('Nothing was cleared');
+    await expect(page.getByRole('article').filter({ hasText: first })).toContainText('To buy');
+    await showBought(page);
+    await expect(page.getByRole('article').filter({ hasText: second })).toContainText('Bought');
+
+    await other.goto('/groceries');
+    const otherAdd = other.getByRole('form', { name: 'Add grocery item' });
+    await otherAdd.getByLabel('Item', { exact: true }).fill(later);
+    await otherAdd.getByRole('button', { name: 'Add item' }).click();
+    await other.getByRole('article').filter({ hasText: later }).getByRole('button', { name: 'Mark bought' }).click();
+    await showBought(other);
+    await expect(other.getByRole('article').filter({ hasText: later })).toContainText('Bought');
+
+    await page.getByText('Clear bought items…', { exact: true }).click();
+    await page.getByRole('form', { name: 'Clear bought items' }).getByRole('button', { name: 'Clear 1 bought item' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'Cleared 1 bought item.' })).toBeVisible();
+
+    await other.getByRole('link', { name: 'Refresh list' }).click();
+    await showBought(other);
+    await expect(other.getByRole('article').filter({ hasText: later })).toContainText('Bought');
+    await expect(other.getByRole('article').filter({ hasText: second })).toHaveCount(0);
+
+    await page.getByRole('link', { name: 'Refresh list' }).click();
+    await showBought(page);
+    await expect(page.getByRole('article').filter({ hasText: later })).toContainText('Bought');
+    await expect(page.getByRole('article').filter({ hasText: second })).toHaveCount(0);
+  } finally { await otherContext.close(); }
+});
+
+test('a failed edit inside Bought stays visible and recoverable', async ({ page }) => {
+  const name = `Synthetic bought failed edit ${Date.now()}`;
+  const corrected = `${name} corrected`;
+  await signInAsGroceryParent(page);
+  await page.goto('/groceries');
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill(name);
+  await add.getByRole('button', { name: 'Add item' }).click();
+  await page.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Mark bought' }).click();
+  await showBought(page);
+  const item = page.getByRole('article').filter({ hasText: name });
+  await item.getByText('Edit item', { exact: true }).click();
+  const edit = item.getByRole('form', { name: `Edit ${name}` });
+  await edit.getByLabel('Item', { exact: true }).fill('   ');
+  await edit.getByRole('button', { name: 'Save item' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'This item could not be saved.' })).toBeVisible();
+
+  const boughtSection = page.locator('details[data-grocery-group="bought"]');
+  expect(await boughtSection.evaluate(element => (element as HTMLDetailsElement).open)).toBe(true);
+  await expect(edit).toBeVisible();
+  await expect(edit.getByLabel('Item', { exact: true })).toHaveValue('   ');
+  await edit.getByLabel('Item', { exact: true }).fill(corrected);
+  await edit.getByRole('button', { name: 'Save item' }).click();
+  await showBought(page);
+  await expect(page.getByRole('article').filter({ hasText: corrected })).toContainText('Bought');
+});
+
+test('a background completion change does not move an open edit form', async ({ page, browser }) => {
+  const name = `Synthetic pinned edit ${Date.now()}`;
+  await signInAsGroceryParent(page);
+  await page.clock.install();
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill(name);
+  await add.getByRole('button', { name: 'Add item' }).click();
+  const item = page.getByRole('article').filter({ hasText: name });
+  await expect(item).toBeVisible();
+  await item.getByText('Edit item', { exact: true }).click();
+  const edit = item.getByRole('form', { name: `Edit ${name}` });
+  const quantity = edit.getByLabel('Quantity', { exact: true });
+  await quantity.focus();
+
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    await other.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Mark bought' }).click();
+    await showBought(other);
+    await expect(other.getByRole('article').filter({ hasText: name })).toContainText('Bought');
+
+    await page.clock.runFor(25_000);
+    const toBuy = page.locator('section[aria-labelledby="to-buy-heading"]');
+    await expect(toBuy.getByRole('article').filter({ hasText: name })).toBeVisible();
+    await expect(edit).toBeVisible();
+    await expect(quantity).toBeFocused();
+
+    await item.getByText('Edit item', { exact: true }).click();
+    await expect(edit).toBeHidden();
+    await expect(toBuy.getByRole('article').filter({ hasText: name })).toHaveCount(0);
+    await showBought(page);
+    await expect(page.getByRole('article').filter({ hasText: name })).toContainText('Bought');
+  } finally { await otherContext.close(); }
+});
+
+test('a remote clear keeps an open edit until saving hits the stale-version conflict', async ({ page, browser }) => {
+  const name = `Synthetic clear edit conflict ${Date.now()}`;
+  await signInAsGroceryParent(page, 'd');
+  await page.clock.install();
+  await page.goto('/groceries');
+  await expect(page.getByText('Live updates on.')).toBeVisible();
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill(name);
+  await add.getByLabel('Quantity', { exact: true }).fill('2');
+  await add.getByRole('button', { name: 'Add item' }).click();
+  await page.getByRole('article').filter({ hasText: name }).getByRole('button', { name: 'Mark bought' }).click();
+  await showBought(page);
+  const item = page.getByRole('article').filter({ hasText: name });
+  await item.getByText('Edit item', { exact: true }).click();
+  const edit = item.getByRole('form', { name: `Edit ${name}` });
+  await expect(edit).toBeVisible();
+
+  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    const other = await otherContext.newPage();
+    await other.goto('/groceries');
+    await showBought(other);
+    await other.getByText('Clear bought items…', { exact: true }).click();
+    await other.getByRole('form', { name: 'Clear bought items' }).getByRole('button', { name: 'Clear 1 bought item' }).click();
+    await expect(other.getByRole('status').filter({ hasText: 'Cleared 1 bought item.' })).toBeVisible();
+
+    await page.clock.runFor(25_000);
+    await expect(item).toBeVisible();
+    await expect(edit).toBeVisible();
+    await expect(item.getByRole('status')).toContainText('removed in another session');
+
+    await edit.getByLabel('Quantity', { exact: true }).fill('7');
+    await edit.getByRole('button', { name: 'Save item' }).click();
+    await expect(page.getByRole('status').filter({ hasText: 'This item could not be saved.' })).toBeVisible();
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('7');
+  } finally { await otherContext.close(); }
+});
+
+test('clearing bought items requires native confirmation and works without JavaScript', async ({ page, browser }) => {
+  const stamp = Date.now();
+  const apples = `Synthetic native clear apples ${stamp}`;
+  const bread = `Synthetic native clear bread ${stamp}`;
+  await signInAsGroceryParent(page, 'e');
+  await page.goto('/groceries');
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  for (const name of [apples, bread]) {
+    await add.getByLabel('Item', { exact: true }).fill(name);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: name })).toBeVisible();
+  }
+  await page.getByRole('article').filter({ hasText: bread }).getByRole('button', { name: 'Mark bought' }).click();
+
+  const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    const native = await context.newPage();
+    await native.goto('/groceries');
+    const bought = native.locator('details[data-grocery-group="bought"]');
+    await bought.locator(':scope > summary').click();
+    await expect(native.getByRole('article').filter({ hasText: bread })).toContainText('Bought');
+    await native.getByText('Clear bought items…', { exact: true }).click();
+    const clear = native.getByRole('form', { name: 'Clear bought items' });
+    await expect(clear).toContainText('there is no undo');
+    await clear.getByRole('button', { name: 'Clear 1 bought item' }).click();
+    await expect(native.getByRole('status').filter({ hasText: 'Cleared 1 bought item.' })).toBeVisible();
+    await expect(native.getByRole('article').filter({ hasText: apples })).toContainText('To buy');
+    await bought.locator(':scope > summary').click();
+    await expect(native.getByText('No bought items right now.')).toBeVisible();
+  } finally { await context.close(); }
+});
+
+test('a Bought section opened before hydration stays usable', async ({ page, browser }) => {
+  const stamp = Date.now();
+  const apples = `Synthetic hydrated clear apples ${stamp}`;
+  const bread = `Synthetic hydrated clear bread ${stamp}`;
+  await signInAsGroceryParent(page, 'f');
+  await page.goto('/groceries');
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  for (const name of [apples, bread]) {
+    await add.getByLabel('Item', { exact: true }).fill(name);
+    await add.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: name })).toBeVisible();
+  }
+  await page.getByRole('article').filter({ hasText: bread }).getByRole('button', { name: 'Mark bought' }).click();
+
+  const context = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  let release!: () => void, requested!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const blocked = new Promise<void>(resolve => { requested = resolve; });
+  try {
+    const delayed = await context.newPage();
+    await delayed.route('**/src/routes/groceries/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.goto('/groceries', { waitUntil: 'commit' });
+    await blocked;
+    const bought = delayed.locator('details[data-grocery-group="bought"]');
+    await bought.locator(':scope > summary').click();
+    await delayed.getByText('Clear bought items…', { exact: true }).click();
+    await expect(delayed.getByRole('form', { name: 'Clear bought items' })).toBeVisible();
+    release();
+    await delayed.waitForLoadState('networkidle');
+    expect(await bought.evaluate(element => (element as HTMLDetailsElement).open)).toBe(true);
+    const clear = delayed.getByRole('form', { name: 'Clear bought items' });
+    await expect(clear).toBeVisible();
+    await clear.getByRole('button', { name: 'Clear 1 bought item' }).click();
+    await expect(delayed.getByRole('status').filter({ hasText: 'Cleared 1 bought item.' })).toBeVisible();
+    await expect(delayed.getByRole('article').filter({ hasText: apples })).toContainText('To buy');
+  } finally { release(); await context.close(); }
 });
