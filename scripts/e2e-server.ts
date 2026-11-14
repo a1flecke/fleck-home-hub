@@ -86,6 +86,8 @@ const disabledGrocery = await auth.api.signUpEmail({ body: { name: 'Disabled Gro
 const bootstrapParent = db.prepare("SELECT id FROM user WHERE email = 'parent@example.test'").get() as { id: string };
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-disabled-grocery-household', 'Disabled grocery household');
 db.prepare('INSERT INTO membership (user_id, household_id, role, disabled_at, disabled_by) VALUES (?, ?, ?, ?, ?)').run(disabledGrocery.user.id, 'synthetic-disabled-grocery-household', 'kid', Date.now(), bootstrapParent.id);
+const disabledExpense = await auth.api.signUpEmail({ body: { name: 'Disabled Expense Parent', email: 'disabled-expense@example.test', password: 'synthetic-disabled-expense-password' } });
+db.prepare('INSERT INTO membership (user_id, household_id, role, disabled_at, disabled_by) VALUES (?, ?, ?, ?, ?)').run(disabledExpense.user.id, household.id, 'parent', Date.now(), bootstrapParent.id);
 const seededAt = new Date().toISOString();
 db.prepare("INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at) VALUES ('revoke-pending-chore', ?, ?, 'Revocation pending chore', '2026-11-01', 250, 'pending_verification', ?, ?)").run(household.id, revokeKid.user.id, seededAt, seededAt);
 db.close();

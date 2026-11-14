@@ -86,7 +86,7 @@ test('a verified backup reopens in the localhost production server after a faile
     recordPayout(db, parentId, household, { childId: kidId, amountCents: 100, date: '2026-10-30', note: '', requestId: 'synthetic-recovery-payment' });
     db.prepare('INSERT INTO household_invitation (id, token_hash, household_id, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)').run('synthetic-recovery-invite', createHash('sha256').update(invitationToken).digest('hex'), household, 'kid', parentId, Date.now() + 600_000);
     const expenseId = createExpense(db, parentId, household, { title: 'Recovered expense', amountCents: 7000, dueDate: '2099-01-31', cadence: 'once', payee: '', category: '', notes: '' });
-    const expensePayment = recordExpensePayment(db, parentId, household, { expenseId, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 6900, note: '', requestId: 'recovery-expense' });
+    const expensePayment = recordExpensePayment(db, parentId, household, { expenseId, scheduledDate: '2099-01-31', paidDate: '2026-10-30', amountCents: 6900, note: '', requestId: 'recovery-expense' });
     reverseExpensePayment(db, parentId, household, expensePayment, 'Correct amount');
     await backupDatabase(source, backup);
     db.exec('ALTER TABLE user ADD COLUMN unreviewed_schema_change TEXT');
