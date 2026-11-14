@@ -198,3 +198,123 @@ test('expense loads and actions stay within active parent households', async ({ 
     expect(crossOrigin.status()).toBe(403);
   } finally { await Promise.all(clients.map(client => client.dispose())); }
 });
+
+async function beforeExpenseHydration(page: Page, url: string, edit: () => Promise<void>) {
+  let release!: () => void;
+  let blocked!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const requested = new Promise<void>(resolve => { blocked = resolve; });
+  const module = '**/src/routes/expenses/+page.svelte*';
+  await page.route(module, async route => { blocked(); await gate; await route.continue(); });
+  try {
+    await page.goto(url, { waitUntil: 'commit' });
+    await requested;
+    await edit();
+    release();
+    await page.waitForLoadState('load');
+    await page.waitForLoadState('networkidle');
+  } finally {
+    release();
+    await page.unroute(module);
+  }
+}
+
+test('the dashboard links to expenses for parents only', async ({ page }) => {
+  await signIn(page, 'kid');
+  await expect(page.getByRole('heading', { name: /My Day/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Expenses', exact: true })).toHaveCount(0);
+});
+
+test('a parent reaches expenses from the dashboard and retains a range set before hydration', async ({ page }) => {
+  await signIn(page);
+  await page.getByRole('link', { name: 'Expenses', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Expenses', exact: true })).toBeVisible();
+  const filter = page.getByRole('form', { name: 'Expense date range' });
+  const date = dateAfter(5);
+  await beforeExpenseHydration(page, '/expenses', async () => {
+    await filter.getByLabel('Start date').fill(date);
+    await filter.getByLabel('Range').selectOption('90');
+  });
+  await filter.getByRole('button', { name: 'Show expenses' }).click();
+  await expect(page).toHaveURL('/expenses?date=' + date + '&days=90');
+  await expect(filter.getByLabel('Start date')).toHaveValue(date);
+  await expect(filter.getByLabel('Range')).toHaveValue('90');
+});
+
+test('edit, payment and reversal retain pre-hydration changes and recover rejected entries', async ({ page }) => {
+  await signIn(page);
+  const original = 'Synthetic movable bill';
+  const renamed = 'Synthetic moved bill';
+  const start = dateAfter(1);
+  const newDate = dateAfter(100);
+  const range = '/expenses?days=90&date=' + start;
+  await page.goto(range);
+  await page.getByText('Add expense', { exact: true }).click();
+  const add = page.getByRole('form', { name: 'Add expense' });
+  await add.getByLabel('Title').fill(original);
+  await add.getByLabel('Planned amount').fill('50');
+  await add.getByRole('button', { name: 'Save expense' }).click();
+  const upcoming = page.getByRole('region', { name: 'Upcoming expenses' });
+  await expect(upcoming.getByRole('heading', { name: original })).toBeVisible();
+
+  const plans = page.getByRole('region', { name: 'Expense plans' });
+  const plan = plans.getByRole('article').filter({ hasText: original });
+  const edit = plan.getByRole('form', { name: 'Edit ' + original });
+  const title = edit.getByLabel('Title');
+  await beforeExpenseHydration(page, range, async () => {
+    await plan.getByText('Edit expense', { exact: true }).click();
+    await edit.getByLabel('Due date').fill(newDate);
+    await edit.getByLabel('Planned amount').fill('51.005');
+    await edit.getByLabel('Notes').fill('Edited before hydration');
+    await title.selectText();
+  });
+  expect(await title.evaluate((element: HTMLInputElement) => [element.selectionStart, element.selectionEnd])).toEqual([0, original.length]);
+  await page.keyboard.insertText(renamed);
+  await edit.getByRole('button', { name: 'Save expense' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'planned amount' })).toBeVisible();
+  await expect(title).toHaveValue(renamed);
+  await expect(edit.getByLabel('Due date')).toHaveValue(newDate);
+  await expect(edit.getByLabel('Notes')).toHaveValue('Edited before hydration');
+  expect(new URL(page.url()).searchParams.get('date')).toBe(start);
+  await edit.getByLabel('Planned amount').fill('51');
+  await edit.getByRole('button', { name: 'Save expense' }).click();
+  const bill = upcoming.getByRole('article').filter({ hasText: renamed });
+  await expect(bill).toContainText('$51.00');
+  await expect(bill).toContainText('Edited before hydration');
+  await expect(bill.locator('time')).toHaveAttribute('datetime', newDate);
+  expect(new URL(page.url()).searchParams.get('date')).toBe(newDate);
+
+  const movedRange = '/expenses?days=90&date=' + newDate;
+  const pay = bill.getByRole('form', { name: 'Record payment' });
+  await beforeExpenseHydration(page, movedRange, async () => {
+    await bill.getByText('Record paid', { exact: true }).click();
+    await pay.getByLabel('Actual payment date').fill(dateAfter(1));
+    await pay.getByLabel('Actual paid amount').fill('52.25');
+    await pay.getByLabel('Payment note').fill('Receipt entered before hydration');
+  });
+  await pay.getByRole('button', { name: 'Save payment' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'future' })).toBeVisible();
+  await expect(pay.getByLabel('Actual payment date')).toHaveValue(dateAfter(1));
+  await expect(pay.getByLabel('Actual paid amount')).toHaveValue('52.25');
+  await expect(pay.getByLabel('Payment note')).toHaveValue('Receipt entered before hydration');
+  await pay.getByLabel('Actual payment date').fill(dateAfter(0));
+  await pay.getByRole('button', { name: 'Save payment' }).click();
+  const receipt = page.getByRole('region', { name: 'Payment history' }).getByRole('article').filter({ hasText: renamed });
+  await expect(receipt).toContainText('$52.25');
+  await expect(receipt).toContainText('Receipt entered before hydration');
+
+  const reverse = receipt.getByRole('form', { name: 'Reverse recorded payment' });
+  await beforeExpenseHydration(page, movedRange, async () => {
+    await receipt.getByText('Reverse payment', { exact: true }).click();
+    await reverse.getByLabel('Reason').fill('   ');
+  });
+  await reverse.getByRole('button', { name: 'Confirm reversal' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'Enter a reason' })).toBeVisible();
+  await expect(reverse.getByLabel('Reason')).toHaveValue('   ');
+  await reverse.getByLabel('Reason').fill('Wrong receipt for moved bill');
+  await reverse.getByRole('button', { name: 'Confirm reversal' }).click();
+  await expect(receipt).toContainText('Reversed');
+  await expect(receipt).toContainText('Wrong receipt for moved bill');
+  await expect(bill).toContainText('Upcoming');
+  expect(new URL(page.url()).searchParams.get('date')).toBe(newDate);
+});
