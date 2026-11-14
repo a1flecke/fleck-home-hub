@@ -326,6 +326,7 @@
   <a href={resolve('/dashboard')} class="text-teal-700">Back to home</a>
   <h1 class="mt-5 text-3xl font-bold">Grocery list</h1>
   <p class="mt-2">A shared list for your household.</p>
+  <p class="mt-1 text-sm"><a href={resolve('/groceries/bulk')} class="text-teal-700 underline">Paste several items at once</a></p>
   <div class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
     {#if ready}<p role="status" class="text-slate-700">{authorizationLost ? 'You no longer have access to this grocery list.' : editingPaused ? 'Updates paused while you edit.' : autoPaused ? 'Automatic updates paused.' : refreshFailed ? 'Unable to refresh right now. Showing the last list and retrying automatically.' : 'Live updates on.'}</p>{/if}
     <a href={resolve('/groceries')} data-sveltekit-reload onclick={manualRefresh} class="rounded-lg px-3 py-3 text-teal-700 underline">Refresh list</a>
