@@ -150,6 +150,17 @@ test('expense loads and actions stay within active parent households', async ({ 
       if (account !== 'disabled-expense') expect((await client.get('/dashboard', { maxRedirects: 0 })).status()).toBe(200);
     }
     const [anonymous, parent, child, other, disabled] = clients;
+    const pairedDisplay = await playwright.request.newContext({ baseURL: origin });
+    clients.push(pairedDisplay);
+    const pairing = await parent.post('/settings/displays?/create', { headers, form: { label: 'Synthetic expense access display' } });
+    expect(pairing.status()).toBe(200);
+    const pairingResult = await pairing.json();
+    expect(pairingResult.type).toBe('success');
+    const code = pairingResult.data.match(/(?:[A-Z2-9]{4}-){5}[A-Z2-9]{4}/)?.[0];
+    expect(code).toBeTruthy();
+    const pair = await pairedDisplay.post('/display/pair', { headers, form: { code: code ?? '' }, maxRedirects: 0 });
+    expect(await pair.json()).toMatchObject({ type: 'redirect', status: 303 });
+    expect((await pairedDisplay.get('/display/data')).status()).toBe(200);
     const form = { title: 'Private synthetic expense', dueDate: dateAfter(2), cadence: 'once', amount: '20.55', notes: 'Private synthetic note' };
     const create = await parent.post('/expenses?/save', { headers, form });
     expect(await create.json()).toMatchObject({ type: 'redirect', status: 303 });
@@ -164,6 +175,9 @@ test('expense loads and actions stay within active parent households', async ({ 
     const unauthenticated = await anonymous.post('/expenses?/save', { headers, form });
     expect(await unauthenticated.json()).toMatchObject({ type: 'redirect', status: 303, location: '/sign-in' });
     expect((await anonymous.get('/expenses', { maxRedirects: 0 })).status()).toBe(303);
+    expect((await pairedDisplay.get('/expenses', { maxRedirects: 0 })).status()).toBe(303);
+    expect(await (await pairedDisplay.post('/expenses?/save', { headers, form })).json()).toMatchObject({ type: 'redirect', status: 303, location: '/sign-in' });
+    expect(await (await pairedDisplay.get('/display/data')).text()).not.toContain(form.notes);
     for (const client of [child, disabled]) {
       const denied = await client.get('/expenses', { maxRedirects: 0 });
       expect(denied.status()).toBe(403);
