@@ -18,12 +18,20 @@ import { parseRecipeDetailsJson, recipeDetailsForMeal } from '../meals/recipe-de
 type ItemInput = { name: string; quantity: string; unit: string };
 type Item = ItemInput & { id: string; completed: boolean; version: number };
 type MealIngredientRef = { key: string; line: string; source: IngredientSource; group: string | null };
+export type BoughtSelection = { id: string; version: number };
+
+/** One request may review at most this many bought rows before clearing. */
+export const MAX_BOUGHT_CLEAR_ROWS = 200;
 
 export class IngredientValidationError extends Error {}
 export class IngredientConflictError extends Error {
   constructor(readonly keys: string[]) { super('Ingredient now matches an active grocery item'); }
 }
 export class StaleIngredientSelectionError extends Error {}
+export class GroceryClearValidationError extends Error {}
+export class GroceryClearConflictError extends Error {
+  constructor() { super('Bought items changed or are no longer available'); }
+}
 
 function authorize(db: Database.Database, actor: string, household: string, parent = false) {
   const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
@@ -74,6 +82,38 @@ export function removeGrocery(db: Database.Database, actor: string, household: s
   db.transaction(() => {
     authorize(db, actor, household);
     if (!db.prepare('DELETE FROM grocery_item WHERE id = ? AND household_id = ? AND version = ?').run(id, household, version).changes) throw new Error('Item changed or is no longer available');
+  }).immediate();
+}
+
+/**
+ * Removes exactly the bought rows a parent reviewed. The identifiers and versions are
+ * untrusted, so every row is re-read and rechecked inside one immediate transaction.
+ * A missing, forged, cross-household, duplicated, stale or no-longer-bought row rejects
+ * the whole batch. Rows added after review are not part of the selection and stay put.
+ */
+export function clearBoughtGroceries(db: Database.Database, actor: string, household: string, selection: BoughtSelection[]): { cleared: number } {
+  return db.transaction(() => {
+    authorize(db, actor, household, true);
+    if (!Array.isArray(selection) || selection.length > MAX_BOUGHT_CLEAR_ROWS) throw new GroceryClearValidationError('Invalid bought selection');
+    if (!selection.length) return { cleared: 0 };
+
+    const seen = new Set<string>();
+    for (const entry of selection) {
+      if (!entry || typeof entry.id !== 'string' || !entry.id || entry.id.length > 100 ||
+          !Number.isSafeInteger(entry.version) || entry.version < 1 || seen.has(entry.id)) {
+        throw new GroceryClearValidationError('Invalid bought selection');
+      }
+      seen.add(entry.id);
+    }
+
+    const find = db.prepare('SELECT household_id AS householdId, completed, version FROM grocery_item WHERE id = ?');
+    const remove = db.prepare('DELETE FROM grocery_item WHERE id = ? AND household_id = ? AND completed = 1 AND version = ?');
+    for (const entry of selection) {
+      const row = find.get(entry.id) as { householdId: string; completed: number; version: number } | undefined;
+      if (!row || row.householdId !== household || row.completed !== 1 || row.version !== entry.version) throw new GroceryClearConflictError();
+      if (remove.run(entry.id, household, entry.version).changes !== 1) throw new GroceryClearConflictError();
+    }
+    return { cleared: selection.length };
   }).immediate();
 }
 
