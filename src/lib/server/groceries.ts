@@ -1,5 +1,6 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
+import { MAX_BULK_INPUT_CHARS, MAX_BULK_LINES, bulkActions, type BulkDecision } from '../grocery/bulk';
 import { ingredientLines, probableGroceryMatch, sameGroceryName } from '../grocery/domain';
 import {
   familyIngredientKey,
@@ -28,6 +29,10 @@ export class IngredientConflictError extends Error {
   constructor(readonly keys: string[]) { super('Ingredient now matches an active grocery item'); }
 }
 export class StaleIngredientSelectionError extends Error {}
+export class BulkValidationError extends Error {}
+export class BulkConflictError extends Error {
+  constructor(readonly keys: string[]) { super('Batch now matches active grocery items'); }
+}
 export class GroceryClearValidationError extends Error {}
 export class GroceryClearConflictError extends Error {
   constructor() { super('Bought items changed or are no longer available'); }
@@ -212,5 +217,60 @@ export function confirmMealIngredients(db: Database.Database, actor: string, hou
       added++;
     }
     return { added, skipped };
+  }).immediate();
+}
+
+/**
+ * Revalidates an already reviewed bulk list and inserts the accepted rows in one
+ * immediate transaction. The submitted names, quantities and units are ordinary
+ * grocery input and remain untrusted, so they get the same validation as the
+ * individual add form. A row that matches an active item, or another accepted row,
+ * rejects the whole batch instead of combining or overwriting it.
+ */
+export function addBulkGroceries(db: Database.Database, actor: string, household: string, decisions: BulkDecision[]): { added: number; skipped: number } {
+  return db.transaction(() => {
+    authorize(db, actor, household);
+    if (!Array.isArray(decisions) || !decisions.length || decisions.length > MAX_BULK_LINES) throw new BulkValidationError('Choose 1 to 30 items');
+
+    const keys = new Set<string>();
+    const prepared: Array<{ key: string; line: string; action: 'add' | 'skip'; value: ItemInput }> = [];
+    for (const decision of decisions) {
+      if (!decision || typeof decision !== 'object' ||
+          typeof decision.key !== 'string' || !decision.key || decision.key.length > 100 || keys.has(decision.key) ||
+          typeof decision.line !== 'string' || decision.line.length > MAX_BULK_INPUT_CHARS ||
+          !bulkActions.includes(decision.action) ||
+          typeof decision.name !== 'string' || typeof decision.quantity !== 'string' || typeof decision.unit !== 'string') {
+        throw new BulkValidationError('Invalid bulk item');
+      }
+      keys.add(decision.key);
+      try {
+        prepared.push({
+          key: decision.key,
+          line: decision.line,
+          action: decision.action,
+          value: validate({ name: decision.name, quantity: decision.quantity, unit: decision.unit })
+        });
+      } catch (err) {
+        if (err instanceof IngredientValidationError) throw new BulkValidationError('Invalid grocery item');
+        throw err;
+      }
+    }
+
+    const active = groceryItems(db, household).filter(item => !item.completed);
+    const accepted: ItemInput[] = [];
+    const conflicts: string[] = [];
+    for (const entry of prepared) {
+      if (entry.action === 'skip') continue;
+      if (active.some(item => probableGroceryMatch(entry.value.name, item.name) || probableGroceryMatch(entry.line, item.name)) ||
+          accepted.some(item => probableGroceryMatch(entry.value.name, item.name))) {
+        conflicts.push(entry.key);
+        continue;
+      }
+      accepted.push(entry.value);
+    }
+    if (conflicts.length) throw new BulkConflictError(conflicts);
+
+    for (const value of accepted) insertGrocery(db, actor, household, value);
+    return { added: accepted.length, skipped: prepared.length - accepted.length };
   }).immediate();
 }
