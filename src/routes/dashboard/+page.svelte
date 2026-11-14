@@ -47,6 +47,9 @@
   <a href={resolve('/calendar')} class="ml-4 text-teal-700">Family calendar</a>
   <a href={resolve('/meals')} class="ml-4 text-teal-700">Meals</a>
   <a href={resolve('/groceries')} class="ml-4 text-teal-700">Groceries</a>
+  {#if data.role === 'parent'}
+    <a href={resolve('/expenses')} class="ml-4 text-teal-700">Expenses</a>
+  {/if}
   <h1 class="mt-6 text-3xl font-bold">{data.role === 'parent' ? `Hello, ${data.name}` : `${data.name}'s My Day`}</h1>
   <p class="mt-2">{data.role === 'parent' ? 'Parent dashboard' : 'Your day'}</p>
   {#if data.role === 'parent'}
