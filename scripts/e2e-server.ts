@@ -42,7 +42,11 @@ for (const fixture of [
   { key: 'd', name: 'Grocery Parent D', role: 'parent' },
   { key: 'e', name: 'Grocery Parent E', role: 'parent' },
   { key: 'f', name: 'Grocery Parent F', role: 'parent' },
-  { key: 'kid', name: 'Grocery Kid', role: 'kid' }
+  { key: 'kid', name: 'Grocery Kid', role: 'kid' },
+  { key: 'bulk-a', name: 'Bulk Grocery Parent A', role: 'parent' },
+  { key: 'bulk-b', name: 'Bulk Grocery Parent B', role: 'parent' },
+  { key: 'bulk-kid', name: 'Bulk Grocery Kid', role: 'kid' },
+  { key: 'bulk-live', name: 'Bulk Grocery Live Parent', role: 'parent' }
 ] as const) {
   const created = await auth.api.signUpEmail({ body: { name: fixture.name, email: `grocery-parent-${fixture.key}@example.test`, password: `synthetic-grocery-parent-${fixture.key}-password` } });
   const householdId = `synthetic-grocery-${fixture.key}-household`;

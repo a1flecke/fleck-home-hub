@@ -39,6 +39,22 @@ A parent selects ingredient lines from a meal and chooses **Review selected ingr
 
 The parent can edit the name, quantity and unit, then choose **Add as new item**, **Skip this item**, or, when a match exists, **Keep separate duplicate**. Confirming writes the accepted rows in one immediate transaction and shows how many were added and skipped.
 
+## Adding several items at once
+
+The grocery list links to **Add several groceries**, where an active household member can paste up to 30 nonempty lines in a single request. The pasted text is limited to 6,000 characters. Blank lines are ignored.
+
+The review page shows every original line, an editable name, quantity and unit, and:
+
+- a review notice when the conservative parser could not split a line confidently;
+- the existing active grocery item when the proposed name probably matches one;
+- a notice when the same name appears again later in the pasted batch.
+
+Lines that match an existing item or an earlier line default to **Skip this item**. Nothing is written during preview, and the review never changes, combines or overwrites an existing row.
+
+Confirming revalidates the whole batch inside one SQLite immediate transaction. It checks the caller's active household membership, the row count, every edited field, the current active list and duplicate names among the accepted rows. If another member adds a matching item after review, or an edited name still matches the list, the whole batch is rejected and no rows are written. The review is shown again with the submitted edits so the member can correct or skip the affected rows. A repeated submission of an already accepted batch is rejected by the same duplicate check and cannot create a second copy.
+
+Bulk entry does not create an intentional duplicate of an existing item or of another row in the same batch. To keep a separate duplicate, use the individual **Add item** form. A successful confirmation redirects to the grocery list with the actual number of items added and skipped. The existing live updates, bought grouping, parent-only clearing and individual entry continue to operate on the same list.
+
 ## How lines are parsed
 
 The parser in `src/lib/grocery/ingredient-parser.ts` is deliberately conservative. It separates only a leading quantity and a recognized unit or counted item.
