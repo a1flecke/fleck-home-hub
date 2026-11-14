@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { expenseDates } from '../expenses/recurrence';
-import { listExpenses } from './expenses';
+import { expenseToday, listExpenses } from './expenses';
 
 type PaymentInput = { expenseId: string; scheduledDate: string; paidDate: string; amountCents: number; note: string; requestId: string };
 type PreviousPayment = { id: string; actor_id: string; expense_id: string; scheduled_date: string; paid_date: string; amount_cents: number; note: string | null };
@@ -21,8 +21,9 @@ export function recordExpensePayment(db: Database.Database, actor: string, house
       if (previous.actor_id !== actor || previous.expense_id !== input.expenseId || previous.scheduled_date !== input.scheduledDate || previous.paid_date !== input.paidDate || previous.amount_cents !== input.amountCents || previous.note !== note) throw new Error('Request already used');
       return previous.id;
     }
+    if (input.paidDate > expenseToday(db, household)) throw new Error('Payment date cannot be in the future');
     const occurrence = listExpenses(db, actor, household, input.scheduledDate, input.scheduledDate).find(item => item.id === input.expenseId);
-    const original = db.prepare('SELECT planned_title, planned_amount_cents, planned_payee, planned_category, planned_notes FROM expense_payment WHERE expense_id = ? AND scheduled_date = ? ORDER BY rowid LIMIT 1').get(input.expenseId, input.scheduledDate) as { planned_title: string; planned_amount_cents: number; planned_payee: string | null; planned_category: string | null; planned_notes: string | null } | undefined;
+    const original = db.prepare('SELECT planned_title, planned_amount_cents, planned_payee, planned_category, planned_notes FROM expense_payment WHERE household_id = ? AND expense_id = ? AND scheduled_date = ? ORDER BY rowid LIMIT 1').get(household, input.expenseId, input.scheduledDate) as { planned_title: string; planned_amount_cents: number; planned_payee: string | null; planned_category: string | null; planned_notes: string | null } | undefined;
     if (!occurrence && !original) throw new Error('Expense unavailable');
     const plannedTitle = original?.planned_title ?? occurrence?.title;
     const plannedAmount = original?.planned_amount_cents ?? occurrence?.amountCents;
@@ -51,5 +52,10 @@ export function listExpensePayments(db: Database.Database, actor: string, househ
     r.actor_id AS reversedBy, r.reason AS reversalReason, r.created_at AS reversedAt
     FROM expense_payment p LEFT JOIN expense_payment_reversal r ON r.payment_id = p.id
     WHERE p.household_id = ? AND p.scheduled_date BETWEEN ? AND ?
-    ORDER BY p.scheduled_date, p.created_at, p.id`).all(household, from, through);
+    ORDER BY p.scheduled_date, p.created_at, p.id`).all(household, from, through) as {
+      id: string; expenseId: string; scheduledDate: string; paidDate: string; amountCents: number;
+      plannedTitle: string; plannedAmountCents: number; plannedPayee: string | null; plannedCategory: string | null;
+      plannedNotes: string | null; actorId: string; note: string | null; createdAt: string;
+      reversedBy: string | null; reversalReason: string | null; reversedAt: string | null;
+    }[];
 }

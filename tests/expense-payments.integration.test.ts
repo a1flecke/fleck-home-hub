@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
@@ -13,6 +13,27 @@ import { balance, recordPayout } from '../src/lib/server/payouts';
 import { createExpense, updateExpense, setExpenseState } from '../src/lib/server/expenses';
 import { recordExpensePayment, reverseExpensePayment, listExpensePayments } from '../src/lib/server/expense-payments';
 
+it('accepts payment on the household date and rejects tomorrow even after UTC midnight', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON');
+    await migrate(db);
+    db.prepare("INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('parent', 'Parent', 'parent@example.test', 0, 0, 0)").run();
+    db.prepare("INSERT INTO household VALUES ('home', 'Synthetic')").run();
+    db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES ('parent', 'home', 'parent')").run();
+    db.prepare("INSERT INTO household_settings VALUES ('home', 'Pacific/Honolulu')").run();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-14T00:30:00Z'));
+
+    const expenseId = createExpense(db, 'parent', 'home', { title: 'Internet', amountCents: 7000, dueDate: '2026-11-18', cadence: 'once', payee: '', category: '', notes: '' });
+    const input = { expenseId, scheduledDate: '2026-11-18', paidDate: '2026-11-14', amountCents: 7000, note: '', requestId: 'first' };
+    expect(() => recordExpensePayment(db, 'parent', 'home', input)).toThrow('Payment date cannot be in the future');
+    expect(db.prepare('SELECT paid_date FROM expense_payment').all()).toEqual([]);
+    recordExpensePayment(db, 'parent', 'home', { ...input, paidDate: '2026-11-13' });
+    expect(db.prepare('SELECT paid_date FROM expense_payment').all()).toEqual([{ paid_date: '2026-11-13' }]);
+  } finally { vi.useRealTimers(); db.close(); }
+});
+
 it('records a payment idempotently, preserves it on reversal, and permits a corrected replacement', async () => {
   const db = new Database(':memory:');
   try {
@@ -23,7 +44,7 @@ it('records a payment idempotently, preserves it on reversal, and permits a corr
     for (const [id, role] of [['parent', 'parent'], ['kid', 'kid']]) db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(id, 'home', role);
     const input = { title: 'Internet', amountCents: 7000, dueDate: '2099-01-31', cadence: 'once' as const, payee: '', category: '', notes: '' };
     const expense = createExpense(db, 'parent', 'home', input);
-    const payment = { expenseId: expense, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 6900, note: 'receipt', requestId: 'first' };
+    const payment = { expenseId: expense, scheduledDate: '2099-01-31', paidDate: '2026-10-30', amountCents: 6900, note: 'receipt', requestId: 'first' };
     expect(() => recordExpensePayment(db, 'kid', 'home', payment)).toThrow();
     const id = recordExpensePayment(db, 'parent', 'home', payment);
     expect(recordExpensePayment(db, 'parent', 'home', payment)).toBe(id);
@@ -49,7 +70,7 @@ it('permits correcting a recorded occurrence after its recurring series ends', a
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
     db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, 'parent')").run('parent', 'home');
     const expenseId = createExpense(db, 'parent', 'home', { title: 'Internet', amountCents: 7000, dueDate: '2099-01-31', cadence: 'monthly', payee: '', category: '', notes: '' });
-    const payment = { expenseId, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 6900, note: '', requestId: 'first' };
+    const payment = { expenseId, scheduledDate: '2099-01-31', paidDate: '2026-10-30', amountCents: 6900, note: '', requestId: 'first' };
     const id = recordExpensePayment(db, 'parent', 'home', payment);
     setExpenseState(db, 'parent', 'home', expenseId, 'ended');
     reverseExpensePayment(db, 'parent', 'home', id, 'Incorrect amount');
@@ -85,7 +106,7 @@ it('blocks direct database changes to a paid one-off date and paid occurrence sk
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
     db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, 'parent')").run('parent', 'home');
     const id = createExpense(db, 'parent', 'home', { title: 'Internet', amountCents: 7000, dueDate: '2099-01-31', cadence: 'once', payee: '', category: '', notes: '' });
-    recordExpensePayment(db, 'parent', 'home', { expenseId: id, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 7000, note: '', requestId: 'first' });
+    recordExpensePayment(db, 'parent', 'home', { expenseId: id, scheduledDate: '2099-01-31', paidDate: '2026-10-30', amountCents: 7000, note: '', requestId: 'first' });
     expect(() => db.prepare('UPDATE expense SET due_date = ? WHERE id = ?').run('2099-02-01', id)).toThrow();
     expect(() => db.prepare('INSERT INTO expense_skip VALUES (?, ?, ?, ?)').run(id, '2099-01-31', 'parent', '2099-01-01')).toThrow();
   } finally { db.close(); }
@@ -101,7 +122,7 @@ it('returns payment history only to the owning household parent', async () => {
     for (const [id, household, role] of [['parent', 'home', 'parent'], ['kid', 'home', 'kid'], ['outsider', 'other', 'parent']]) db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(id, household, role);
     const input = { title: 'Internet', amountCents: 7000, dueDate: '2099-01-31', cadence: 'once' as const, payee: 'Provider', category: 'Utilities', notes: 'Original note' };
     const expenseId = createExpense(db, 'parent', 'home', input);
-    const id = recordExpensePayment(db, 'parent', 'home', { expenseId, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 7000, note: '', requestId: 'first' });
+    const id = recordExpensePayment(db, 'parent', 'home', { expenseId, scheduledDate: '2099-01-31', paidDate: '2026-10-30', amountCents: 7000, note: '', requestId: 'first' });
     updateExpense(db, 'parent', 'home', expenseId, { ...input, title: 'New title', notes: 'Changed' });
     reverseExpensePayment(db, 'parent', 'home', id, 'Correction');
     expect(listExpensePayments(db, 'parent', 'home', '2099-01-01', '2099-01-31')).toMatchObject([{ id, plannedTitle: 'Internet', plannedAmountCents: 7000, plannedPayee: 'Provider', plannedCategory: 'Utilities', plannedNotes: 'Original note', amountCents: 7000, reversalReason: 'Correction' }]);
@@ -120,7 +141,7 @@ it('rejects invalid payments and request reuse with different data without writi
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
     db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, 'parent')").run('parent', 'home');
     const expenseId = createExpense(db, 'parent', 'home', { title: 'Internet', amountCents: 7000, dueDate: '2099-01-31', cadence: 'monthly', payee: '', category: '', notes: '' });
-    const input = { expenseId, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 7000, note: '', requestId: 'first' };
+    const input = { expenseId, scheduledDate: '2099-01-31', paidDate: '2026-10-30', amountCents: 7000, note: '', requestId: 'first' };
     for (const amountCents of [0, -1, 1.5]) expect(() => recordExpensePayment(db, 'parent', 'home', { ...input, amountCents })).toThrow();
     expect(() => recordExpensePayment(db, 'parent', 'home', { ...input, paidDate: '2099-02-30' })).toThrow();
     expect(() => recordExpensePayment(db, 'parent', 'home', { ...input, scheduledDate: '2099-02-01' })).toThrow();
@@ -149,7 +170,7 @@ it('restores recorded payments and reversals without changing chore balances', a
     recordPayout(db, 'parent', 'home', { childId: 'kid', amountCents: 200, date: '2026-10-30', note: '', requestId: 'payout' });
     const before = balance(db, 'home', 'kid');
     const expenseId = createExpense(db, 'parent', 'home', { title: 'Internet', amountCents: 7000, dueDate: '2099-01-31', cadence: 'once', payee: '', category: '', notes: '' });
-    const input = { expenseId, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 6900, note: '', requestId: 'first' };
+    const input = { expenseId, scheduledDate: '2099-01-31', paidDate: '2026-10-30', amountCents: 6900, note: '', requestId: 'first' };
     const id = recordExpensePayment(db, 'parent', 'home', input);
     reverseExpensePayment(db, 'parent', 'home', id, 'Correct amount');
     recordExpensePayment(db, 'parent', 'home', { ...input, amountCents: 7000, requestId: 'replacement' });
@@ -176,7 +197,7 @@ it('rolls back a rejected database insertion and remains usable', async () => {
     db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
     db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, 'parent')").run('parent', 'home');
     const expenseId = createExpense(db, 'parent', 'home', { title: 'Internet', amountCents: 7000, dueDate: '2099-01-31', cadence: 'once', payee: '', category: '', notes: '' });
-    const input = { expenseId, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 7000, note: '', requestId: 'first' };
+    const input = { expenseId, scheduledDate: '2099-01-31', paidDate: '2026-10-30', amountCents: 7000, note: '', requestId: 'first' };
     db.exec("CREATE TEMP TRIGGER fail_expense_payment BEFORE INSERT ON expense_payment BEGIN SELECT RAISE(ABORT, 'synthetic failure'); END");
     expect(() => recordExpensePayment(db, 'parent', 'home', input)).toThrow();
     expect(db.prepare('SELECT count(*) AS count FROM expense_payment').get()).toEqual({ count: 0 });

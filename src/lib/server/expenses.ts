@@ -11,7 +11,7 @@ function requireParent(db: Database.Database, actor: string, household: string):
   if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household)) throw new Error('Not authorized');
 }
 
-function today(db: Database.Database, household: string): string {
+export function expenseToday(db: Database.Database, household: string): string {
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
   return localDate(new Date(), settings?.timezone ?? 'America/Chicago');
 }
@@ -46,7 +46,7 @@ export function updateExpense(db: Database.Database, actor: string, household: s
     validate(input);
     if (item.state === 'ended' || (item.cadence !== 'once' && item.due_date !== input.dueDate) || item.cadence !== input.cadence) throw new Error('Schedule cannot be changed');
     if (item.cadence === 'once' && item.due_date !== input.dueDate && db.prepare('SELECT 1 FROM expense_payment WHERE expense_id = ?').get(id)) throw new Error('Payment history exists');
-    const next = new Date(`${today(db, household)}T00:00:00Z`);
+    const next = new Date(`${expenseToday(db, household)}T00:00:00Z`);
     next.setUTCDate(next.getUTCDate() + 1);
     const effective = next.toISOString().slice(0, 10);
     const now = new Date().toISOString();
@@ -60,7 +60,7 @@ export function setExpenseState(db: Database.Database, actor: string, household:
     requireParent(db, actor, household);
     const item = getExpense(db, household, id);
     if (item.cadence === 'once' || item.state === 'ended' || item.state === state || !['active', 'paused', 'ended'].includes(state)) throw new Error('Invalid state');
-    const date = today(db, household);
+    const date = expenseToday(db, household);
     const now = new Date().toISOString();
     if (state === 'paused') db.prepare('INSERT INTO expense_pause VALUES (?, ?, NULL, ?, ?)').run(id, date, actor, now);
     if (item.state === 'paused') db.prepare('UPDATE expense_pause SET end_date = ? WHERE expense_id = ? AND end_date IS NULL').run(date, id);
@@ -72,7 +72,7 @@ export function skipExpense(db: Database.Database, actor: string, household: str
   db.transaction(() => {
     requireParent(db, actor, household);
     const item = getExpense(db, household, id);
-    if (item.cadence === 'once' || item.state !== 'active' || date <= today(db, household) || !expenseDates(item.due_date, item.cadence, date, date).length) throw new Error('Invalid occurrence');
+    if (item.cadence === 'once' || item.state !== 'active' || date <= expenseToday(db, household) || !expenseDates(item.due_date, item.cadence, date, date).length) throw new Error('Invalid occurrence');
     if (db.prepare('SELECT 1 FROM expense_payment WHERE expense_id = ? AND scheduled_date = ?').get(id, date)) throw new Error('Payment history exists');
     db.prepare('INSERT INTO expense_skip VALUES (?, ?, ?, ?)').run(id, date, actor, new Date().toISOString());
   }).immediate();
@@ -91,4 +91,17 @@ export function listExpenses(db: Database.Database, actor: string, household: st
     }
   }
   return result.sort((a, b) => a.date.localeCompare(b.date) || a.id.localeCompare(b.id));
+}
+
+export function listExpensePlans(db: Database.Database, actor: string, household: string) {
+  requireParent(db, actor, household);
+  return db.prepare(`SELECT e.id, e.due_date AS dueDate, e.cadence, e.state, v.title,
+    v.amount_cents AS amountCents, v.payee, v.category, v.notes,
+    EXISTS (SELECT 1 FROM expense_payment p WHERE p.expense_id = e.id) AS hasPaymentHistory
+    FROM expense e JOIN expense_version v ON v.expense_id = e.id
+    AND v.effective_date = (SELECT max(effective_date) FROM expense_version WHERE expense_id = e.id)
+    WHERE e.household_id = ? ORDER BY e.state = 'ended', v.title, e.id`).all(household) as {
+      id: string; dueDate: string; cadence: ExpenseCadence; state: Expense['state']; title: string;
+      amountCents: number; payee: string | null; category: string | null; notes: string | null; hasPaymentHistory: number;
+    }[];
 }

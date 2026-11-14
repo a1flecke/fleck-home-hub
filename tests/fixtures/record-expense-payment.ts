@@ -8,7 +8,7 @@ process.send?.('ready');
 process.once('message', () => {
   process.send?.('attempting');
   try {
-    recordExpensePayment(db, actor, 'home', { expenseId, scheduledDate: '2099-01-31', paidDate: '2099-01-30', amountCents: 7000, note: '', requestId });
+    recordExpensePayment(db, actor, 'home', { expenseId, scheduledDate: '2099-01-31', paidDate: '2026-10-30', amountCents: 7000, note: '', requestId });
     process.send?.('paid');
   } catch { process.send?.('rejected'); }
   finally { db.close(); process.disconnect?.(); }
