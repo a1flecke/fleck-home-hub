@@ -2,6 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { getIdentityServices } from '../../lib/server/runtime';
 import { localDate, occurrenceDates } from '../../lib/chores/recurrence';
+import { parseView, viewHeading, viewRange } from '../../lib/calendar/navigation';
 import { addUnscheduled, archiveUnscheduled, cancelEvent, cancelOccurrence, createEvent, listEvents, listUnscheduled, scheduleUnscheduled, updateEvent, updateUnscheduled, type EventInput } from '../../lib/server/calendar';
 
 async function principal(request: Request) {
@@ -22,16 +23,14 @@ export const load: PageServerLoad = async ({ request, url }) => {
   const { db, actor, householdId, role } = await principal(request);
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(householdId) as { timezone: string } | undefined;
   const timezone = settings?.timezone ?? 'America/Chicago';
-  const date = url.searchParams.get('date') || localDate(new Date(), timezone);
+  const today = localDate(new Date(), timezone);
+  const date = url.searchParams.get('date') || today;
   try { occurrenceDates(date, date, [0]); } catch { error(400, 'Invalid calendar date'); }
-  const view = ['day', 'week', 'month'].includes(url.searchParams.get('view') ?? '') ? url.searchParams.get('view')! : 'week';
-  const first = new Date(`${date}T00:00:00Z`), last = new Date(first);
-  if (view === 'week') { first.setUTCDate(first.getUTCDate() - first.getUTCDay()); last.setTime(first.getTime()); last.setUTCDate(last.getUTCDate() + 6); }
-  if (view === 'month') { first.setUTCDate(1); last.setUTCMonth(last.getUTCMonth() + 1, 0); }
-  const start = first.toISOString().slice(0, 10), end = last.toISOString().slice(0, 10);
+  const view = parseView(url.searchParams.get('view'));
+  const { start, end } = viewRange(date, view);
   const events = listEvents(db, actor, householdId, start, end);
   const members = db.prepare('SELECT u.id, u.name FROM active_membership m JOIN user u ON u.id = m.user_id WHERE m.household_id = ? ORDER BY u.name').all(householdId) as { id: string; name: string }[];
-  return { date, view, start, end, timezone, role, events, members, inbox: listUnscheduled(db, actor, householdId) };
+  return { date, view, start, end, heading: viewHeading(date, view), today, timezone, role, events, members, inbox: listUnscheduled(db, actor, householdId) };
 };
 
 export const actions = {

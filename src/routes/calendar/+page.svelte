@@ -3,6 +3,7 @@
   import EventForm from './EventForm.svelte';
   import InboxForm from './InboxForm.svelte';
   import Disclosure from './Disclosure.svelte';
+  import { shiftDate } from '../../lib/calendar/navigation';
   import type { PageData } from './$types';
   import type { EventInput } from '../../lib/server/calendar';
   type FormResult = { message: string; eventError?: { id: string; inbox: string; input: EventInput }; inboxError?: { id: string; input: { title: string; description: string; ownerId: string } } };
@@ -10,6 +11,8 @@
   let selectedDate = $derived(data.date);
   let eventError = $derived(form?.eventError);
   let inboxError = $derived(form?.inboxError);
+  let previousDate = $derived(shiftDate(data.date, data.view, -1));
+  let nextDate = $derived(shiftDate(data.date, data.view, 1));
   const action = (name: string) => `?/${name}&date=${data.date}&view=${data.view}`;
 </script>
 <svelte:head><title>Family calendar · Fleck Home Hub</title></svelte:head>
@@ -18,12 +21,17 @@
   <h1 class="mt-6 text-3xl font-bold">Family calendar</h1>
   <p class="mt-2">Times are shown in {data.timezone}.</p>
   {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}</p>{/if}
+  <nav aria-label="Calendar navigation" class="mt-6 flex flex-wrap items-center gap-2">
+    <a href={resolve(`/calendar?date=${encodeURIComponent(previousDate)}&view=${data.view}`)} rel="prev" aria-label={`Previous ${data.view}`} class="rounded-xl border border-teal-700 px-4 py-3">Previous</a>
+    <a href={resolve(`/calendar?date=${encodeURIComponent(data.today)}&view=${data.view}`)} class="rounded-xl border border-teal-700 px-4 py-3">Today</a>
+    <a href={resolve(`/calendar?date=${encodeURIComponent(nextDate)}&view=${data.view}`)} rel="next" aria-label={`Next ${data.view}`} class="rounded-xl border border-teal-700 px-4 py-3">Next</a>
+  </nav>
+  <h2 class="mt-4 text-xl font-bold">{data.heading}</h2>
   <form method="GET" class="mt-6 flex flex-wrap items-end gap-3">
     <label>Choose date<input type="date" name="date" bind:value={selectedDate} class="mt-1 block rounded-lg border p-3" /></label>
     <label>View<select name="view" class="mt-1 block rounded-lg border p-3"><option value="day" selected={data.view === 'day'}>Day</option><option value="week" selected={data.view === 'week'}>Week</option><option value="month" selected={data.view === 'month'}>Month</option></select></label>
     <button class="rounded-xl border border-teal-700 px-4 py-3">Show calendar</button>
   </form>
-  <h2 class="mt-6 text-xl font-bold">{data.start}{data.start === data.end ? '' : ` – ${data.end}`}</h2>
   {#if !data.events.length}<p class="mt-4">Nothing scheduled for these dates.</p>{/if}
   {#each data.events as event (`${event.id}-${event.date}`)}
     <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm">
