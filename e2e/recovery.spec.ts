@@ -102,7 +102,9 @@ test('recovery keeps edits through delayed hydration and a rejected submission',
   await page.goto('/chores/recovery');
   const form = page.getByRole('form', { name: 'Create late chore for ' + title + ' on ' + date, exact: true });
   for (let index = 0; index < 100 && await form.count() === 0; index++) {
-    await page.getByRole('link', { name: 'Next chore', exact: true }).click();
+    const next = await page.getByRole('link', { name: 'Next chore', exact: true }).getAttribute('href');
+    if (!next) throw new Error('Missing recovery pagination destination');
+    await page.goto(new URL(next, page.url()).href);
   }
   await expect(form).toBeVisible();
   const reviewUrl = page.url();
