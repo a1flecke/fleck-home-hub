@@ -2,11 +2,12 @@
 // Generates, and optionally installs, a per-user LaunchAgent for Fleck Home Hub.
 // Everything is a dry run unless --apply is given. The plist contains paths
 // only: no credentials, no secrets in arguments.
-import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync, statSync, accessSync, constants } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, statSync, accessSync, constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { publishPrivateFile } from './private-files.mjs';
 
 export const DEFAULT_LABEL = 'local.fleck.home-hub';
 
@@ -107,7 +108,7 @@ export function runCommand(command, o, io) {
     if (existsSync(plistPath)) return { code: 1, output: `Refusing: ${plistPath} already exists; run uninstall first\n` };
     mkdirSync(o.logDir, { recursive: true, mode: 0o700 }); chmodSync(o.logDir, 0o700);
     mkdirSync(dirname(plistPath), { recursive: true });
-    writeFileSync(plistPath, renderPlist(o), { flag: 'wx', mode: 0o600 });
+    publishPrivateFile(plistPath, renderPlist(o));
   }
   for (const [cmd, ...args] of planned[command]) {
     const result = io.run(cmd, args);

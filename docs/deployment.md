@@ -6,6 +6,22 @@ This is the runbook for hosting the hub on an always-on Mac. The tooling below i
 
 The toolchain is pinned by `mise.toml` and `mise.lock`, and the lock lists **`macos-arm64` and `linux-x64` only**. An Apple-silicon Mac is the supported host. An Intel Mac (`macos-x64`) has no locked Node or pnpm binaries, so `MISE_LOCKED_SCOPES=project mise install --locked` cannot provide the pinned toolchain there; the preflight reports FAIL. Do not bypass the lock with unlocked tools. Supporting Intel would need a reviewed `mise lock` change that adds the platform and its checksums.
 
+## First install
+
+Use an Apple-silicon Mac, install [mise](https://mise.jdx.dev/getting-started.html) and [Tailscale](https://tailscale.com/download/mac), and sign in to the intended tailnet. Enable MagicDNS and HTTPS certificates for the tailnet if Tailscale asks. Clone this repository to a location you intend to keep. If mise prompts for trust, review and trust the checkout.
+
+Run this in a private terminal from the checkout:
+
+```sh
+mise run setup
+```
+
+The task generates a private service configuration and initializes a blank database under `~/.config/fleck-home-hub`. It installs pinned tools and frozen dependencies, builds for the Mac’s Tailscale address, installs the login LaunchAgent, and verifies that it owns the loopback listener before configuring Serve. If the default HTTPS port is occupied, the task tries ports 8443 and 10000. It prints the full HTTPS URL and a one-time code after verifying the endpoint from the host. Use **Set up our family** at that URL to create the household and parent account. Give the code to the first parent through a private channel.
+
+If you close the terminal, setup is interrupted, or the code expires, run the same command again from the same checkout. The command keeps the saved address and private configuration. After a parent account exists it provides the URL without issuing a new code. An occupied saved address or a different LaunchAgent using the same label requires operator attention. The task uses private Tailscale Serve and preserves other routes. Tailnet access, sleep settings, backups, and upgrades remain operator responsibilities.
+
+The following sections cover manual deployment and maintenance.
+
 ## 1. Preflight (read-only)
 
 ```bash
@@ -33,7 +49,7 @@ The launcher reads this file as **data**: only the five keys above, one `KEY=VAL
 
 `AUTH_ORIGIN` must be the exact HTTPS origin the browsers use. It is also a **build-time** input (`paths.origin`), so export it when building and rebuild whenever it changes.
 
-## 3. Provision, build, start locally
+## 3. Manual provisioning and startup
 
 1. `./scripts/bootstrap.sh`, then build with the origin: `AUTH_ORIGIN=https://… mise run build`. The preflight's `build-origin` check compares the build with `AUTH_ORIGIN`.
 2. For a new install, run `mise run setup-code -- --config-file "$HOME/.config/fleck-home-hub/hub.conf"` from a private host terminal. It uses the same owner-only configuration file as the service launcher. It creates and migrates an empty database in the private directory and displays a one-time code on the controlling terminal. The code expires after 30 minutes. Give it to the first parent through a trusted private channel. The parent will create all accounts and household records in the browser. Run the operator command again if the code expires or needs replacement. It refuses to open setup on an existing configured household.

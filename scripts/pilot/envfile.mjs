@@ -2,6 +2,9 @@
 // the file: lines are KEY=VALUE for an allowlist of keys, with no expansion.
 // scripts/pilot/launch.sh implements the same rules in POSIX shell; the tests
 // run both against the same fixtures.
+import { closeSync, constants, fstatSync, openSync, readFileSync } from 'node:fs';
+import { isAbsolute } from 'node:path';
+
 export const ALLOWED_KEYS = ['AUTH_SECRET', 'DATABASE_PATH', 'AUTH_ORIGIN', 'HOST', 'PORT'];
 
 /** @param {string} text @returns {{ values: Record<string, string>, errors: string[] }} */
@@ -26,4 +29,17 @@ export function parseEnvFile(text) {
     values[key] = value;
   });
   return { values, errors };
+}
+
+/** @param {string} path */
+export function readPrivateConfig(path) {
+  if (!isAbsolute(path)) throw new Error('Expected an absolute config file path');
+  const file = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const stat = fstatSync(file);
+    if (!stat.isFile() || (stat.mode & 0o077) !== 0 || stat.uid !== process.getuid?.()) throw new Error('Private configuration file required');
+    const parsed = parseEnvFile(readFileSync(file, 'utf8'));
+    if (parsed.errors.length) throw new Error('Invalid configuration file');
+    return parsed.values;
+  } finally { closeSync(file); }
 }
