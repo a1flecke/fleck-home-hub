@@ -5,6 +5,12 @@ Household access requires both authentication and an active membership:
 - **Authentication** is a Better Auth session. It is global to the account and carries no household.
 - **Household membership** is a row in `membership`. A valid session authorizes nothing by itself; every household read and write checks membership on the server.
 
+## Add your family
+
+A parent can invite another parent during setup or under **Household access**. Share the recipient link privately. Setup shows the invite status, and replacing a pending link revokes the older one. The recipient chooses their own sign-in details.
+
+Use **Manage child profiles and sign-in** to add children without email addresses, correct names, or set a username and password later. Share those details privately and direct the child to **Child sign-in**. A parent can set a new password if the child loses access. This ends their existing sessions while preserving their profile, assigned chores, and earnings. Children who already sign in with an email address continue using the same account.
+
 ## Disabled membership (PR B1)
 
 A parent can disable one member of one household. The row stays, with `disabled_at` and `disabled_by`; the global user, the person's other households, chores, earnings, payouts, transitions and audit actors are untouched. `chore`, `earning` and `payout` foreign-key to `membership`, which is why a member is never deleted.
@@ -51,9 +57,9 @@ A parent can disable one member of one household. The row stays, with `disabled_
 
 ### Limits
 
-- Disabling the final active membership revokes the account's existing sessions. A later sign-in can still authenticate the account, but it gives no access to the disabled household. Accounts with other active memberships keep their sessions.
+- Disabling the final active membership revokes the account's existing sessions. A later email sign-in on a legacy account can still authenticate the account without granting access to the disabled household. Managed-child sign-in requires an active child membership. Accounts with other active memberships keep their sessions.
 - The disable worker uses Better Auth 1.7.14's typed plugin context to revoke sessions on its SQLite connection. Membership, invitations, displays and session deletion commit together or roll back together. Revalidate this framework contract when upgrading Better Auth. No admin plugin or HTTP revocation endpoint is enabled.
-- There is no "sign out everywhere including this device" action; use sign out after ending the others. There is no automatic revocation on password change because there is no password-change flow yet.
+- There is no "sign out everywhere including this device" action; use sign out after ending the others. The parent-managed child password reset ends all sessions for that managed child account.
 - Device labels come from the User-Agent header and are only a hint. IP addresses are not shown because forwarded headers are not trusted.
 
 ### Displays and disabling

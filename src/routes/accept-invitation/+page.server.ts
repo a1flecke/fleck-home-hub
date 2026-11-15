@@ -2,6 +2,7 @@ import { fail, redirect } from '@sveltejs/kit';
 import Database from 'better-sqlite3';
 import type { Actions, PageServerLoad } from './$types';
 import { readIdentityConfig } from '../../lib/server/config';
+import { isManagedEmail } from '../../lib/server/managed-children';
 import { redeemInvitation } from '../../lib/server/invitations';
 
 export const load: PageServerLoad = ({ url }) => ({ success: url.searchParams.get('success') === '1' });
@@ -14,6 +15,7 @@ export const actions = {
     const name = String(form.get('name') ?? '');
     const email = String(form.get('email') ?? '');
     const password = String(form.get('password') ?? '');
+    if (isManagedEmail(email)) return fail(400, { token, name, email, message: 'Enter the email address you use to sign in.' });
     const db = new Database(config.dbPath, { fileMustExist: true });
     db.pragma('foreign_keys = ON');
     try { await redeemInvitation(db, config, token, { name, email, password }); }

@@ -40,6 +40,10 @@ run = "pnpm run e2e"
 description = "Check pnpm version parity"
 run = "node scripts/check-tool-versions.mjs"
 
+[tasks.setup-code]
+description = "Generate the private one-time family setup code"
+run = "pnpm exec tsx scripts/setup-code.ts"
+
 [tasks.bootstrap-account]
 description = "Provision a new database from private JSON on standard input"
 run = "pnpm exec tsx scripts/bootstrap-account.ts"

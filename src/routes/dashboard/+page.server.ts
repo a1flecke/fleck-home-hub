@@ -8,6 +8,7 @@ import { createSeries, generateOccurrences, setHouseholdTimezone, setSeriesState
 import { balance, recordPayout, reversePayout, setPayday } from '../../lib/server/payouts';
 import { nextPayday } from '../../lib/earnings/payday';
 import { randomUUID } from 'node:crypto';
+import { onboardingStep } from '../../lib/server/onboarding';
 import { listMeals } from '../../lib/server/meals';
 
 async function principal(request: Request) {
@@ -20,7 +21,7 @@ async function principal(request: Request) {
   return { ...services, session, membership };
 }
 
-export const load: PageServerLoad = async ({ request }) => {
+export const load: PageServerLoad = async ({ request, url }) => {
   const { db, session, membership } = await principal(request);
   const { householdId, role } = membership;
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(householdId) as { timezone: string } | undefined;
@@ -40,7 +41,11 @@ export const load: PageServerLoad = async ({ request }) => {
     next: item.state === 'active' ? (db.prepare("SELECT o.scheduled_date AS date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date >= ? AND c.status = 'todo' AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) ORDER BY o.scheduled_date LIMIT 1").get(item.id, today) as { date: string } | undefined)?.date : undefined,
     skips: (db.prepare('SELECT scheduled_date AS date FROM recurring_skip WHERE series_id = ? ORDER BY scheduled_date DESC').all(item.id) as { date: string }[]).map(skip => skip.date)
   }));
-  return { name: session.user.name, ...membership, chores, children, balances, series, today, timezone, payday, meals };
+  const onboarding = role === 'parent' ? onboardingStep(db, householdId) : undefined;
+  return {
+    onboardingPending: Boolean(onboarding && onboarding !== 'complete'),
+    showWelcome: onboarding === 'complete' && url.searchParams.get('welcome') === '1',
+    name: session.user.name, ...membership, chores, children, balances, series, today, timezone, payday, meals };
 };
 
 export const actions: Actions = {
