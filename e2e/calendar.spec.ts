@@ -11,6 +11,20 @@ async function waitForHydration(page: Page) {
   await page.waitForLoadState('networkidle');
 }
 
+function householdLocalDate(timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date());
+  const part = (type: string) => parts.find(item => item.type === type)?.value;
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+async function signInAsParent(page: Page) {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+}
+
 test('parent creates and edits an event and schedules an inbox item', async ({ page }, testInfo) => {
   const eventTitle = `Synthetic calendar walk ${testInfo.repeatEachIndex}`;
   const updatedTitle = `Synthetic walk updated ${testInfo.repeatEachIndex}`;
@@ -175,7 +189,7 @@ test('calendar view and inbox owner selections survive delayed hydration', async
   } finally { release(); await context.close(); }
 });
 
-test('calendar routes reject anonymous, child and cross-origin mutations', async ({ page }) => {
+test('calendar routes reject anonymous, child, disabled and cross-origin requests', async ({ page, browser }) => {
   const headers = { origin: 'http://127.0.0.1:4173' };
   const form = { title: 'Forged event', date: '2099-08-01', allDay: 'on' };
   const anonymous = await page.request.post('/calendar?/saveEvent', { form, headers, maxRedirects: 0 });
@@ -192,6 +206,12 @@ test('calendar routes reject anonymous, child and cross-origin mutations', async
   expect(crossOrigin.status()).toBe(403);
   const response = await page.request.get('/calendar');
   expect(response.headers()['cache-control']).toContain('no-store');
+  const disabledContext = await browser.newContext();
+  try {
+    const login = await disabledContext.request.post('http://127.0.0.1:4173/api/auth/sign-in/email', { headers, data: { email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' } });
+    expect(login.status()).toBe(200);
+    expect((await disabledContext.request.get('http://127.0.0.1:4173/calendar', { maxRedirects: 0 })).status()).toBe(403);
+  } finally { await disabledContext.close(); }
 });
 
 test('calendar event creation works without JavaScript', async ({ page, browser }, testInfo) => {
@@ -237,4 +257,148 @@ test('invalid event retains entered details for correction', async ({ page }, te
   await section.getByLabel('End time').fill('16:00');
   await section.getByRole('button', { name: 'Save event' }).click();
   await expect(articleByTitle(page, title)).toBeVisible();
+});
+
+test('calendar navigation shifts by view, keeps the date and works from the keyboard', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 375, height: 812 });
+  await signInAsParent(page);
+  await page.goto('/calendar?date=2028-01-31&view=month');
+  const nav = page.getByRole('navigation', { name: 'Calendar navigation' });
+  await expect(page.getByRole('heading', { name: 'January 2028' })).toBeVisible();
+
+  await nav.getByRole('link', { name: 'Next month', exact: true }).click();
+  await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=month$/);
+  await expect(page.getByRole('heading', { name: 'February 2028' })).toBeVisible();
+  await nav.getByRole('link', { name: 'Next month', exact: true }).click();
+  await expect(page).toHaveURL(/\/calendar\?date=2028-03-29&view=month$/);
+  await nav.getByRole('link', { name: 'Previous month', exact: true }).click();
+  await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=month$/);
+
+  const viewForm = page.locator('form[method="GET"]');
+  await viewForm.getByLabel('View').selectOption('week');
+  await viewForm.getByRole('button', { name: 'Show calendar' }).click();
+  await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=week$/);
+  await expect(page.getByRole('heading', { name: 'Week of February 27 – March 4, 2028' })).toBeVisible();
+
+  const previousWeek = page.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Previous week', exact: true });
+  await previousWeek.focus();
+  await expect(previousWeek).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(/\/calendar\?date=2028-02-22&view=week$/);
+  await expect(page.getByRole('heading', { name: 'Week of February 20 – 26, 2028' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Next week', exact: true }).click();
+  await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=week$/);
+
+  await viewForm.getByLabel('View').selectOption('day');
+  await viewForm.getByRole('button', { name: 'Show calendar' }).click();
+  await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=day$/);
+  await expect(page.getByRole('heading', { name: 'Tuesday, February 29, 2028' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Previous day', exact: true }).click();
+  await expect(page).toHaveURL(/\/calendar\?date=2028-02-28&view=day$/);
+
+  const beforeToday = householdLocalDate('America/Chicago');
+  await page.goto('/calendar?date=2028-01-01&view=day');
+  const todayLink = page.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Today', exact: true });
+  const todayHref = await todayLink.getAttribute('href');
+  const afterToday = householdLocalDate('America/Chicago');
+  const expectedTodayUrl = new URL(todayHref!, page.url()).href;
+  expect([beforeToday, afterToday]).toContain(new URL(expectedTodayUrl).searchParams.get('date'));
+  await todayLink.click();
+  await expect(page).toHaveURL(expectedTodayUrl);
+  await page.screenshot({ path: testInfo.outputPath('calendar-navigation-mobile.png'), fullPage: true });
+});
+
+test('calendar navigation works without JavaScript at mobile width', async ({ page, browser }) => {
+  await signInAsParent(page);
+  const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  try {
+    const noScript = await context.newPage();
+    await noScript.goto('/calendar?date=2028-02-29&view=week');
+    await expect(noScript.getByRole('heading', { name: 'Week of February 27 – March 4, 2028' })).toBeVisible();
+    await expect(noScript.locator('form[method="GET"]').getByLabel('Choose date')).toHaveValue('2028-02-29');
+    await expect(noScript.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Today', exact: true })).toBeVisible();
+
+    const nextWeek = noScript.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Next week', exact: true });
+    const box = await nextWeek.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(375);
+    await nextWeek.click();
+    await expect(noScript).toHaveURL(/\/calendar\?date=2028-03-07&view=week$/);
+    await expect(noScript.getByRole('heading', { name: 'Week of March 5 – 11, 2028' })).toBeVisible();
+
+    const beforeToday = householdLocalDate('America/Chicago');
+    await noScript.goto('/calendar?date=2028-01-01&view=week');
+    const todayLink = noScript.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Today', exact: true });
+    const todayHref = await todayLink.getAttribute('href');
+    const afterToday = householdLocalDate('America/Chicago');
+    const expectedTodayUrl = new URL(todayHref!, noScript.url()).href;
+    expect([beforeToday, afterToday]).toContain(new URL(expectedTodayUrl).searchParams.get('date'));
+    await todayLink.click();
+    await expect(noScript).toHaveURL(expectedTodayUrl);
+
+    const form = noScript.locator('form[method="GET"]');
+    await form.getByLabel('Choose date').fill('2028-12-31');
+    await form.getByLabel('View').selectOption('month');
+    await form.getByRole('button', { name: 'Show calendar' }).click();
+    await expect(noScript).toHaveURL(/\/calendar\?date=2028-12-31&view=month$/);
+    await expect(noScript.getByRole('heading', { name: 'December 2028' })).toBeVisible();
+    await noScript.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Previous month', exact: true }).click();
+    await expect(noScript).toHaveURL(/\/calendar\?date=2028-11-30&view=month$/);
+    await expect(noScript.getByRole('heading', { name: 'November 2028' })).toBeVisible();
+  } finally { await context.close(); }
+});
+
+test('a child can navigate the calendar but sees no management controls', async ({ page }) => {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('kid@example.test');
+  await page.getByLabel('Password').fill('synthetic-kid-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
+  await page.goto('/calendar?date=2028-01-31&view=month');
+  const nav = page.getByRole('navigation', { name: 'Calendar navigation' });
+  await nav.getByRole('link', { name: 'Next month', exact: true }).click();
+  await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=month$/);
+  await expect(page.getByRole('heading', { name: 'February 2028' })).toBeVisible();
+  await expect(page.getByText('Add an event', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('Edit event', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Cancel/ })).toHaveCount(0);
+});
+
+function expectCalendarContext(page: Page, date: string, view: string) {
+  const url = new URL(page.url());
+  expect(url.pathname).toBe('/calendar');
+  expect(url.searchParams.get('date')).toBe(date);
+  expect(url.searchParams.get('view')).toBe(view);
+}
+
+test('calendar actions keep the selected month date and view', async ({ page }, testInfo) => {
+  const title = `Synthetic month event ${testInfo.repeatEachIndex}`;
+  await signInAsParent(page);
+  await page.goto('/calendar?date=2088-04-15&view=month');
+  const addEvent = page.locator('details').filter({ has: page.getByText('Add an event', { exact: true }) });
+  await addEvent.getByText('Add an event', { exact: true }).click();
+  await addEvent.getByLabel('Event title').fill(title);
+  await addEvent.getByLabel('All day').check();
+  const actions = await addEvent.locator('form[action^="?/saveEvent"]').getAttribute('action');
+  expect(actions).toContain('date=2088-04-15');
+  expect(actions).toContain('view=month');
+  await addEvent.getByRole('button', { name: 'Save event' }).click();
+  await expect(page.getByText('Event saved.')).toBeVisible();
+  expectCalendarContext(page, '2088-04-15', 'month');
+  const event = articleByTitle(page, title);
+  await expect(event).toBeVisible();
+
+  await event.getByText('Edit event').click();
+  await event.getByLabel('All day').uncheck();
+  await event.getByLabel('Start time').fill('15:00');
+  await event.getByLabel('End time').fill('14:00');
+  await event.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('status')).toContainText('Unable to save event');
+  expectCalendarContext(page, '2088-04-15', 'month');
+  await expect(event.getByLabel('Start time')).toHaveValue('15:00');
+
+  await event.getByRole('button', { name: 'Cancel event' }).click();
+  await expect(page.getByText('Event cancelled.')).toBeVisible();
+  expectCalendarContext(page, '2088-04-15', 'month');
+  await expect(articleByTitle(page, title)).toHaveCount(0);
 });
