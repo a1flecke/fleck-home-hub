@@ -20,11 +20,12 @@ const execFileAsync = promisify(execFile);
 
 // BSD and util-linux script both allocate a real controlling terminal. Keep
 // command stdout/stderr separate so the setup code can only arrive on the PTY.
-async function issueCodeFromConfig(config: string, directory: string) {
+async function issueCodeFromConfig(config: string, directory: string, whenNeeded = false) {
   const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
   const stdout = join(directory, 'setup-stdout');
   const stderr = join(directory, 'setup-stderr');
   const args = ['mise', 'run', 'setup-code', '--', '--config-file', config];
+  if (whenNeeded) args.push('--if-needed');
   const command = 'exec ' + args.map(quote).join(' ') + ' >' + quote(stdout) + ' 2>' + quote(stderr);
   const env = { ...process.env };
   delete env.AUTH_SECRET;
@@ -173,13 +174,15 @@ test('the packaged server supports verified restores and fresh host-authorized o
       assert.match(html, /Total verified earnings: \$2\.50/);
     }
 
-    // Restart the same packaged build against a fresh, independent database.
+    // Build for a synthetic Serve origin and send its requests over loopback.
     const exited = once(child, 'exit');
     child.kill('SIGTERM');
     await exited;
     const fresh = join(directory, 'fresh.sqlite');
+    const httpsOrigin = 'https://synthetic.example.ts.net:8443';
+    await execFileAsync('mise', ['exec', '--', 'pnpm', 'run', 'build'], { cwd: app, env: { ...process.env, AUTH_ORIGIN: httpsOrigin } });
     const configFile = join(directory, 'fresh pilot.conf');
-    writeFileSync(configFile, `AUTH_SECRET=${secret}\nDATABASE_PATH=${fresh}\nAUTH_ORIGIN=${origin}\nPORT=${port}\n`, { mode: 0o600 });
+    writeFileSync(configFile, `AUTH_SECRET=${secret}\nDATABASE_PATH=${fresh}\nAUTH_ORIGIN=${httpsOrigin}\nPORT=${port}\n`, { mode: 0o600 });
     chmodSync(configFile, 0o644);
     assert.equal(await issueCodeFromConfig(configFile, directory), undefined);
     assert.equal(existsSync(fresh), false, 'A broadly readable config must not initialize the database');
@@ -188,20 +191,32 @@ test('the packaged server supports verified restores and fresh host-authorized o
     symlinkSync(configFile, configLink);
     assert.equal(await issueCodeFromConfig(configLink, directory), undefined);
     assert.equal(existsSync(fresh), false, 'A linked config must not initialize the database');
-    const code = await issueCodeFromConfig(configFile, directory);
-    assert.ok(code, 'Issuing setup from the private service config must work without exported settings');
+    const setupEnv = { ...process.env };
+    delete setupEnv.AUTH_SECRET;
+    delete setupEnv.DATABASE_PATH;
+    delete setupEnv.AUTH_ORIGIN;
+    await execFileAsync('mise', ['run', 'setup-code', '--', '--config-file', configFile, '--prepare'], { env: setupEnv });
     assert.equal(existsSync(fresh), true);
+    const prepared = new Database(fresh, { readonly: true, fileMustExist: true });
+    try {
+      assert.equal(prepared.prepare('SELECT 1 FROM initial_setup').get(), undefined, 'Preparation must leave setup locked until the service is ready');
+    } finally { prepared.close(); }
     const { stdout: misePath } = await execFileAsync('which', ['mise']);
     child = spawn('sh', ['scripts/pilot/launch.sh'], {
       cwd: app, env: { ...process.env, HUB_ENV_FILE: configFile, HUB_MISE: misePath.trim() }, stdio: 'pipe'
     });
     child.stderr.resume();
     await waitForStart(child, origin);
+    const health = await fetch(origin + '/api/auth/ok');
+    assert.equal(health.status, 200);
+    assert.deepEqual(await health.json(), { ok: true });
+    const code = await issueCodeFromConfig(configFile, directory, true);
+    assert.ok(code, 'Issuing setup from the private service config must work without exported settings');
     const freshHome = await fetch(origin);
     assert.equal(freshHome.status, 200);
     assert.match(await freshHome.text(), /Set up our family/);
     const setup = await fetch(`${origin}/setup?/parent`, {
-      method: 'POST', headers: { origin, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
+      method: 'POST', headers: { origin: httpsOrigin, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         household: 'Production Setup Family', timezone: 'America/Denver',
         name: 'First Parent', email: 'first-parent@example.test', password: parent.password,
@@ -210,8 +225,11 @@ test('the packaged server supports verified restores and fresh host-authorized o
     });
     assert.equal(setup.status, 303);
     assert.equal(setup.headers.get('location'), '/onboarding');
-    const setupCookies = setup.headers.getSetCookie().map(cookie => cookie.split(';')[0]).join('; ');
+    const setupCookieHeaders = setup.headers.getSetCookie();
+    assert.ok(setupCookieHeaders.some(cookie => /; Secure(?:;|$)/i.test(cookie) && /; HttpOnly(?:;|$)/i.test(cookie)));
+    const setupCookies = setupCookieHeaders.map(cookie => cookie.split(';')[0]).join('; ');
     assert.ok(setupCookies);
+    assert.equal(await issueCodeFromConfig(configFile, directory, true), undefined, 'Rerunning setup cannot reopen a provisioned household');
     const onboarding = await fetch(`${origin}/onboarding`, { headers: { cookie: setupCookies }, redirect: 'manual' });
     assert.equal(onboarding.status, 200);
     const onboardingHtml = await onboarding.text();
@@ -221,7 +239,7 @@ test('the packaged server supports verified restores and fresh host-authorized o
     const childPassword = 'synthetic-production-child-password';
     const created = await fetch(`${origin}/onboarding?/add`, {
       method: 'POST',
-      headers: { origin, cookie: setupCookies, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
+      headers: { origin: httpsOrigin, cookie: setupCookies, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({
         requestId: 'ad4feb70-1bfd-4e34-9608-74283d74738d', name: 'Production Child', username: 'production-child',
         password: childPassword, confirmation: childPassword
@@ -236,19 +254,19 @@ test('the packaged server supports verified restores and fresh host-authorized o
       .get('production-child') as { email: string } | undefined;
     assert.ok(managed);
     const emailSignIn = await fetch(`${origin}/api/auth/sign-in/email`, {
-      method: 'POST', headers: { origin, 'content-type': 'application/json' },
+      method: 'POST', headers: { origin: httpsOrigin, 'content-type': 'application/json' },
       body: JSON.stringify({ email: managed.email, password: childPassword })
     });
     assert.equal(emailSignIn.status, 401);
     assert.deepEqual(emailSignIn.headers.getSetCookie(), []);
     const formEmailSignIn = await fetch(`${origin}/api/auth/sign-in/email`, {
-      method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' },
+      method: 'POST', headers: { origin: httpsOrigin, 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams([['email', 'ordinary@example.test'], ['email', managed.email], ['password', childPassword]])
     });
     assert.equal(formEmailSignIn.status, 401);
     assert.deepEqual(formEmailSignIn.headers.getSetCookie(), []);
     const childSignIn = await fetch(`${origin}/sign-in/child`, {
-      method: 'POST', headers: { origin, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
+      method: 'POST', headers: { origin: httpsOrigin, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ username: 'production-child', password: childPassword }), redirect: 'manual'
     });
     assert.equal(childSignIn.status, 303);
@@ -259,7 +277,7 @@ test('the packaged server supports verified restores and fresh host-authorized o
     assert.match(await childDashboard.text(), /Production Child/);
 
     const directPasswordChange = await fetch(`${origin}/api/auth/change-password`, {
-      method: 'POST', headers: { origin, cookie: childCookies, 'content-type': 'application/json' },
+      method: 'POST', headers: { origin: httpsOrigin, cookie: childCookies, 'content-type': 'application/json' },
       body: JSON.stringify({ currentPassword: childPassword, newPassword: 'synthetic-direct-child-password' })
     });
     assert.equal(directPasswordChange.status, 403);

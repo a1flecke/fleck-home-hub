@@ -40,6 +40,10 @@ run = "pnpm run e2e"
 description = "Check pnpm version parity"
 run = "node scripts/check-tool-versions.mjs"
 
+[tasks.setup]
+description = "Install Fleck Home Hub on this Mac and open private family setup"
+run = "node scripts/pilot/setup.ts"
+
 [tasks.setup-code]
 description = "Generate the private one-time family setup code"
 run = "pnpm exec tsx scripts/setup-code.ts"
