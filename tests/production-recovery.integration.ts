@@ -12,6 +12,7 @@ import { backupDatabase } from '../src/lib/server/backup';
 import { bootstrap, addKid } from '../src/lib/server/bootstrap';
 import { createChore, changeChore } from '../src/lib/server/chores';
 import { migrate } from '../src/lib/server/identity';
+import { issueSetupCode } from '../src/lib/server/setup-code';
 import { recordPayout } from '../src/lib/server/payouts';
 import { createExpense } from '../src/lib/server/expenses';
 import { recordExpensePayment, reverseExpensePayment } from '../src/lib/server/expense-payments';
@@ -142,6 +143,90 @@ test('a verified backup reopens in the localhost production server after a faile
       assert.match(html, /Paid so far: \$1\.00/);
       assert.match(html, /Total verified earnings: \$2\.50/);
     }
+
+    // Restart the same packaged build against a fresh, independent database.
+    const exited = once(child, 'exit');
+    child.kill('SIGTERM');
+    await exited;
+    const fresh = join(directory, 'fresh.sqlite');
+    db = new Database(fresh);
+    await migrate(db);
+    const code = issueSetupCode(db);
+    db.close(); db = undefined;
+    child = spawn('sh', ['scripts/start.sh'], { cwd: app, env: { ...env, DATABASE_PATH: fresh }, stdio: 'pipe' });
+    child.stderr.resume();
+    await waitForStart(child, origin);
+    const freshHome = await fetch(origin);
+    assert.equal(freshHome.status, 200);
+    assert.match(await freshHome.text(), /Set up our family/);
+    const setup = await fetch(`${origin}/setup?/parent`, {
+      method: 'POST', headers: { origin, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        household: 'Production Setup Family', timezone: 'America/Denver',
+        name: 'First Parent', email: 'first-parent@example.test', password: parent.password,
+        confirmation: parent.password, code
+      }), redirect: 'manual'
+    });
+    assert.equal(setup.status, 303);
+    assert.equal(setup.headers.get('location'), '/onboarding');
+    const setupCookies = setup.headers.getSetCookie().map(cookie => cookie.split(';')[0]).join('; ');
+    assert.ok(setupCookies);
+    const onboarding = await fetch(`${origin}/onboarding`, { headers: { cookie: setupCookies }, redirect: 'manual' });
+    assert.equal(onboarding.status, 200);
+    const onboardingHtml = await onboarding.text();
+    assert.match(onboardingHtml, /Production Setup Family/);
+    assert.ok(!onboardingHtml.includes(code));
+
+    const childPassword = 'synthetic-production-child-password';
+    const created = await fetch(`${origin}/onboarding?/add`, {
+      method: 'POST',
+      headers: { origin, cookie: setupCookies, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        requestId: 'ad4feb70-1bfd-4e34-9608-74283d74738d', name: 'Production Child', username: 'production-child',
+        password: childPassword, confirmation: childPassword
+      })
+    });
+    assert.equal(created.status, 200);
+    const createdHtml = await created.text();
+    assert.ok(!createdHtml.includes(childPassword));
+    assert.ok(!createdHtml.includes('children.fleck.invalid'));
+    db = new Database(fresh, { readonly: true, fileMustExist: true });
+    const managed = db.prepare('SELECT u.email FROM managed_child c JOIN user u ON u.id = c.user_id WHERE c.username = ?')
+      .get('production-child') as { email: string } | undefined;
+    assert.ok(managed);
+    const emailSignIn = await fetch(`${origin}/api/auth/sign-in/email`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/json' },
+      body: JSON.stringify({ email: managed.email, password: childPassword })
+    });
+    assert.equal(emailSignIn.status, 401);
+    assert.deepEqual(emailSignIn.headers.getSetCookie(), []);
+    const formEmailSignIn = await fetch(`${origin}/api/auth/sign-in/email`, {
+      method: 'POST', headers: { origin, 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams([['email', 'ordinary@example.test'], ['email', managed.email], ['password', childPassword]])
+    });
+    assert.equal(formEmailSignIn.status, 401);
+    assert.deepEqual(formEmailSignIn.headers.getSetCookie(), []);
+    const childSignIn = await fetch(`${origin}/sign-in/child`, {
+      method: 'POST', headers: { origin, accept: 'text/html', 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ username: 'production-child', password: childPassword }), redirect: 'manual'
+    });
+    assert.equal(childSignIn.status, 303);
+    const childCookies = childSignIn.headers.getSetCookie().map(cookie => cookie.split(';')[0]).join('; ');
+    assert.ok(childCookies);
+    const childDashboard = await fetch(`${origin}/dashboard`, { headers: { cookie: childCookies }, redirect: 'manual' });
+    assert.equal(childDashboard.status, 200);
+    assert.match(await childDashboard.text(), /Production Child/);
+
+    const directPasswordChange = await fetch(`${origin}/api/auth/change-password`, {
+      method: 'POST', headers: { origin, cookie: childCookies, 'content-type': 'application/json' },
+      body: JSON.stringify({ currentPassword: childPassword, newPassword: 'synthetic-direct-child-password' })
+    });
+    assert.equal(directPasswordChange.status, 403);
+    const rawSessions = await fetch(`${origin}/api/auth/list-sessions`, { headers: { cookie: childCookies } });
+    assert.equal(rawSessions.status, 403);
+    const safeSessions = await fetch(`${origin}/settings/sessions`, { headers: { cookie: childCookies } });
+    assert.equal(safeSessions.status, 200);
+    assert.ok(!(await safeSessions.text()).includes(childCookies));
   } finally {
     db?.close();
     if (child && child.exitCode === null && child.signalCode === null) {

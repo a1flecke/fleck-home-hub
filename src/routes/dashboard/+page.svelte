@@ -52,6 +52,18 @@
   {/if}
   <h1 class="mt-6 text-3xl font-bold">{data.role === 'parent' ? `Hello, ${data.name}` : `${data.name}'s My Day`}</h1>
   <p class="mt-2">{data.role === 'parent' ? 'Parent dashboard' : 'Your day'}</p>
+  {#if data.onboardingPending}
+    <section aria-label="Family setup" class="mt-5 rounded-2xl bg-teal-50 p-5">
+      <h2 class="text-lg font-bold">Make yourself at home</h2>
+      <p class="mt-1">Your setup progress is saved. You can use the dashboard at any time.</p>
+      <a class="mt-2 inline-block font-semibold text-teal-800 underline" href={resolve('/onboarding')}>Continue family setup</a>
+    </section>
+  {:else if data.showWelcome}
+    <section aria-label="Welcome home" class="mt-5 rounded-2xl bg-teal-50 p-5">
+      <h2 class="text-lg font-bold">Welcome home!</h2>
+      <p class="mt-1">Your family’s hub is ready. Use the links above to plan your day, or start with a chore below.</p>
+    </section>
+  {/if}
   {#if data.role === 'parent'}
     <section aria-label="Tonight's meal" class="mt-6 rounded-2xl bg-white p-5 shadow-sm">
       <h2 class="text-xl font-bold">Tonight's meal</h2>
@@ -83,7 +95,7 @@
   {/if}
   {#if data.role === 'parent'}
     <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer font-bold">Payday schedule</summary><p class="mt-2 text-sm">A reminder only; no money is transferred automatically.</p><form method="POST" action="?/payday" class="mt-3 grid gap-3"><label>First payday<input name="anchor" type="date" bind:value={paydayAnchor} required class="mt-1 block w-full rounded-lg border p-3" /></label><label>Frequency<select name="cadence" class="mt-1 block w-full rounded-lg border p-3"><option value="7" selected={data.payday?.cadence !== 14}>Weekly</option><option value="14" selected={data.payday?.cadence === 14}>Every two weeks</option></select></label><button class="rounded-xl border border-teal-700 px-4 py-3">Save payday</button></form></details>
-    <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!createError}><summary class="cursor-pointer text-xl font-bold">Add a chore</summary>
+    <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!createError}><summary id="add-chore" class="cursor-pointer text-xl font-bold">Add a chore</summary>
       {#if data.children.length}
         <form method="POST" action="?/create" class="mt-4 grid gap-3">
           <label>Chore title<input name="title" required maxlength="120" defaultValue={createTitle} class="mt-1 w-full rounded-lg border p-3" /></label>

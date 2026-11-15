@@ -22,6 +22,16 @@ Result values: `PASS`, `FAIL`, `NOT TESTED`. Record Device/OS (for example model
 | MAC-12 | Rollback: previous commit + build + pre-upgrade backup restored to a new path | Health = HEALTHY on the old version; nothing overwritten |  | NOT TESTED |  |  |  |
 | MAC-13 | `uninstall --apply` | Agent unloaded and only the project plist removed |  | NOT TESTED |  |  |  |
 
+## First family setup
+
+| ID | Test | Expected result | Actual result | Result | Device/OS | Date | Notes / evidence |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| ONB-01 | Make a new disposable installation and try setup before receiving the host code | Welcome appears, a missing or wrong code creates no household, and HTTPS is required away from loopback |  | NOT TESTED |  |  |  |
+| ONB-02 | Set up the household on a phone | Parent reaches the invitation step already signed in, and replacing an invite disables the old link |  | NOT TESTED |  |  |  |
+| ONB-03 | Redeem the invitation on a second device | Second parent creates their own credentials and can resume the same household's setup |  | NOT TESTED |  |  |  |
+| ONB-04 | Add two children, then reset one password | Each has a separate profile; child sees only permitted routes; reset closes old sessions |  | NOT TESTED |  |  |  |
+| ONB-05 | Sign out between steps, resume after restart and add a grocery item | Setup resumes at the saved step; the item remains on the real list; completion closes setup |  | NOT TESTED |  |  |  |
+
 ## Tailscale and private HTTPS
 
 | ID | Test | Expected result | Actual result | Result | Device/OS | Date | Notes / evidence |

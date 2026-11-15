@@ -29,16 +29,18 @@ AUTH_ORIGIN=https://<machine>.<tailnet>.ts.net
 # PORT=3000
 ```
 
-The launcher reads this file as **data**: only the five keys above, one `KEY=VALUE` per line, optional surrounding quotes, no expansion or command substitution, no duplicates. Anything else is refused. Generate the secret yourself without echoing it (for example `openssl rand -hex 32`, redirected straight into the file), and never paste it into GitHub, chat or shell arguments. `DATABASE_PATH` must be absolute, outside the repository, in a mode-700 directory, and must not exist before the first bootstrap.
+The launcher reads this file as **data**: only the five keys above, one `KEY=VALUE` per line, optional surrounding quotes, no expansion or command substitution, no duplicates. Anything else is refused. Generate the secret yourself without echoing it (for example `openssl rand -hex 32`, redirected straight into the file), and never paste it into GitHub, chat or shell arguments. `DATABASE_PATH` must be absolute, outside the repository, in a mode-700 directory, and can be absent before the first setup code is issued.
 
 `AUTH_ORIGIN` must be the exact HTTPS origin the browsers use. It is also a **build-time** input (`paths.origin`), so export it when building and rebuild whenever it changes.
 
 ## 3. Provision, build, start locally
 
 1. `./scripts/bootstrap.sh`, then build with the origin: `AUTH_ORIGIN=https://… mise run build`. The preflight's `build-origin` check compares the build with `AUTH_ORIGIN`.
-2. Create the first parent and household once from a private JSON file (`name`, `email`, `password`, `household`): `mise run bootstrap-account < /private/path/account.json`, with the three settings exported into that shell without leaving values in history. It exclusively creates a new database and refuses to overwrite one. Remove the input file securely afterwards. A failed setup may leave an incomplete file: inspect and keep it as evidence before retrying.
-3. Further people: a parent opens `/settings/household`, creates a seven-day single-use invitation for a role and shares the link privately; a parent can disable a member there (existing sessions stop working, last-parent protection applies); each person ends their own sessions at `/settings/sessions`; displays are paired and revoked at `/settings/displays`. `mise run add-kid` remains available for local provisioning. See [household access](household-access.md) and [display](display.md). Public signup is disabled.
-4. `mise run start` runs `scripts/start.sh` (`HOST` defaults to `127.0.0.1`, port 3000 unless `PORT` is set).
+2. For a new install, export the three private settings in a trusted shell without leaving values in history, then run `mise run setup-code` from a private host terminal. It creates and migrates an empty database in the private directory and displays a one-time code on the controlling terminal. The code expires after 30 minutes. Give it to the first parent through a trusted private channel. The parent will create all accounts and household records in the browser. Run the operator command again if the code expires or needs replacement. It refuses to open setup on an existing configured household.
+3. Start the application with `mise run start` (`HOST` defaults to `127.0.0.1` and `PORT` to 3000), then open the configured HTTPS address. Choose **Set up our family**, enter the household details and create the first parent account using the code. Invite family, add children and try an activity at your own pace. The dashboard lets you resume.
+
+The previous `mise run bootstrap-account < /private/path/account.json` command remains an administrative fallback for a database path that does not yet exist. It exclusively creates the database. Use a private input file with `name`, `email`, `password` and `household` and protect or securely remove it afterwards.
+After setup, a parent opens `/settings/household`, creates a seven-day single-use invitation for a role and shares the link privately; a parent can disable a member there (existing sessions stop working, last-parent protection applies); each person ends their own sessions at `/settings/sessions`; displays are paired and revoked at `/settings/displays`. `mise run add-kid` remains available for local provisioning. See [household access](household-access.md) and [display](display.md). Public signup is disabled.
 
 Note that the application validates `AUTH_SECRET`/`AUTH_ORIGIN`/`DATABASE_PATH` lazily, on the first authentication request, not at process start. A listening process with bad configuration still answers `/` while sign-in returns 503. The launcher validates up front for that reason, and the health check below distinguishes it.
 
@@ -89,7 +91,7 @@ Nothing here changes sleep settings. A sleeping Mac cannot serve requests: confi
 
 ## 6. Private remote access
 
-Mac service on loopback → Tailscale Serve HTTPS → authenticated browsers. Never Funnel, never router port forwarding. Review the official [Serve documentation](https://tailscale.com/docs/reference/tailscale-cli/serve) and inspect existing Serve configuration before enabling anything; use the resulting HTTPS URL as `AUTH_ORIGIN` and rebuild. Tailnet membership does not replace application authorization. Commands and the read-only checker: [Tailscale validation](tailscale-validation.md).
+Mac service on loopback → Tailscale Serve HTTPS → authenticated browsers. Never Funnel, never router port forwarding. Review the official [Serve documentation](https://tailscale.com/docs/reference/tailscale-cli/serve) and inspect existing Serve configuration before enabling anything; use the resulting HTTPS URL as `AUTH_ORIGIN` and rebuild. Tailnet membership does not replace application authorization. A remote browser must still present the one-time host-issued setup code before it can provision the first family. Forwarded addresses and identity headers do not grant setup access. Commands and the read-only checker: [Tailscale validation](tailscale-validation.md).
 
 ## 7. Backup, restore and update
 

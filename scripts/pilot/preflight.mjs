@@ -167,7 +167,7 @@ export function runPreflight(ctx) {
       else if ((dirStat.mode & 0o077) !== 0) add('database', 'FAIL', `database directory mode is ${(dirStat.mode & 0o777).toString(8)}; run chmod 700`);
       else if (fileStat && (!fileStat.isFile() || (fileStat.mode & 0o077) !== 0)) add('database', 'FAIL', 'existing database must be a regular file with mode 600');
       else if (fileStat) add('database', 'PASS', 'database file exists in a private directory with owner-only mode');
-      else add('database', 'WARN', 'database does not exist yet; provision it once with mise run bootstrap-account');
+      else add('database', 'WARN', 'database does not exist yet; prepare it with mise run setup-code');
       if (dirStat) {
         const free = attempt(dbDir, () => { const s = statfsSync(dbDir); return s.bavail * s.bsize; });
         if (typeof free !== 'number') add('disk', 'UNKNOWN', 'free disk space could not be determined');

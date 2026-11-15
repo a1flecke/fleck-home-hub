@@ -10,12 +10,23 @@ type Config = { secret: string; origin: string };
 const digest = (token: string) => createHash('sha256').update(token).digest('hex');
 let activeRedemptions = 0;
 
-export function createInvitation(db: Database.Database, actorId: string, householdId: string, role: Role) {
+export function createInvitation(db: Database.Database, actorId: string, householdId: string, role: Role, replaceParentId?: string | null) {
   if (role !== 'parent' && role !== 'kid') throw new Error('Invalid role');
   const token = randomBytes(32).toString('base64url');
   db.transaction(() => {
     const actor = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actorId, householdId) as { role: Role } | undefined;
     if (actor?.role !== 'parent') throw new Error('Not authorized');
+    if (replaceParentId !== undefined) {
+      const now = Date.now();
+      if (role !== 'parent') throw new Error('Invalid replacement');
+      if (replaceParentId) {
+        const replaced = db.prepare("UPDATE household_invitation SET revoked_at = ? WHERE id = ? AND household_id = ? AND role = 'parent' AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > ?")
+          .run(now, replaceParentId, householdId, now);
+        if (replaced.changes !== 1) throw new Error('Invitation unavailable');
+      } else if (db.prepare("SELECT 1 FROM household_invitation WHERE household_id = ? AND role = 'parent' AND consumed_at IS NULL AND revoked_at IS NULL AND expires_at > ?").get(householdId, now)) {
+        throw new Error('Invitation already pending');
+      }
+    }
     db.prepare('INSERT INTO household_invitation (id, token_hash, household_id, role, created_by, expires_at) VALUES (?, ?, ?, ?, ?, ?)')
       .run(randomUUID(), digest(token), householdId, role, actorId, Date.now() + 7 * 24 * 60 * 60 * 1000);
   }).immediate();

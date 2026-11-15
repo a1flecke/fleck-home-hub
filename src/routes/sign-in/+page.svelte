@@ -33,4 +33,5 @@
     {#if error}<p role="alert" class="text-red-800">{error}</p>{/if}
     <button type="submit" disabled={busy || !ready} class="rounded-xl bg-teal-700 px-5 py-3 font-semibold text-white">{busy ? 'Signing in…' : 'Sign in'}</button>
   </form>
+  <p class="mt-6 text-sm">Have a username from your parent? <a class="font-semibold text-teal-800 underline" href={resolve('/sign-in/child')}>Child sign-in</a></p>
 </main>

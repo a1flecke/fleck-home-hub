@@ -1,6 +1,22 @@
+import type { Page } from '@playwright/test';
 import { expect, test, openInvitation } from './invitation-test';
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off', viewport: { width: 375, height: 812 } });
+
+function pendingInvitation(page: Page, role: 'Parent' | 'Child') {
+  return page.getByRole('article').filter({ has: page.getByText(`${role} invitation pending`, { exact: true }) });
+}
+
+async function pendingInvitationIds(page: Page, role: 'Parent' | 'Child') {
+  return pendingInvitation(page, role).locator('input[name="id"]').evaluateAll(inputs => inputs.map(input => (input as HTMLInputElement).value));
+}
+
+async function expectNewInvitation(page: Page, role: 'Parent' | 'Child', previous: string[]) {
+  const existing = previous.map(id => `:not([value="${id}"])`).join('');
+  const added = pendingInvitation(page, role).filter({ has: page.locator(`input[name="id"]${existing}`) });
+  await expect(added).toHaveCount(1);
+  await expect(added).toBeVisible();
+}
 
 test('a parent invites another parent and that parent can manage household access', async ({ page, browser }) => {
   await page.goto('/sign-in');
@@ -46,22 +62,45 @@ test('a child joins after correcting an existing-email error and cannot administ
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/settings/household');
+  const previous = await pendingInvitationIds(page, 'Child');
   await page.getByLabel('Invite as').selectOption('kid');
   await page.getByRole('button', { name: 'Create invitation' }).click();
-  await expect(page.getByText('Child invitation pending')).toBeVisible();
+  await expectNewInvitation(page, 'Child', previous);
   const link = await page.getByLabel('Invitation link').inputValue();
   await page.getByLabel('Invitation link').evaluate((input: HTMLInputElement) => { input.value = ''; input.removeAttribute('value'); });
   const context = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const gate = Promise.withResolvers<void>(), requested = Promise.withResolvers<void>();
   try {
     const child = await context.newPage();
+    const formModule = '**/src/routes/accept-invitation/+page.svelte*';
+    let delayCorrection = false;
+    await child.route(formModule, async route => {
+      if (delayCorrection) {
+        requested.resolve();
+        await gate.promise;
+      }
+      await route.continue();
+    });
     await openInvitation(child, link);
+    const create = child.getByRole('button', { name: 'Create account' });
+    await expect(create).toBeEnabled();
     await child.getByLabel('Name').fill('Invited Child');
     await child.getByLabel('Email').fill('parent@example.test');
     await child.getByLabel('Password').fill('synthetic-child-password');
-    await child.getByRole('button', { name: 'Create account' }).click();
+    delayCorrection = true;
+    await create.click({ noWaitAfter: true });
     await expect(child.getByRole('alert')).toContainText('existing accounts cannot be linked');
+    await requested.promise;
     await expect(child.getByLabel('Name')).toHaveValue('Invited Child');
-    await child.getByLabel('Email').fill('invited-child@example.test');
+    const email = child.getByLabel('Email');
+    await expect(email).toHaveValue('parent@example.test');
+    await email.focus();
+    await email.evaluate(input => (input as HTMLInputElement).select());
+    gate.resolve();
+    await expect(create).toBeEnabled();
+    await child.unroute(formModule);
+    await child.keyboard.insertText('invited-child@example.test');
+    await expect(email).toHaveValue('invited-child@example.test');
     await child.getByLabel('Password').fill('synthetic-child-password');
     await child.getByRole('button', { name: 'Create account' }).click();
     await expect(child.getByText('Your account is ready.', { exact: false })).toBeVisible();
@@ -72,7 +111,7 @@ test('a child joins after correcting an existing-email error and cannot administ
     await expect(child.getByRole('heading', { name: "Invited Child's My Day" })).toBeVisible();
     const response = await child.goto('/settings/household');
     expect(response?.status()).toBe(403);
-  } finally { await context.close(); }
+  } finally { gate.resolve(); await context.close(); }
 });
 
 test('child role selected before hydration is submitted as child', async ({ page, browser }) => {
@@ -81,6 +120,12 @@ test('child role selected before hydration is submitted as child', async ({ page
   await page.getByLabel('Password').fill('synthetic-parent-password');
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  await page.goto('/settings/household');
+  await page.getByLabel('Invite as').selectOption('kid');
+  await page.getByRole('button', { name: 'Create invitation' }).click();
+  await expect(page.getByLabel('Invitation link')).toBeVisible();
+  const previous = await pendingInvitationIds(page, 'Child');
+  expect(previous.length).toBeGreaterThan(0);
   const context = await browser.newContext({ storageState: await page.context().storageState() });
   let release!: () => void, blocked!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
@@ -98,7 +143,7 @@ test('child role selected before hydration is submitted as child', async ({ page
     expect(await form.evaluate((element: HTMLFormElement) => new FormData(element).get('role'))).toBe('kid');
     await form.getByRole('button', { name: 'Create invitation' }).click();
     await delayed.getByLabel('Invitation link').evaluate((element: HTMLInputElement) => { element.value = ''; element.removeAttribute('value'); });
-    await expect(delayed.getByText('Child invitation pending')).toBeVisible();
+    await expectNewInvitation(delayed, 'Child', previous);
   } finally { release(); await context.close(); }
 });
 

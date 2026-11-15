@@ -7,6 +7,7 @@
 <main class="mx-auto max-w-3xl px-5 py-8">
   <a href={resolve('/dashboard')} class="text-teal-700">Back to home</a>
   <h1 class="mt-5 text-3xl font-bold">Household access</h1>
+  <a class="mt-3 inline-block font-semibold text-teal-800 underline" href={resolve(`/settings/children?household=${encodeURIComponent(data.householdId)}`)}>Manage child profiles and sign-in</a>
   <p class="mt-2">See who can use your household and invite someone you trust.</p>
   {#if data.households.length > 1}
     <form method="GET" class="mt-5"><label>Household <select name="household" class="rounded-xl border p-3">{#each data.households as household (household.id)}<option value={household.id} selected={household.id === data.householdId}>{household.name}</option>{/each}</select></label><button class="ml-2 rounded-xl border px-4 py-3">Show household</button></form>
