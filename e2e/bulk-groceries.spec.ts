@@ -1,15 +1,15 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 
-async function signIn(page: Page, email: string, password: string) {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
-  await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: /Hello, |My Day/ })).toBeVisible();
-}
-
 async function signInAsBulk(page: Page, key: string) {
-  await signIn(page, `grocery-parent-${key}@example.test`, `synthetic-grocery-parent-${key}-password`);
+  const origin = 'http://127.0.0.1:4173';
+  const login = await page.request.post(`${origin}/api/auth/sign-in/email`, {
+    headers: { origin },
+    data: {
+      email: `grocery-parent-${key}@example.test`,
+      password: `synthetic-grocery-parent-${key}-password`
+    }
+  });
+  expect(login.status(), 'the bulk-grocery fixture signed in').toBe(200);
 }
 
 async function openBulk(page: Page) {
@@ -104,9 +104,13 @@ test('a matching item added in another session rejects the batch and preserves t
   await riceLine.getByLabel('Quantity').fill('5');
   await riceLine.getByLabel('Unit').fill('cups');
 
-  const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  const otherContext = await browser.newContext({ viewport: { width: 375, height: 812 } });
   try {
     const other = await otherContext.newPage();
+    await signInAsBulk(other, 'bulk-b');
+    const primarySession = (await page.context().cookies()).find(cookie => cookie.name === 'better-auth.session_token');
+    const otherSession = (await otherContext.cookies()).find(cookie => cookie.name === 'better-auth.session_token');
+    expect(Boolean(primarySession && otherSession && primarySession.value !== otherSession.value), 'the browsers have distinct authenticated sessions').toBe(true);
     await other.goto('/groceries');
     const add = other.getByRole('form', { name: 'Add grocery item' });
     await add.getByLabel('Item', { exact: true }).fill(rice);
