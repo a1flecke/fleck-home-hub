@@ -1,13 +1,28 @@
-import { closeSync, openSync, type Stats, lstatSync } from 'node:fs';
-import { dirname } from 'node:path';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readFileSync, type Stats } from 'node:fs';
+import { dirname, isAbsolute } from 'node:path';
 import { WriteStream } from 'node:tty';
 import Database from 'better-sqlite3';
 import { readIdentityConfig } from '../src/lib/server/config';
 import { migrate } from '../src/lib/server/identity';
 import { issueSetupCode } from '../src/lib/server/setup-code';
+import { parseEnvFile } from './pilot/envfile.mjs';
 
 function isPrivate(file: Stats) {
   return (file.mode & 0o077) === 0;
+}
+
+function configSource(args: string[]) {
+  if (args.length === 0) return process.env;
+  const [flag, path] = args;
+  if (args.length !== 2 || flag !== '--config-file' || !isAbsolute(path)) throw new Error('Expected an absolute config file path');
+  const file = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const stat = fstatSync(file);
+    if (!stat.isFile() || !isPrivate(stat) || stat.uid !== process.getuid?.()) throw new Error('Private configuration file required');
+    const parsed = parseEnvFile(readFileSync(file, 'utf8'));
+    if (parsed.errors.length) throw new Error('Invalid configuration file');
+    return parsed.values;
+  } finally { closeSync(file); }
 }
 
 try {
@@ -16,7 +31,7 @@ try {
   const terminal = new WriteStream(openSync('/dev/tty', 'w'));
   if (!terminal.isTTY) throw new Error('Private terminal required');
   try {
-    const config = readIdentityConfig(process.env);
+    const config = readIdentityConfig(configSource(process.argv.slice(2)));
     const folder = lstatSync(dirname(config.dbPath));
     if (!folder.isDirectory() || !isPrivate(folder)) throw new Error('Private database folder required');
     try {
@@ -46,6 +61,6 @@ try {
     } finally { db.close(); }
   } finally { terminal.end(); }
 } catch {
-  console.error('A setup code could not be created. Use a private host terminal and database directory. Setup closes after the first household is created.');
+  console.error('A setup code could not be created. Use a private host terminal, private database directory and a private --config-file or service environment. Setup closes after the first household is created.');
   process.exitCode = 1;
 }

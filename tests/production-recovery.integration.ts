@@ -3,7 +3,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { execFile, spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { once } from 'node:events';
-import { copyFileSync, cpSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
+import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
@@ -12,12 +12,40 @@ import { backupDatabase } from '../src/lib/server/backup';
 import { bootstrap, addKid } from '../src/lib/server/bootstrap';
 import { createChore, changeChore } from '../src/lib/server/chores';
 import { migrate } from '../src/lib/server/identity';
-import { issueSetupCode } from '../src/lib/server/setup-code';
 import { recordPayout } from '../src/lib/server/payouts';
 import { createExpense } from '../src/lib/server/expenses';
 import { recordExpensePayment, reverseExpensePayment } from '../src/lib/server/expense-payments';
 
 const execFileAsync = promisify(execFile);
+
+// BSD and util-linux script both allocate a real controlling terminal. Keep
+// command stdout/stderr separate so the setup code can only arrive on the PTY.
+async function issueCodeFromConfig(config: string, directory: string) {
+  const quote = (value: string) => "'" + value.replaceAll("'", "'\\''") + "'";
+  const stdout = join(directory, 'setup-stdout');
+  const stderr = join(directory, 'setup-stderr');
+  const args = ['mise', 'run', 'setup-code', '--', '--config-file', config];
+  const command = 'exec ' + args.map(quote).join(' ') + ' >' + quote(stdout) + ' 2>' + quote(stderr);
+  const env = { ...process.env };
+  delete env.AUTH_SECRET;
+  delete env.DATABASE_PATH;
+  delete env.AUTH_ORIGIN;
+  const invocation = process.platform === 'darwin'
+    ? ['-q', '/dev/null', 'sh', '-c', command]
+    : ['-q', '-c', command, '/dev/null'];
+  const runner = spawn('script', invocation, { env, stdio: ['ignore', 'pipe', 'pipe'], timeout: 5_000 });
+  let terminal = '';
+  runner.stdout.setEncoding('utf8').on('data', (chunk: string) => { terminal += chunk; });
+  runner.stderr.resume();
+  const [, signal] = await once(runner, 'close');
+  assert.equal(signal, null, 'The terminal runner must finish normally');
+  const code = /^([\w-]{43})\r?$/m.exec(terminal)?.[1];
+  if (code) {
+    assert.ok(!readFileSync(stdout, 'utf8').includes(code));
+    assert.ok(!readFileSync(stderr, 'utf8').includes(code));
+  }
+  return code;
+}
 
 async function freePort(): Promise<number> {
   const server = createServer();
@@ -52,7 +80,7 @@ async function waitForStart(child: ChildProcessWithoutNullStreams, origin: strin
   });
 }
 
-test('a verified backup reopens in the localhost production server after a failed migration', { timeout: 60_000 }, async () => {
+test('the packaged server supports verified restores and fresh host-authorized onboarding', { timeout: 60_000 }, async () => {
   const port = await freePort();
   const root = process.cwd();
   const directory = mkdtempSync(join(root, '.synthetic-recovery-'));
@@ -73,6 +101,7 @@ test('a verified backup reopens in the localhost production server after a faile
     for (const path of ['package.json', 'tsconfig.json', 'vite.config.ts']) copyFileSync(join(root, path), join(app, path));
     mkdirSync(join(app, 'scripts'));
     copyFileSync(join(root, 'scripts/start.sh'), join(app, 'scripts/start.sh'));
+    cpSync(join(root, 'scripts/pilot/launch.sh'), join(app, 'scripts/pilot/launch.sh'));
     symlinkSync(join(root, 'node_modules'), join(app, 'node_modules'), 'dir');
     const household = await bootstrap({ dbPath: source, secret, origin }, { ...parent, household: 'Recovery Home' });
     await addKid({ dbPath: source, secret, origin }, household, kid);
@@ -149,11 +178,23 @@ test('a verified backup reopens in the localhost production server after a faile
     child.kill('SIGTERM');
     await exited;
     const fresh = join(directory, 'fresh.sqlite');
-    db = new Database(fresh);
-    await migrate(db);
-    const code = issueSetupCode(db);
-    db.close(); db = undefined;
-    child = spawn('sh', ['scripts/start.sh'], { cwd: app, env: { ...env, DATABASE_PATH: fresh }, stdio: 'pipe' });
+    const configFile = join(directory, 'fresh pilot.conf');
+    writeFileSync(configFile, `AUTH_SECRET=${secret}\nDATABASE_PATH=${fresh}\nAUTH_ORIGIN=${origin}\nPORT=${port}\n`, { mode: 0o600 });
+    chmodSync(configFile, 0o644);
+    assert.equal(await issueCodeFromConfig(configFile, directory), undefined);
+    assert.equal(existsSync(fresh), false, 'A broadly readable config must not initialize the database');
+    chmodSync(configFile, 0o600);
+    const configLink = join(directory, 'linked.conf');
+    symlinkSync(configFile, configLink);
+    assert.equal(await issueCodeFromConfig(configLink, directory), undefined);
+    assert.equal(existsSync(fresh), false, 'A linked config must not initialize the database');
+    const code = await issueCodeFromConfig(configFile, directory);
+    assert.ok(code, 'Issuing setup from the private service config must work without exported settings');
+    assert.equal(existsSync(fresh), true);
+    const { stdout: misePath } = await execFileAsync('which', ['mise']);
+    child = spawn('sh', ['scripts/pilot/launch.sh'], {
+      cwd: app, env: { ...process.env, HUB_ENV_FILE: configFile, HUB_MISE: misePath.trim() }, stdio: 'pipe'
+    });
     child.stderr.resume();
     await waitForStart(child, origin);
     const freshHome = await fetch(origin);
