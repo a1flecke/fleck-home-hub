@@ -2,20 +2,26 @@ import Database from 'better-sqlite3';
 import { generateOccurrences } from '../../src/lib/server/recurring';
 import { listRecoveryGaps, resolveRecoveryGap } from '../../src/lib/server/recovery';
 
-const [path, id, date, mode] = process.argv.slice(2);
+const [path, id, date, mode, actor = 'parent'] = process.argv.slice(2);
 const db = new Database(path, { fileMustExist: true, timeout: 5000 });
 db.pragma('foreign_keys = ON');
-const reviewed = listRecoveryGaps(db, 'parent', 'home').find(gap => gap.seriesId === id && gap.date === date)?.reviewed ?? '';
+const reviewed = listRecoveryGaps(db, actor, 'home').find(gap => gap.seriesId === id && gap.date === date)?.reviewed;
+if (!reviewed) throw new Error('Synthetic recovery gap is missing');
 process.send?.('ready');
 process.once('message', () => {
   try {
     if (mode === 'generate') {
       generateOccurrences(db, 'parent', 'home', date, date);
       process.send?.('generated');
+    } else if (mode === 'skip') {
+      resolveRecoveryGap(db, actor, 'home', { seriesId: id, date, decision: 'skip', reviewed });
+      process.send?.('skipped');
     } else {
-      resolveRecoveryGap(db, 'parent', 'home', { seriesId: id, date, decision: 'create', assigneeId: 'kid', rewardCents: null, reviewed });
+      resolveRecoveryGap(db, actor, 'home', { seriesId: id, date, decision: 'create', assigneeId: 'kid', rewardCents: null, reviewed });
       process.send?.('created');
     }
-  } catch { process.send?.('conflict'); }
-  finally { db.close(); process.disconnect?.(); }
+  } catch (error) {
+    if (error instanceof Error && error.message === 'Recovery date changed') process.send?.('conflict');
+    else throw error;
+  } finally { db.close(); process.disconnect?.(); }
 });
