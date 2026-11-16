@@ -197,6 +197,10 @@ test('the packaged server supports verified restores and fresh host-authorized o
     delete setupEnv.AUTH_ORIGIN;
     await execFileAsync('mise', ['run', 'setup-code', '--', '--config-file', configFile, '--prepare'], { env: setupEnv });
     assert.equal(existsSync(fresh), true);
+    const setupStatus = async () => (await execFileAsync('mise', [
+      '--quiet', 'run', 'setup-code', '--', '--config-file', configFile, '--status'
+    ], { env: setupEnv })).stdout.trim();
+    assert.equal(await setupStatus(), 'pending');
     const prepared = new Database(fresh, { readonly: true, fileMustExist: true });
     try {
       assert.equal(prepared.prepare('SELECT 1 FROM initial_setup').get(), undefined, 'Preparation must leave setup locked until the service is ready');
@@ -229,6 +233,7 @@ test('the packaged server supports verified restores and fresh host-authorized o
     assert.ok(setupCookieHeaders.some(cookie => /; Secure(?:;|$)/i.test(cookie) && /; HttpOnly(?:;|$)/i.test(cookie)));
     const setupCookies = setupCookieHeaders.map(cookie => cookie.split(';')[0]).join('; ');
     assert.ok(setupCookies);
+    assert.equal(await setupStatus(), 'configured');
     assert.equal(await issueCodeFromConfig(configFile, directory, true), undefined, 'Rerunning setup cannot reopen a provisioned household');
     const onboarding = await fetch(`${origin}/onboarding`, { headers: { cookie: setupCookies }, redirect: 'manual' });
     assert.equal(onboarding.status, 200);
