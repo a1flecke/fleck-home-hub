@@ -81,6 +81,16 @@ const displayTwo = await auth.api.signUpEmail({ body: { name: 'Display Parent Tw
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-display-household', 'Display household');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(displayOne.user.id, 'synthetic-display-household', 'parent');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(displayTwo.user.id, 'synthetic-display-household', 'parent');
+// Dashboard calendar journeys: an isolated household in a non-host time zone.
+const calendarParent = await auth.api.signUpEmail({ body: { name: 'Calendar Parent', email: 'calendar-parent@example.test', password: 'synthetic-calendar-parent-password' } });
+const calendarKid = await auth.api.signUpEmail({ body: { name: 'Calendar Kid', email: 'calendar-kid@example.test', password: 'synthetic-calendar-kid-password' } });
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-calendar-household', 'Calendar household');
+db.prepare('INSERT INTO household_settings (household_id, timezone) VALUES (?, ?)').run('synthetic-calendar-household', 'Pacific/Kiritimati');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(calendarParent.user.id, 'synthetic-calendar-household', 'parent');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(calendarKid.user.id, 'synthetic-calendar-household', 'kid');
+const emptyCalendarParent = await auth.api.signUpEmail({ body: { name: 'Calendar Empty Parent', email: 'calendar-empty-parent@example.test', password: 'synthetic-calendar-empty-parent-password' } });
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-calendar-empty-household', 'Empty calendar household');
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(emptyCalendarParent.user.id, 'synthetic-calendar-empty-household', 'parent');
 const sessionKid = await auth.api.signUpEmail({ body: { name: 'Session Kid', email: 'session-kid@example.test', password: 'synthetic-session-kid-password' } });
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(sessionKid.user.id, household.id, 'kid');
 // Sign-up auto-created a session; the journey counts only the devices it signs in.

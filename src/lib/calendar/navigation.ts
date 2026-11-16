@@ -1,4 +1,4 @@
-import { dayMs, formatCalendarDate, parseCalendarDate } from './dates';
+import { addCalendarDays, dayMs, formatCalendarDate, parseCalendarDate } from './dates';
 
 export type CalendarView = 'day' | 'week' | 'month';
 
@@ -22,8 +22,7 @@ export function shiftMonth(date: string, direction: -1 | 1): string {
 
 export function shiftDate(date: string, view: CalendarView, direction: -1 | 1): string {
   if (view === 'month') return shiftMonth(date, direction);
-  const time = parseCalendarDate(date);
-  return formatCalendarDate(time + direction * (view === 'week' ? 7 : 1) * dayMs);
+  return addCalendarDays(date, direction * (view === 'week' ? 7 : 1));
 }
 
 export function viewRange(date: string, view: CalendarView) {

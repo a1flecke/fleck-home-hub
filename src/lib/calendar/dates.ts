@@ -11,6 +11,11 @@ export function formatCalendarDate(time: number): string {
   return new Date(time).toISOString().slice(0, 10);
 }
 
+export function addCalendarDays(date: string, days: number): string {
+  if (!Number.isInteger(days)) throw new Error('Invalid calendar day offset');
+  return formatCalendarDate(parseCalendarDate(date) + days * dayMs);
+}
+
 export function eachCalendarDate(from: string, through: string): string[] {
   const first = parseCalendarDate(from);
   const last = parseCalendarDate(through);
