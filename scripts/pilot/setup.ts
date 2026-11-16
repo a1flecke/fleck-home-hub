@@ -121,6 +121,7 @@ export async function setupHub({ home, repoRoot, miseBin, uid, run, openPort, aw
   const serve = inspectServe();
   privateDirectory(directory, uid);
   if (!statIfPresent(envFile)) {
+    if (plist) throw new SetupError('The saved service configuration is missing. Restore it before running setup again.');
     const httpsPort = ['443', '8443', '10000'].find(port => !hasEndpoint(serve, port));
     if (!httpsPort) throw new SetupError('All supported HTTPS ports are in use by Tailscale Serve. Free up port 443, 8443 or 10000, then retry.');
     const preferredPort = forwardedTo(serve, 3000) ? undefined : await openPort(3000);
@@ -154,19 +155,35 @@ export async function setupHub({ home, repoRoot, miseBin, uid, run, openPort, aw
       !isAbsolute(values.DATABASE_PATH ?? '') || !statIfPresent(dirname(values.DATABASE_PATH))?.isDirectory()) {
     throw new SetupError('The saved configuration does not match this Mac and tailnet. It was preserved.');
   }
-  routeState(serve, host, httpsPort, port);
+  const routeExists = routeState(serve, host, httpsPort, port);
 
   const agentTarget = 'gui/' + uid + '/' + DEFAULT_LABEL;
   const agentStatus = run('launchctl', ['print', agentTarget]);
   const loaded = agentStatus.status === 0;
   if (loaded && !plist) throw new SetupError('A LaunchAgent is already loaded without the matching service file. It was left running.');
-  if (!loaded && !(await openPort(port))) throw new SetupError('Another process is listening on the saved loopback port. Stop it and rerun mise run setup.');
+  const statusArgs = ['--', '--config-file', envFile];
+  const databaseExists = Boolean(statIfPresent(values.DATABASE_PATH));
+  if (plist && !databaseExists) throw new SetupError('The saved database is missing. Restore it before running setup again.');
+  let configured = false;
+  if (databaseExists) {
+    const status = run(miseBin, ['--quiet', 'run', 'setup-code', ...statusArgs, '--status']);
+    const kind = status.stdout.trim();
+    if (status.status !== 0 || !['configured', 'pending'].includes(kind)) {
+      throw new SetupError('The saved database could not be checked safely. Inspect or restore it before running setup again.');
+    }
+    configured = kind === 'configured';
+    if (configured && !plist) throw new SetupError('The saved LaunchAgent is missing. Restore it before running setup again.');
+    if (configured && !routeExists) throw new SetupError('The saved Tailscale Serve route is missing. Restore it before running setup again.');
+  }
+  const agentPid = (output: string) => /^\s*pid = ([1-9]\d*)$/m.exec(output)?.[1];
+  const idle = loaded && !agentPid(agentStatus.stdout);
+  if ((!loaded || idle) && !(await openPort(port))) throw new SetupError('Another process is listening on the saved loopback port. Stop it and rerun mise run setup.');
 
   const mise = (args: string[], failure: string, env?: NodeJS.ProcessEnv) => {
     if (run(miseBin, args, { interactive: true, env }).status !== 0) throw new SetupError(failure);
   };
-  const setupCode = ['run', 'setup-code', '--', '--config-file', envFile];
-  if (!loaded) {
+  const setupCode = ['run', 'setup-code', ...statusArgs];
+  if (!loaded && !configured) {
     mise(['install', '--locked'], 'The locked mise tools could not be installed.', { ...process.env, MISE_LOCKED_SCOPES: 'project' });
     mise(['run', 'install'], 'The pinned dependencies could not be installed.');
     if (!buildMatches(repoRoot, origin.origin)) {
@@ -178,29 +195,43 @@ export async function setupHub({ home, repoRoot, miseBin, uid, run, openPort, aw
     }
     mise([...setupCode, '--prepare'], 'The private database could not be prepared.');
     privateDirectory(logDir, uid);
+  }
+  if (!loaded) {
+    if (configured && !buildMatches(repoRoot, origin.origin)) {
+      throw new SetupError('The saved production build is missing or uses a different address. Restore it before running setup again.');
+    }
     const installed = plist ? run(bootstrap, bootstrapArgs).status === 0 :
       runCommand('install', agent, { run, apply: true }).code === 0;
     if (!installed) throw new SetupError('The LaunchAgent could not start. Rerun mise run setup from a logged-in Mac session.');
+  }
+  if (idle && run('launchctl', ['kickstart', agentTarget]).status !== 0) {
+    throw new SetupError('The saved LaunchAgent could not start. Inspect the private service logs and rerun mise run setup.');
   }
   if (!await awaitHealth('http://127.0.0.1:' + port, false)) {
     throw new SetupError('The application did not become healthy on this Mac. Inspect the private service logs and rerun mise run setup.');
   }
 
   const currentAgent = run('launchctl', ['print', agentTarget]);
-  const pid = /^\s*pid = ([1-9]\d*)$/m.exec(currentAgent.stdout)?.[1];
+  const pid = agentPid(currentAgent.stdout);
   const listener = pid && run('lsof', ['-nP', '-a', '-p', pid, '-iTCP:' + port, '-sTCP:LISTEN', '-Fn']);
   if (!listener || listener.status !== 0 ||
       listener.stdout.split('\n').filter(line => line.startsWith('n')).join(' ') !== 'n127.0.0.1:' + port) {
     throw new SetupError('The saved loopback port is not served by the Fleck Home Hub LaunchAgent.');
   }
   if (!routeState(inspectServe(), host, httpsPort, port)) {
+    if (configured) throw new SetupError('The saved Tailscale Serve route is missing. Restore it before running setup again.');
     const result = run('tailscale', ['serve', '--bg', '--https=' + httpsPort, 'http://127.0.0.1:' + port]);
     if (result.status !== 0) throw new SetupError('Tailscale could not enable private HTTPS. Check the tailnet’s HTTPS settings, then rerun mise run setup.');
   }
   if (!await awaitHealth(origin.origin, true) || !routeState(inspectServe(), host, httpsPort, port)) {
     throw new SetupError('The private HTTPS address did not become healthy. Check Tailscale Serve, then rerun mise run setup.');
   }
-  print('Open ' + origin.origin + '/');
+  const url = origin.origin + '/';
+  print('Open ' + url);
+  if (configured) {
+    if (run('open', [url]).status !== 0) throw new SetupError('The app is running. Open the printed address in your browser.');
+    return;
+  }
   mise([...setupCode, '--if-needed'], 'The one-time setup code could not be issued from this terminal.');
 }
 

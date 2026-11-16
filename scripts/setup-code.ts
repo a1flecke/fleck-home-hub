@@ -11,17 +11,17 @@ function isPrivate(file: Stats) {
   return (file.mode & 0o077) === 0 && file.uid === process.getuid?.();
 }
 
-async function prepareDatabase(dbPath: string, mode: 'prepare' | 'if-needed' | 'issue') {
+async function prepareDatabase(dbPath: string, mode: 'prepare' | 'if-needed' | 'issue' | 'status') {
   const folder = lstatSync(dirname(dbPath));
   if (!isAbsolute(dbPath) || !folder.isDirectory() || !isPrivate(folder)) throw new Error('Private database folder required');
-  if (mode !== 'if-needed') {
+  if (mode === 'prepare' || mode === 'issue') {
     try { closeSync(openSync(dbPath, 'wx', 0o600)); } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     }
   }
   const file = lstatSync(dbPath);
   if (!file.isFile() || !isPrivate(file)) throw new Error('Private database file required');
-  const db = new Database(dbPath, { fileMustExist: true, timeout: 5_000 });
+  const db = new Database(dbPath, { fileMustExist: true, timeout: 5_000, readonly: mode === 'status' });
   try {
     db.pragma('foreign_keys = ON');
     let configured = false;
@@ -32,6 +32,7 @@ async function prepareDatabase(dbPath: string, mode: 'prepare' | 'if-needed' | '
       const where = table === 'initial_setup' ? ' WHERE consumed_at IS NOT NULL' : '';
       if (db.prepare('SELECT 1 FROM ' + table + where + ' LIMIT 1').get()) configured = true;
     }
+    if (mode === 'status') return configured ? 'configured' : 'pending';
     if (configured) {
       if (mode === 'issue') throw new Error('Initial setup is closed');
       return;
@@ -47,13 +48,15 @@ async function prepareDatabase(dbPath: string, mode: 'prepare' | 'if-needed' | '
 }
 
 async function main(args: string[]) {
-  const mode = args[2] === '--prepare' ? 'prepare' : args[2] === '--if-needed' ? 'if-needed' : 'issue';
+  const mode = args[2] === '--prepare' ? 'prepare' :
+    args[2] === '--if-needed' ? 'if-needed' : args[2] === '--status' ? 'status' : 'issue';
   if (args.length > 0 && (args[0] !== '--config-file' || args.length !== (mode === 'issue' ? 2 : 3))) {
     throw new Error('Invalid setup arguments');
   }
   const config = readIdentityConfig(args.length ? readPrivateConfig(args[1]) : process.env);
-  if (mode === 'prepare') {
-    await prepareDatabase(config.dbPath, mode);
+  if (mode === 'prepare' || mode === 'status') {
+    const result = await prepareDatabase(config.dbPath, mode);
+    if (mode === 'status') console.log(result);
     return;
   }
   // Only the controlling terminal may receive a setup credential.
