@@ -36,6 +36,15 @@ describe('calendar occurrence ordering', () => {
     ]);
   });
 
+  it('keeps dates chronological before ordering all-day events within a date', () => {
+    const events = [
+      occurrence({ id: 'tomorrow-all-day', title: 'Tomorrow', date: '2026-11-16', startTime: null, endTime: null, allDay: true }),
+      occurrence({ id: 'today-timed', title: 'Today timed', date: '2026-11-15', startTime: '09:00', endTime: '10:00' }),
+      occurrence({ id: 'today-all-day', title: 'Today all-day', date: '2026-11-15', startTime: null, endTime: null, allDay: true }),
+    ];
+    expect(sortOccurrences(events).map(event => event.id)).toEqual(['today-all-day', 'today-timed', 'tomorrow-all-day']);
+  });
+
   it('keeps two same-title occurrences on the same day without dropping either', () => {
     const groups = groupByDate('2026-11-15', '2026-11-15', [
       occurrence({ id: 'second', title: 'Practice', date: '2026-11-15', startTime: '09:00', endTime: '10:00' }),

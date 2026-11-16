@@ -42,6 +42,13 @@ export function listEvents(db: Database.Database, actor: string, household: stri
   return householdEventOccurrences(db, household, from, through);
 }
 
+export type UpcomingEvent = { id: string; date: string; title: string; startTime: string | null; endTime: string | null; allDay: boolean };
+
+/** Projects a bounded range to the fields a dashboard card needs; no descriptions, locations or participants. */
+export function listUpcomingEvents(db: Database.Database, actor: string, household: string, from: string, through: string): UpcomingEvent[] {
+  return listEvents(db, actor, household, from, through).map(({ id, date, title, startTime, endTime, allDay }) => ({ id, date, title, startTime, endTime, allDay }));
+}
+
 /**
  * Performs NO caller authorization: it trusts that `household` came from a verified member session
  * or a verified display credential. Only display.ts and listEvents may call it (architecture-tested).

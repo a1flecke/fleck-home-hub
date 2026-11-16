@@ -10,6 +10,8 @@ import { nextPayday } from '../../lib/earnings/payday';
 import { randomUUID } from 'node:crypto';
 import { onboardingStep } from '../../lib/server/onboarding';
 import { listMeals } from '../../lib/server/meals';
+import { listUpcomingEvents } from '../../lib/server/calendar';
+import { addCalendarDays } from '../../lib/calendar/dates';
 
 async function principal(request: Request) {
   let services;
@@ -27,6 +29,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(householdId) as { timezone: string } | undefined;
   const timezone = settings?.timezone ?? 'America/Chicago';
   const today = localDate(new Date(), timezone);
+  const upcomingEvents = listUpcomingEvents(db, session.user.id, householdId, today, addCalendarDays(today, 6));
   const meals = role === 'parent' ? listMeals(db, session.user.id, householdId, today).map(({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }) => ({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails })) : [];
   const end = new Date(`${today}T00:00:00Z`); end.setUTCDate(end.getUTCDate() + 7);
   generateOccurrences(db, session.user.id, householdId, today, end.toISOString().slice(0, 10));
@@ -45,7 +48,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
   return {
     onboardingPending: Boolean(onboarding && onboarding !== 'complete'),
     showWelcome: onboarding === 'complete' && url.searchParams.get('welcome') === '1',
-    name: session.user.name, ...membership, chores, children, balances, series, today, timezone, payday, meals };
+    name: session.user.name, ...membership, chores, children, balances, series, today, timezone, payday, meals, upcomingEvents };
 };
 
 export const actions: Actions = {

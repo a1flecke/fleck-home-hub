@@ -4,6 +4,9 @@
   import RecipeDetails from '../../lib/meals/RecipeDetails.svelte';
   import { resolve } from '$app/paths';
   import Disclosure from '../calendar/Disclosure.svelte';
+  import { viewHeading } from '../../lib/calendar/navigation';
+  import { addCalendarDays } from '../../lib/calendar/dates';
+  import { eventTimeLabel, groupByDate, sortOccurrences } from '../../lib/calendar/presentation';
   import type { PageData } from './$types';
   type PayoutError = { child: string; amount: string; date: string; note: string; requestId: string };
   type SeriesError = { id: string; title: string; description: string; assignee: string; startDate: string; endDate: string; weekdays: number[]; reward: string };
@@ -24,6 +27,12 @@
   let paydayAnchor = $derived(data.payday?.anchor ?? data.today);
   let householdTimezone = $derived(data.timezone);
   let recurringStart = $derived(newSeries?.startDate ?? data.today);
+  const upcomingPreviewLimit = 5;
+  let upcoming = $derived(sortOccurrences(data.upcomingEvents));
+  let visibleUpcoming = $derived(upcoming.slice(0, upcomingPreviewLimit));
+  let hiddenUpcoming = $derived(upcoming.length - visibleUpcoming.length);
+  let upcomingGroups = $derived(groupByDate(data.today, addCalendarDays(data.today, 6), visibleUpcoming).filter(group => group.events.length));
+  let firstHiddenDate = $derived(upcoming[upcomingPreviewLimit]?.date ?? data.today);
   let balances = $derived.by(() => {
     let values = $state(data.balances.map(balance => {
       const rejected = form?.payoutError?.child === balance.id ? form.payoutError : undefined;
@@ -64,6 +73,28 @@
       <p class="mt-1">Your family’s hub is ready. Use the links above to plan your day, or start with a chore below.</p>
     </section>
   {/if}
+  <section aria-labelledby="coming-up-heading" class="mt-6 rounded-2xl bg-white p-5 shadow-sm">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 id="coming-up-heading" class="text-xl font-bold">Coming up</h2>
+      <a href={resolve(`/calendar?date=${data.today}&view=week`)} class="font-semibold text-teal-700 underline">View calendar</a>
+    </div>
+    {#if !data.upcomingEvents.length}
+      <p class="mt-2">Nothing coming up in the next seven days.</p>
+    {:else}
+      {#each upcomingGroups as group (group.date)}
+        <div class="mt-4">
+          <h3 class="font-semibold">{viewHeading(group.date, 'day')}</h3>
+          <ul class="mt-1 space-y-1">
+            {#each group.events as event (event.id)}
+              <li><a href={resolve(`/calendar?date=${group.date}&view=day`)} class="text-teal-800 underline"><span class="font-semibold">{eventTimeLabel(event)}</span> {event.title}</a></li>
+            {/each}
+          </ul>
+        </div>
+      {/each}
+      {#if hiddenUpcoming > 0}<p class="mt-3 text-sm"><a href={resolve(`/calendar?date=${firstHiddenDate}&view=day`)} class="font-semibold text-teal-700 underline">+{hiddenUpcoming} more</a></p>{/if}
+    {/if}
+    {#if data.role === 'parent'}<a href={resolve(`/calendar?date=${data.today}&view=day`)} class="mt-3 inline-block py-2 font-semibold text-teal-700">Add an event</a>{/if}
+  </section>
   {#if data.role === 'parent'}
     <section aria-label="Tonight's meal" class="mt-6 rounded-2xl bg-white p-5 shadow-sm">
       <h2 class="text-xl font-bold">Tonight's meal</h2>

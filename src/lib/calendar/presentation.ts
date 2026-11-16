@@ -19,10 +19,10 @@ export function eventTimeLabel(event: CalendarOccurrence): string {
 }
 
 function compareOccurrences(a: CalendarOccurrence, b: CalendarOccurrence) {
-  if (a.allDay !== b.allDay) return a.allDay ? -1 : 1;
-  return (a.startTime ?? '').localeCompare(b.startTime ?? '')
+  return a.date.localeCompare(b.date)
+    || Number(b.allDay) - Number(a.allDay)
+    || (a.startTime ?? '').localeCompare(b.startTime ?? '')
     || a.title.localeCompare(b.title)
-    || a.date.localeCompare(b.date)
     || a.id.localeCompare(b.id);
 }
 
