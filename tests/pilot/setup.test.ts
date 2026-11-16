@@ -19,6 +19,7 @@ let tcp: Record<string, { HTTPS: boolean }>;
 let calls: string[][];
 let probeHttps: boolean;
 let ownsListener: boolean;
+let configured: boolean;
 let output: string[];
 
 beforeEach(() => {
@@ -26,7 +27,7 @@ beforeEach(() => {
   repoRoot = join(home, 'repo');
   mkdirSync(repoRoot);
   writeFileSync(join(home, 'mise'), '', { mode: 0o700 });
-  ready = loaded = failBootstrap = false;
+  ready = loaded = failBootstrap = configured = false;
   probeHttps = ownsListener = true;
   publicRoute = {};
   web = { [host + ':443']: unrelated };
@@ -37,6 +38,7 @@ beforeEach(() => {
 afterEach(() => rmSync(home, { recursive: true, force: true }));
 
 const configFile = () => join(home, '.config/fleck-home-hub/hub.conf');
+const database = () => join(home, '.config/fleck-home-hub/hub.sqlite');
 const plist = () => join(home, 'Library/LaunchAgents/local.fleck.home-hub.plist');
 
 function invoke() {
@@ -56,8 +58,9 @@ function invoke() {
     } else if (command === 'launchctl') {
       if (args[0] === 'print') {
         status = loaded ? 0 : 113;
-        stdout = loaded ? '    pid = 12345\n' : '';
+        stdout = ready ? '    pid = 12345\n' : '';
       }
+      if (args[0] === 'kickstart') ready = true;
       if (args[0] === 'bootstrap') {
         status = failBootstrap ? 1 : 0;
         loaded = ready = status === 0;
@@ -71,6 +74,10 @@ function invoke() {
       mkdirSync(join(repoRoot, 'build'), { recursive: true });
       writeFileSync(join(repoRoot, 'build/adapter-node.js'), 'export const origin = "' + options!.env!.AUTH_ORIGIN + '";');
       writeFileSync(join(repoRoot, 'build/index.js'), '');
+    } else if (args.includes('--prepare')) {
+      writeFileSync(database(), 'synthetic database', { mode: 0o600 });
+    } else if (args.includes('--status')) {
+      stdout = configured ? 'configured\n' : 'pending\n';
     } else if (args.includes('--if-needed')) {
       expect(output).toEqual(['Open https://' + host + ':8443/']);
     }
@@ -143,4 +150,48 @@ it('does not publish an application listening under a different process', async 
   await expect(invoke()).rejects.toThrow(/not served by the Fleck Home Hub LaunchAgent/);
   expect(web[host + ':8443']).toBeUndefined();
   expect(output).toEqual([]);
+});
+
+it.each(['running', 'idle', 'unloaded'])('opens a completed installation with the LaunchAgent %s', async state => {
+  await invoke();
+  configured = true;
+  ready = state === 'running';
+  loaded = state !== 'unloaded';
+  output = [];
+  calls = [];
+  const saved = [configFile(), plist(), database()].map(file => readFileSync(file, 'utf8'));
+  await invoke();
+  expect(calls.filter(call => call[0] === join(home, 'mise'))).toEqual([
+    [join(home, 'mise'), '--quiet', 'run', 'setup-code', '--', '--config-file', configFile(), '--status']
+  ]);
+  expect(calls.filter(call => call[0] === 'launchctl' && call[1] !== 'print').map(call => call[1]))
+    .toEqual(state === 'unloaded' ? ['bootstrap'] : state === 'idle' ? ['kickstart'] : []);
+  expect(calls.some(call => call.includes('--bg') || call.includes('-k'))).toBe(false);
+  expect(calls.at(-1)).toEqual(['open', 'https://' + host + ':8443/']);
+  expect([configFile(), plist(), database()].map(file => readFileSync(file, 'utf8'))).toEqual(saved);
+});
+
+it.each(['agent', 'route'])('refuses to replace a missing database when the saved %s remains', async (saved) => {
+  await invoke();
+  rmSync(database());
+  if (saved === 'route') rmSync(plist());
+  else {
+    delete tcp['8443'];
+    delete web[host + ':8443'];
+  }
+  loaded = ready = false;
+  calls = [];
+  await expect(invoke()).rejects.toThrow(/database is missing/);
+  expect(existsSync(database())).toBe(false);
+  expect(calls.some(call => call.includes('--prepare') || call.includes('bootstrap'))).toBe(false);
+});
+
+it('leaves a missing route for a completed install untouched', async () => {
+  await invoke();
+  configured = true;
+  delete tcp['8443'];
+  delete web[host + ':8443'];
+  calls = [];
+  await expect(invoke()).rejects.toThrow(/saved Tailscale Serve route is missing/);
+  expect(calls.some(call => call.includes('--bg') || call[0] === 'open')).toBe(false);
 });
