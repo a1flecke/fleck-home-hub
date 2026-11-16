@@ -3,7 +3,9 @@
   import EventForm from './EventForm.svelte';
   import InboxForm from './InboxForm.svelte';
   import Disclosure from './Disclosure.svelte';
-  import { shiftDate } from '../../lib/calendar/navigation';
+  import EventCard from './EventCard.svelte';
+  import { shiftDate, viewHeading } from '../../lib/calendar/navigation';
+  import { groupByDate, monthGrid, monthPreviewLimit } from '../../lib/calendar/presentation';
   import type { PageData } from './$types';
   import type { EventInput } from '../../lib/server/calendar';
   type FormResult = { message: string; eventError?: { id: string; inbox: string; input: EventInput }; inboxError?: { id: string; input: { title: string; description: string; ownerId: string } } };
@@ -13,7 +15,11 @@
   let inboxError = $derived(form?.inboxError);
   let previousDate = $derived(shiftDate(data.date, data.view, -1));
   let nextDate = $derived(shiftDate(data.date, data.view, 1));
+  let groups = $derived(groupByDate(data.start, data.end, data.events));
+  let weeks = $derived(monthGrid(data.start, data.end, data.events));
+  let hasEvents = $derived(data.events.length > 0);
   const action = (name: string) => `?/${name}&date=${data.date}&view=${data.view}`;
+  const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 </script>
 <svelte:head><title>Family calendar · Fleck Home Hub</title></svelte:head>
 <main class="mx-auto max-w-4xl px-5 py-8">
@@ -32,19 +38,60 @@
     <label>View<select name="view" class="mt-1 block rounded-lg border p-3"><option value="day" selected={data.view === 'day'}>Day</option><option value="week" selected={data.view === 'week'}>Week</option><option value="month" selected={data.view === 'month'}>Month</option></select></label>
     <button class="rounded-xl border border-teal-700 px-4 py-3">Show calendar</button>
   </form>
-  {#if !data.events.length}<p class="mt-4">Nothing scheduled for these dates.</p>{/if}
-  {#each data.events as event (`${event.id}-${event.date}`)}
-    <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-      <h3 class="text-lg font-bold">{event.title}</h3><p>{event.date} · {event.allDay ? 'All day' : `${event.startTime}–${event.endTime}`}</p>
-      {#if event.location}<p>{event.location}</p>{/if}{#if event.description}<p>{event.description}</p>{/if}
-      {#if event.participants.length}<p>With: {data.members.filter(member => event.participants.includes(member.id)).map(member => member.name).join(', ')}</p>{/if}
-      {#if data.role === 'parent'}
-        <Disclosure class="mt-3" expanded={eventError?.id === event.id}><summary class="cursor-pointer font-semibold">Edit event</summary><p class="mt-2 text-sm">Changes apply to the whole series.</p><EventForm initial={eventError?.id === event.id ? { ...eventError.input, id: event.id } : { ...event, date: event.seriesDate }} members={data.members} button="Save changes" action={action('saveEvent')} /></Disclosure>
-        <form method="POST" action={action('cancel')} class="mt-3"><input type="hidden" name="id" value={event.id} /><button class="rounded-xl border px-4 py-3">Cancel {event.weekdays.length ? 'series' : 'event'}</button></form>
-        {#if event.weekdays.length}<form method="POST" action={action('cancel')} class="mt-3"><input type="hidden" name="id" value={event.id} /><input type="hidden" name="occurrence" value={event.date} /><button class="rounded-xl border px-4 py-3">Cancel this date</button></form>{/if}
-      {/if}
-    </article>
-  {/each}
+  {#if data.view === 'day'}
+    <div class="mt-6">
+      {#if !hasEvents}<p>Nothing scheduled for this date.</p>{/if}
+      <div class="grid gap-4">
+        {#each data.events as event (`${event.id}-${event.date}`)}
+          <EventCard {event} members={data.members} role={data.role} error={eventError} {action} titleAs="h3" />
+        {/each}
+      </div>
+    </div>
+  {:else if data.view === 'week'}
+    <div class="mt-6 space-y-6">
+      {#each groups as group (group.date)}
+        <section aria-labelledby={`day-${group.date}`}>
+          <h3 id={`day-${group.date}`} class="text-lg font-bold">{viewHeading(group.date, 'day')}</h3>
+          {#if !group.events.length}<p class="mt-2 text-sm">No events.</p>{/if}
+          <div class="mt-3 grid gap-4 md:grid-cols-2">
+            {#each group.events as event (`${event.id}-${event.date}`)}
+              <EventCard {event} members={data.members} role={data.role} error={eventError} {action} titleAs="h4" />
+            {/each}
+          </div>
+        </section>
+      {/each}
+    </div>
+  {:else}
+    <div class="mt-6">
+      <div aria-hidden="true" class="hidden lg:grid lg:grid-cols-7 lg:gap-1">
+        {#each weekdayLabels as label (label)}<div class="px-2 py-1 text-center text-xs font-semibold uppercase tracking-wide">{label}</div>{/each}
+      </div>
+      <div class="mt-2 grid grid-cols-1 gap-2 lg:mt-1 lg:grid-cols-7 lg:gap-1">
+        {#each weeks as week, weekIndex (weekIndex)}
+          {#each week as cell, cellIndex (cell?.date ?? `pad-${weekIndex}-${cellIndex}`)}
+            {#if !cell}
+              <div aria-hidden="true" class="hidden lg:block lg:min-h-28"></div>
+            {:else}
+              <div class="rounded-xl bg-white p-4 shadow-sm lg:block lg:min-h-28 lg:rounded-md lg:border lg:border-teal-100 lg:p-2 lg:shadow-none" class:hidden={!cell.events.length}>
+                <h3 class="text-sm font-bold"><a href={resolve(`/calendar?date=${cell.date}&view=day`)} aria-label={`View ${viewHeading(cell.date, 'day')}`} class="text-teal-800 underline"><span class="lg:hidden">{viewHeading(cell.date, 'day')}</span><span class="hidden lg:inline">{cell.day}</span></a></h3>
+                {#if cell.events.length}
+                  <ul class="mt-2 space-y-1">
+                    {#each cell.events as event, index (event.id)}
+                      <li class={index >= monthPreviewLimit ? 'lg:hidden' : ''}><a href={resolve(`/calendar?date=${cell.date}&view=day`)} class="block text-sm leading-5 text-teal-900 lg:truncate"><span class="font-semibold">{event.allDay ? 'All day' : event.startTime}</span> {event.title}</a></li>
+                    {/each}
+                  </ul>
+                  {#if cell.hiddenCount > 0}<a href={resolve(`/calendar?date=${cell.date}&view=day`)} aria-label={`+${cell.hiddenCount} more events on ${viewHeading(cell.date, 'day')}`} class="mt-2 hidden text-sm font-semibold text-teal-800 underline lg:inline">+{cell.hiddenCount} more</a>{/if}
+                {:else}
+                  <p class="mt-2 hidden text-xs lg:block">No events</p>
+                {/if}
+              </div>
+            {/if}
+          {/each}
+        {/each}
+      </div>
+      {#if !hasEvents}<p class="mt-4 lg:hidden">Nothing scheduled this month.</p>{/if}
+    </div>
+  {/if}
   {#if data.role === 'parent'}
     <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!eventError && !eventError.id && !eventError.inbox}><summary class="cursor-pointer text-xl font-bold">Add an event</summary><EventForm initial={eventError && !eventError.id && !eventError.inbox ? eventError.input : { date: data.date }} members={data.members} button="Save event" action={action('saveEvent')} /></Disclosure>
   {/if}
