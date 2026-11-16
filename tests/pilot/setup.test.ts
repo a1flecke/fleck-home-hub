@@ -171,9 +171,14 @@ it.each(['running', 'idle', 'unloaded'])('opens a completed installation with th
   expect([configFile(), plist(), database()].map(file => readFileSync(file, 'utf8'))).toEqual(saved);
 });
 
-it('refuses to initialize a replacement for a missing database with a saved agent', async () => {
+it.each(['agent', 'route'])('refuses to replace a missing database when the saved %s remains', async (saved) => {
   await invoke();
   rmSync(database());
+  if (saved === 'route') rmSync(plist());
+  else {
+    delete tcp['8443'];
+    delete web[host + ':8443'];
+  }
   loaded = ready = false;
   calls = [];
   await expect(invoke()).rejects.toThrow(/database is missing/);

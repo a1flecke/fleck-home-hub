@@ -163,7 +163,7 @@ export async function setupHub({ home, repoRoot, miseBin, uid, run, openPort, aw
   if (loaded && !plist) throw new SetupError('A LaunchAgent is already loaded without the matching service file. It was left running.');
   const statusArgs = ['--', '--config-file', envFile];
   const databaseExists = Boolean(statIfPresent(values.DATABASE_PATH));
-  if (plist && !databaseExists) throw new SetupError('The saved database is missing. Restore it before running setup again.');
+  if ((plist || routeExists) && !databaseExists) throw new SetupError('The saved database is missing. Restore it before running setup again.');
   let configured = false;
   if (databaseExists) {
     const status = run(miseBin, ['--quiet', 'run', 'setup-code', ...statusArgs, '--status']);
