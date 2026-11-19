@@ -14,6 +14,7 @@ function dateOffset(days: number) {
 }
 
 async function createSeries(page: Page, name: string, startDate: string) {
+  await page.goto('/chores/series');
   const panel = page.locator('details').filter({ has: page.getByText('Add a recurring chore', { exact: true }) });
   await panel.getByText('Add a recurring chore', { exact: true }).click();
   const series = panel.locator('form');
@@ -74,6 +75,7 @@ test('a parent reviews and resolves individual missed dates using native forms',
     await expect(card(dateOffset(-1))).toBeVisible();
     await native.screenshot({ path: testInfo.outputPath('recovery-mobile.png'), fullPage: true });
   } finally { await context.close(); }
+  await page.goto('/dashboard');
   await page.getByRole('button', { name: 'Sign out' }).click();
   await page.goto('/sign-in');
   await page.getByLabel('Email').fill('kid@example.test');

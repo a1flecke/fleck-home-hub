@@ -9,24 +9,15 @@
   import { eventTimeLabel, groupByDate, sortOccurrences } from '../../lib/calendar/presentation';
   import type { PageData } from './$types';
   type PayoutError = { child: string; amount: string; date: string; note: string; requestId: string };
-  type SeriesError = { id: string; title: string; description: string; assignee: string; startDate: string; endDate: string; weekdays: number[]; reward: string };
-  type FormResult = { message: string; createError?: { title: string; description: string; assignee: string; dueDate: string; reward: string }; seriesError?: SeriesError; correctionError?: { id: string; reason: string }; payoutError?: PayoutError };
+  type FormResult = { message: string; createError?: { title: string; description: string; assignee: string; dueDate: string; reward: string }; correctionError?: { id: string; reason: string }; payoutError?: PayoutError };
   let { data, form }: { data: PageData; form: FormResult | null } = $props();
   let createError = $derived(form?.createError);
   let createTitle = $derived(createError?.title ?? '');
   let createDescription = $derived(createError?.description ?? '');
   let createDueDate = $derived(createError?.dueDate ?? '');
   let createReward = $derived(createError?.reward ? Number(createError.reward) : undefined);
-  let seriesError = $derived(form?.seriesError);
-  let newSeries = $derived(seriesError && !seriesError.id ? seriesError : undefined);
-  let recurringTitle = $derived(newSeries?.title ?? '');
-  let recurringDescription = $derived(newSeries?.description ?? '');
-  let recurringEnd = $derived(newSeries?.endDate ?? '');
-  let recurringReward = $derived(newSeries?.reward ? Number(newSeries.reward) : undefined);
-  let recurringDays = $derived(newSeries?.weekdays ?? []);
   let paydayAnchor = $derived(data.payday?.anchor ?? data.today);
   let householdTimezone = $derived(data.timezone);
-  let recurringStart = $derived(newSeries?.startDate ?? data.today);
   const upcomingPreviewLimit = 5;
   let upcoming = $derived(sortOccurrences(data.upcomingEvents));
   let visibleUpcoming = $derived(upcoming.slice(0, upcomingPreviewLimit));
@@ -40,25 +31,27 @@
     }));
     return values;
   });
-  let recurringSeries = $derived.by(() => {
-    let values = $state(data.series.map(series => {
-      const rejected = seriesError?.id === series.id ? seriesError : undefined;
-      return { ...series, editTitle: rejected?.title ?? series.title, editDescription: rejected?.description ?? series.description, editAssignee: rejected?.assignee ?? series.assigneeId, editReward: rejected ? (rejected.reward ? Number(rejected.reward) : undefined) : series.rewardInput };
-    }));
-    return values;
-  });
+  const attentionScopes = ['review', 'overdue', 'today', 'upcoming', 'later', 'rework'] as const;
+  const sectionTitles = { review: 'Waiting for review', overdue: 'Overdue', today: 'Due today', upcoming: 'Coming up', later: 'Later', rework: 'Needs rework', verified: 'Recently completed' } as const;
+  const sectionLinks = { review: 'View all waiting for review', overdue: 'View all overdue chores', today: 'View all chores due today', upcoming: 'View all upcoming chores', later: 'View all later chores', rework: 'View all chores needing rework', verified: 'View all completed chores' } as const;
+  let attention = $derived(attentionScopes.filter(scope => data.sections[scope].total > 0));
+  let hasChores = $derived(attention.length > 0 || data.sections.verified.total > 0);
+  let pendingTotal = $derived(data.balances.reduce((total, balance) => total + balance.pendingCount, 0));
   const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
-  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 </script>
 <svelte:head><title>My day · Fleck Home Hub</title></svelte:head>
 <main class="mx-auto max-w-4xl px-5 py-8">
-  <a href={resolve('/display')} class="text-teal-700">Family display</a>
-  <a href={resolve('/calendar')} class="ml-4 text-teal-700">Family calendar</a>
-  <a href={resolve('/meals')} class="ml-4 text-teal-700">Meals</a>
-  <a href={resolve('/groceries')} class="ml-4 text-teal-700">Groceries</a>
-  {#if data.role === 'parent'}
-    <a href={resolve('/expenses')} class="ml-4 text-teal-700">Expenses</a>
-  {/if}
+  <nav aria-label="Household areas" class="flex flex-wrap gap-x-4 gap-y-2">
+    <a href={resolve('/display')} class="text-teal-700">Family display</a>
+    <a href={resolve('/calendar')} class="text-teal-700">Family calendar</a>
+    <a href={resolve('/meals')} class="text-teal-700">Meals</a>
+    <a href={resolve('/groceries')} class="text-teal-700">Groceries</a>
+    {#if data.role === 'parent'}
+      <a href={resolve('/expenses')} class="text-teal-700">Expenses</a>
+      <a href={resolve('/chores/series')} class="text-teal-700">Recurring chores{data.activeSeries ? ` (${data.activeSeries})` : ''}</a>
+    {/if}
+    <a href={resolve('/chores/history?scope=verified')} class="text-teal-700">{data.role === 'parent' ? 'Chore history' : 'My chore history'}</a>
+  </nav>
   <h1 class="mt-6 text-3xl font-bold">{data.role === 'parent' ? `Hello, ${data.name}` : `${data.name}'s My Day`}</h1>
   <p class="mt-2">{data.role === 'parent' ? 'Parent dashboard' : 'Your day'}</p>
   {#if data.onboardingPending}
@@ -105,11 +98,17 @@
       <a href={resolve('/meals')} class="mt-3 inline-block py-2 text-teal-700">Plan meals</a>
     </section>
   {/if}
+  {#if pendingTotal}
+    <section aria-label="Review status" class="mt-6 rounded-2xl bg-amber-50 p-5">
+      <h2 class="text-xl font-bold">{data.role === 'parent' ? 'Chores waiting for you' : 'Waiting for a parent'}</h2>
+      <p class="mt-2"><a href={resolve('/chores/history?scope=review')} class="font-semibold text-teal-800 underline">{pendingTotal} {pendingTotal === 1 ? 'chore is' : 'chores are'} waiting for {data.role === 'parent' ? 'your review' : 'a parent to check'}.</a></p>
+    </section>
+  {/if}
   {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}</p>{/if}
   {#if data.balances.length}
     <section class="mt-6 rounded-2xl bg-amber-50 p-5"><h2 class="text-xl font-bold">Earnings</h2>
       {#if data.payday}<p class="mt-2">Next payday: {data.payday.next}</p>{/if}
-      {#each balances as balance (balance.id)}<article aria-label={`Earnings for ${balance.name}`} class="mt-4"><h3 class="font-bold">{balance.name}</h3><p>Waiting for verification: {money(balance.pending)}</p><p>Verified earnings owed: {money(balance.owed)}</p><p>Paid so far: {money(balance.paid)}</p><p>Total verified earnings: {money(balance.earned)}</p>
+      {#each balances as balance (balance.id)}<article aria-label={`Earnings for ${balance.name}`} class="mt-4"><h3 class="font-bold">{balance.name}</h3><p>Waiting for verification: {money(balance.pendingCents)}</p><p>Verified earnings owed: {money(balance.owed)}</p><p>Paid so far: {money(balance.paid)}</p><p>Total verified earnings: {money(balance.earned)}</p>
         {#if data.role === 'parent' && (balance.owed > 0 || form?.payoutError?.child === balance.id)}
           <Disclosure class="mt-3" expanded={form?.payoutError?.child === balance.id}><summary class="cursor-pointer font-semibold">Record a payment</summary><p class="mt-2 text-sm">Record money you have already paid; this does not transfer money.</p>
             <form method="POST" action="?/payout" class="mt-3 grid gap-3"><input type="hidden" name="child" value={balance.id} /><input type="hidden" name="requestId" value={balance.requestId} />
@@ -120,13 +119,14 @@
             </form>
           </Disclosure>
         {/if}
-        {#if balance.payouts.length}<div class="mt-3"><h4 class="font-semibold">Payment history</h4>{#each balance.payouts as payment (payment.id)}<div class="mt-2"><p>{payment.paidDate} · {money(payment.amountCents)}{payment.reversalReason ? ' · Corrected' : ''}</p>{#if payment.note}<p>{payment.note}</p>{/if}{#if payment.reversalReason}<p>Correction: {payment.reversalReason}</p>{:else if data.role === 'parent'}<Disclosure expanded={form?.correctionError?.id === payment.id}><summary class="cursor-pointer">Correct this payment</summary><p class="mt-2 text-sm">This reverses the whole record and restores the amount owed; it does not transfer money.</p><form method="POST" action="?/reversePayout" class="mt-2 grid gap-2"><input type="hidden" name="id" value={payment.id} /><label>Correction reason<input name="reason" required maxlength="1000" defaultValue={payment.correctionInput} class="mt-1 block w-full rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Record correction</button></form></Disclosure>{/if}</div>{/each}</div>{/if}
+        {#if balance.payouts.length}<div class="mt-3"><h4 class="font-semibold">Recent payments</h4>{#each balance.payouts as payment (payment.id)}<div class="mt-2"><p>{payment.paidDate} · {money(payment.amountCents)}{payment.reversalReason ? ' · Corrected' : ''}</p>{#if payment.note}<p>{payment.note}</p>{/if}{#if payment.reversalReason}<p>Correction: {payment.reversalReason}</p>{:else if data.role === 'parent'}<Disclosure expanded={form?.correctionError?.id === payment.id}><summary class="cursor-pointer">Correct this payment</summary><p class="mt-2 text-sm">This reverses the whole record and restores the amount owed; it does not transfer money.</p><form method="POST" action="?/reversePayout" class="mt-2 grid gap-2"><input type="hidden" name="id" value={payment.id} /><label>Correction reason<input name="reason" required maxlength="1000" defaultValue={payment.correctionInput} class="mt-1 block w-full rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Record correction</button></form></Disclosure>{/if}</div>{/each}</div>{/if}
+        <p class="mt-3"><a href={resolve('/earnings/[childId]', { childId: balance.id })} class="text-teal-800 underline">{balance.payoutCount === 0 ? 'Payment history' : `View all ${balance.payoutCount} payments`}</a></p>
       </article>{/each}
     </section>
   {/if}
   {#if data.role === 'parent'}
     <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer font-bold">Payday schedule</summary><p class="mt-2 text-sm">A reminder only; no money is transferred automatically.</p><form method="POST" action="?/payday" class="mt-3 grid gap-3"><label>First payday<input name="anchor" type="date" bind:value={paydayAnchor} required class="mt-1 block w-full rounded-lg border p-3" /></label><label>Frequency<select name="cadence" class="mt-1 block w-full rounded-lg border p-3"><option value="7" selected={data.payday?.cadence !== 14}>Weekly</option><option value="14" selected={data.payday?.cadence === 14}>Every two weeks</option></select></label><button class="rounded-xl border border-teal-700 px-4 py-3">Save payday</button></form></details>
-    <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!createError}><summary id="add-chore" class="cursor-pointer text-xl font-bold">Add a chore</summary>
+    <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!createError}><summary class="cursor-pointer text-xl font-bold">Add a chore</summary>
       {#if data.children.length}
         <form method="POST" action="?/create" class="mt-4 grid gap-3">
           <label>Chore title<input name="title" required maxlength="120" defaultValue={createTitle} class="mt-1 w-full rounded-lg border p-3" /></label>
@@ -139,67 +139,50 @@
       {:else}<p class="mt-3">Add a child account before assigning a chore.</p>{/if}
     </Disclosure>
     <details class="mt-6 rounded-2xl bg-white p-5 shadow-sm"><summary class="cursor-pointer font-bold">Household time zone</summary><form method="POST" action="?/timezone" class="mt-3 flex flex-wrap items-end gap-3"><label>Time zone (for example, America/Chicago)<input name="timezone" defaultValue={householdTimezone} required class="mt-1 block rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Save time zone</button></form></details>
-    <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={!!newSeries}><summary class="cursor-pointer text-xl font-bold">Add a recurring chore</summary>
-      {#if data.children.length}
-        <form method="POST" action="?/series" class="mt-4 grid gap-3">
-          <label>Recurring chore title<input name="title" required maxlength="120" defaultValue={recurringTitle} class="mt-1 w-full rounded-lg border p-3" /></label>
-          <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={recurringDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
-          <label>Recurring assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === newSeries?.assignee}>{child.name}</option>{/each}</select></label>
-          <label>Starts on<input name="startDate" type="date" required bind:value={recurringStart} class="mt-1 w-full rounded-lg border p-3" /></label>
-          <label>Ends on (optional)<input name="endDate" type="date" bind:value={recurringEnd} class="mt-1 w-full rounded-lg border p-3" /></label>
-          <fieldset><legend class="font-semibold">Repeat on</legend><div class="mt-2 flex flex-wrap gap-3">{#each days as day, index (day)}<label class="flex items-center gap-2"><input name="weekday" type="checkbox" value={index} bind:group={recurringDays} />{day}</label>{/each}</div></fieldset>
-          <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" defaultValue={recurringReward} class="mt-1 w-full rounded-lg border p-3" /></label>
-          <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Add recurring chore</button>
-        </form>
-      {:else}<p class="mt-3">Add a child account before assigning a chore.</p>{/if}
-    </Disclosure>
-    {#if data.series.length}
-      <section class="mt-6"><h2 class="text-xl font-bold">Recurring chores</h2><p class="mt-1">Scheduled in {data.timezone}. Changes apply to future unstarted occurrences.</p>
-        {#each recurringSeries as series (series.id)}
-          <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm"><h3 class="text-lg font-bold">{series.title}</h3><p class="mt-2">{series.state} · {JSON.parse(series.weekdays).map((day: number) => days[day]).join(', ')}</p>
-            {#if series.state === 'active'}<p>{series.next ? `Next: ${series.next}` : 'No upcoming occurrence in the next seven days.'}</p>{/if}
-            {#if series.skips.length}<p>Skipped: {series.skips.join(', ')}</p>{/if}
-            {#if series.state !== 'ended'}
-              <Disclosure class="mt-3" expanded={seriesError?.id === series.id}><summary class="cursor-pointer font-semibold">Edit future chores</summary>
-                <form method="POST" action="?/series" class="mt-3 grid gap-3">
-                  <input type="hidden" name="id" value={series.id} /><input type="hidden" name="startDate" value={series.startDate} /><input type="hidden" name="endDate" value={series.endDate ?? ''} />
-                  {#each JSON.parse(series.weekdays) as day (day)}<input type="hidden" name="weekday" value={day} />{/each}
-                  <label>Recurring chore title<input name="title" defaultValue={series.editTitle} required maxlength="120" class="mt-1 w-full rounded-lg border p-3" /></label>
-                  <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={series.editDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
-                  <label>Recurring assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === series.editAssignee}>{child.name}</option>{/each}</select></label>
-                  <label>Recurring reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" defaultValue={series.editReward} class="mt-1 w-full rounded-lg border p-3" /></label>
-                  <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Save changes</button>
-                </form>
-              </Disclosure>
-              <form method="POST" action="?/seriesControl" class="mt-3 flex flex-wrap gap-3"><input type="hidden" name="id" value={series.id} /><button name="action" value={series.state === 'active' ? 'paused' : 'active'} class="rounded-xl border border-teal-700 px-4 py-3">{series.state === 'active' ? 'Pause' : 'Resume'}</button><button name="action" value="ended" class="rounded-xl border border-teal-700 px-4 py-3">End series</button></form>
-              <form method="POST" action="?/seriesControl" class="mt-3 flex flex-wrap items-end gap-3"><input type="hidden" name="id" value={series.id} /><input type="hidden" name="action" value="skip" /><label>Skip a date<input name="date" type="date" required class="mt-1 block rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Skip occurrence</button></form>
+  {/if}
+  <section class="mt-6" aria-labelledby="chores-heading"><h2 id="chores-heading" class="text-xl font-bold">{data.role === 'parent' ? 'Family chores' : 'My chores'}</h2>
+    {#if !hasChores}<p class="mt-3 rounded-2xl bg-white p-5">No chores yet. Enjoy your day!</p>{/if}
+    {#each attention as scope (scope)}
+      <section class="mt-6" aria-labelledby={`${scope}-heading`}>
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id={`${scope}-heading`} class="text-lg font-bold">{sectionTitles[scope]}</h3>
+          {#if data.sections[scope].total > data.sections[scope].items.length}<a href={resolve(`/chores/history?scope=${scope}`)} class="text-teal-800 underline">{sectionLinks[scope]} ({data.sections[scope].total})</a>{/if}
+        </div>
+        {#each data.sections[scope].items as chore (chore.id)}
+          <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+            <h4 class="text-lg font-bold">{chore.title}</h4>
+            {#if chore.description}<p class="mt-1">{chore.description}</p>{/if}
+            <p class="mt-2 text-sm">{data.role === 'parent' ? `${chore.childName} · ` : ''}Due {chore.dueDate} {chore.rewardCents ? `· ${money(chore.rewardCents)} reward` : ''}</p>
+            {#if chore.status === 'todo'}<p class="mt-3 font-semibold">{chore.dueDate < data.today ? 'Overdue' : 'To do'}</p>
+            {:else if chore.status === 'pending_verification'}<p class="mt-3 font-semibold">Waiting for parent verification</p>
+            {:else if chore.status === 'needs_rework'}<p class="mt-3 font-semibold">Needs rework</p>{#if chore.reworkReason}<p>{chore.reworkReason}</p>{/if}
+            {:else}<p class="mt-3 font-semibold">{chore.rewardCents ? `Approved! You earned ${money(chore.rewardCents)}!` : 'Approved! Great work!'}</p>{/if}
+            {#if data.role === 'kid' && chore.scheduledDate && chore.scheduledDate > data.today && chore.status === 'todo'}<p class="mt-3">Coming up</p>
+            {:else if data.role === 'kid' && (chore.status === 'todo' || chore.status === 'needs_rework')}
+              <form method="POST" action="?/transition" class="mt-4"><input type="hidden" name="id" value={chore.id} /><button name="action" value="submit" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Mark complete</button></form>
+            {:else if data.role === 'parent' && chore.status === 'pending_verification'}
+              <form method="POST" action="?/transition" class="mt-4 grid gap-3"><input type="hidden" name="id" value={chore.id} /><label>Rework reason<input name="reason" maxlength="1000" class="mt-1 w-full rounded-lg border p-3" /></label><div class="flex flex-wrap gap-3"><button name="action" value="verify" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Verify</button><button name="action" value="rework" class="rounded-xl border border-teal-700 px-4 py-3">Needs rework</button></div></form>
             {/if}
           </article>
         {/each}
       </section>
-    {/if}
-  {/if}
-  <section class="mt-6"><h2 class="text-xl font-bold">{data.role === 'parent' ? 'Family chores' : 'My chores'}</h2>
-    {#if !data.chores.length}<p class="mt-3 rounded-2xl bg-white p-5">No chores yet. Enjoy your day!</p>{/if}
-    {#each data.chores as chore, index (chore.id)}
-      {#if chore.status === 'pending_verification' && index === 0}<h3 class="mt-5 font-bold">Awaiting verification</h3>{/if}
-      {#if chore.status === 'verified' && (index === 0 || data.chores[index - 1].status !== 'verified')}<h3 class="mt-5 font-bold">Verified history</h3>{/if}
-      <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm">
-        <h3 class="text-lg font-bold">{chore.title}</h3>
-        {#if chore.description}<p class="mt-1">{chore.description}</p>{/if}
-        <p class="mt-2 text-sm">{data.role === 'parent' ? `${chore.childName} · ` : ''}Due {chore.dueDate} {chore.rewardCents ? `· ${money(chore.rewardCents)} reward` : ''}</p>
-        {#if chore.status === 'todo'}<p class="mt-3 font-semibold">To do</p>
-        {:else if chore.status === 'pending_verification'}<p class="mt-3 font-semibold">Waiting for parent verification</p>
-        {:else if chore.status === 'needs_rework'}<p class="mt-3 font-semibold">Needs rework</p>{#if chore.reworkReason}<p>{chore.reworkReason}</p>{/if}
-        {:else}<p class="mt-3 font-semibold">{chore.rewardCents ? `Approved! You earned ${money(chore.rewardCents)}!` : 'Approved! Great work!'}</p>{/if}
-        {#if data.role === 'kid' && chore.scheduledDate && chore.scheduledDate > data.today && chore.status === 'todo'}<p class="mt-3">Coming up</p>
-        {:else if data.role === 'kid' && (chore.status === 'todo' || chore.status === 'needs_rework')}
-          <form method="POST" action="?/transition" class="mt-4"><input type="hidden" name="id" value={chore.id} /><button name="action" value="submit" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Mark complete</button></form>
-        {:else if data.role === 'parent' && chore.status === 'pending_verification'}
-          <form method="POST" action="?/transition" class="mt-4 grid gap-3"><input type="hidden" name="id" value={chore.id} /><label>Rework reason<input name="reason" maxlength="1000" class="mt-1 w-full rounded-lg border p-3" /></label><div class="flex flex-wrap gap-3"><button name="action" value="verify" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Verify</button><button name="action" value="rework" class="rounded-xl border border-teal-700 px-4 py-3">Needs rework</button></div></form>
-        {/if}
-      </article>
     {/each}
+    {#if data.sections.verified.total > 0}
+      <section class="mt-6" aria-labelledby="verified-heading">
+        <div class="flex flex-wrap items-baseline justify-between gap-2">
+          <h3 id="verified-heading" class="text-lg font-bold">{sectionTitles.verified}</h3>
+          <a href={resolve('/chores/history?scope=verified')} class="text-teal-800 underline">{sectionLinks.verified} ({data.sections.verified.total})</a>
+        </div>
+        {#each data.sections.verified.items as chore (chore.id)}
+          <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm">
+            <h4 class="text-lg font-bold">{chore.title}</h4>
+            {#if chore.description}<p class="mt-1">{chore.description}</p>{/if}
+            <p class="mt-2 text-sm">{data.role === 'parent' ? `${chore.childName} · ` : ''}Due {chore.dueDate} {chore.rewardCents ? `· ${money(chore.rewardCents)} reward` : ''}</p>
+            <p class="mt-3 font-semibold">{chore.rewardCents ? `Approved! You earned ${money(chore.rewardCents)}!` : 'Approved! Great work!'}</p>
+          </article>
+        {/each}
+      </section>
+    {/if}
   </section>
   <p class="mt-8"><a href={resolve('/settings/sessions')} class="text-teal-700">Signed-in devices</a></p>
   <form method="POST" action={resolve('/sign-out')}><button class="mt-8 rounded-xl border border-teal-700 px-4 py-3 text-teal-700">Sign out</button></form>

@@ -18,6 +18,7 @@
     { "idx": 13, "version": "6", "when": 1794358800000, "tag": "0013_expenses", "breakpoints": true },
     { "idx": 14, "version": "6", "when": 1794445200000, "tag": "0014_expense_payments", "breakpoints": true },
     { "idx": 15, "version": "6", "when": 1794531600000, "tag": "0015_chore_recovery", "breakpoints": true },
-    { "idx": 16, "version": "6", "when": 1794618000000, "tag": "0016_family_onboarding", "breakpoints": true }
+    { "idx": 16, "version": "6", "when": 1794618000000, "tag": "0016_family_onboarding", "breakpoints": true },
+    { "idx": 17, "version": "6", "when": 1794704400000, "tag": "0017_my_day_indexes", "breakpoints": true }
   ]
 }
