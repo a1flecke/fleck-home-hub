@@ -58,7 +58,7 @@ for (const javaScriptEnabled of [true, false]) test(`a recurring chore can be co
   const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     const dashboard = await context.newPage();
-    await dashboard.goto('/dashboard');
+    await dashboard.goto('/chores/series');
     const section = dashboard.locator('details').filter({ has: dashboard.getByText('Add a recurring chore', { exact: true }) });
     await section.getByText('Add a recurring chore', { exact: true }).click();
     const title = `Synthetic weekly chore ${javaScriptEnabled} ${testInfo.repeatEachIndex}`;
@@ -218,6 +218,7 @@ test('a recurring occurrence is submitted and verified independently', async ({ 
   const title = `Daily feeding ${testInfo.repeatEachIndex}`;
   await page.setViewportSize({ width: 375, height: 812 });
   await signIn(page, 'parent');
+  await page.goto('/chores/series');
   await page.getByText('Add a recurring chore', { exact: true }).click();
   const form = page.locator('form[action="?/series"]').first();
   await form.getByLabel('Recurring chore title').fill(title);
@@ -230,6 +231,7 @@ test('a recurring occurrence is submitted and verified independently', async ({ 
   const series = page.getByRole('article').filter({ hasText: title }).filter({ hasText: 'Skip occurrence' });
   const seriesId = await series.locator('form[action="?/seriesControl"] input[name="id"]').first().inputValue();
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  await page.goto('/dashboard');
   const occurrence = page.getByRole('article').filter({ hasText: title }).filter({ hasText: `Due ${today}` });
   await expect(occurrence).toHaveCount(1);
   const scheduledDates = await page.getByRole('article').filter({ hasText: title }).filter({ hasText: 'To do' }).locator('p').filter({ hasText: 'Due ' }).allTextContents();
@@ -240,13 +242,11 @@ test('a recurring occurrence is submitted and verified independently', async ({ 
   await page.setViewportSize({ width: 375, height: 812 });
   await signOut(page);
   await signIn(page, 'kid');
-  const childChange = await page.request.post('/dashboard?/seriesControl', { form: { id: seriesId, action: 'ended' }, headers: { origin: 'http://127.0.0.1:4173' } });
-  expect(childChange.status()).toBe(400);
-  expect(await childChange.json()).toMatchObject({ type: 'failure', status: 400 });
-  const childCreate = await page.request.post('/dashboard?/series', { form: { title: 'Forged recurring', assignee, startDate: today, weekday: '1' }, headers: { origin: 'http://127.0.0.1:4173' } });
-  expect(childCreate.status()).toBe(400);
-  expect(await childCreate.json()).toMatchObject({ type: 'failure', status: 400 });
-  const forgedOrigin = await page.request.post('/dashboard?/seriesControl', { form: { id: seriesId, action: 'ended' }, headers: { origin: 'https://attacker.example.test' } });
+  const childChange = await page.request.post('/chores/series?/seriesControl', { form: { id: seriesId, action: 'ended' }, headers: { origin: 'http://127.0.0.1:4173' } });
+  expect(childChange.status()).toBe(403);
+  const childCreate = await page.request.post('/chores/series?/series', { form: { title: 'Forged recurring', assignee, startDate: today, weekday: '1' }, headers: { origin: 'http://127.0.0.1:4173' } });
+  expect(childCreate.status()).toBe(403);
+  const forgedOrigin = await page.request.post('/chores/series?/seriesControl', { form: { id: seriesId, action: 'ended' }, headers: { origin: 'https://attacker.example.test' } });
   expect(forgedOrigin.status()).toBe(403);
   await occurrence.getByRole('button', { name: 'Mark complete' }).click();
   await expect(occurrence.getByText('Waiting for parent verification')).toBeVisible();
@@ -265,7 +265,7 @@ test('recurring chores can be created before JavaScript runs', async ({ page, br
   const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     const noScript = await context.newPage();
-    await noScript.goto('/dashboard');
+    await noScript.goto('/chores/series');
     await noScript.getByText('Add a recurring chore', { exact: true }).click();
     const form = noScript.locator('form[action="?/series"]').first();
     await form.getByLabel('Recurring chore title').fill(title);

@@ -97,6 +97,54 @@ export function skipOccurrence(db: Database.Database, actor: string, household: 
   }).immediate();
 }
 
+export type SeriesPageItem = {
+  id: string;
+  title: string;
+  description: string | null;
+  assigneeId: string;
+  childName: string;
+  rewardCents: number | null;
+  startDate: string;
+  endDate: string | null;
+  weekdays: string;
+  state: string;
+  next?: string;
+  skips: string[];
+  skipCount: number;
+};
+
+export function activeSeriesCount(db: Database.Database, household: string): number {
+  return (db.prepare("SELECT COUNT(*) AS count FROM recurring_series WHERE household_id = ? AND state = 'active'").get(household) as { count: number }).count;
+}
+
+/** Bounded parent-only schedule management. Next occurrence and skip previews are capped per series. */
+export function listSeriesPage(db: Database.Database, actor: string, household: string, page = 1, pageSize = 10) {
+  if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household)) throw new Error('Not authorized');
+  const size = Math.max(1, Math.min(50, Math.trunc(pageSize)));
+  const requested = Number.isSafeInteger(page) ? page : 1;
+  const total = (db.prepare('SELECT COUNT(*) AS count FROM recurring_series WHERE household_id = ?').get(household) as { count: number }).count;
+  const pageCount = Math.max(1, Math.ceil(total / size));
+  const current = Math.min(Math.max(1, requested), pageCount);
+  const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
+  const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
+  const rows = db.prepare(`SELECT s.id, s.title, s.description, s.assignee_id AS assigneeId, u.name AS childName,
+    s.reward_cents AS rewardCents, s.start_date AS startDate, s.end_date AS endDate, s.weekdays, s.state
+    FROM recurring_series s JOIN user u ON u.id = s.assignee_id
+    WHERE s.household_id = ? ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?`).all(household, size, (current - 1) * size) as Omit<SeriesPageItem, 'next' | 'skips' | 'skipCount'>[];
+  const items = rows.map(item => {
+    const next = item.state === 'active'
+      ? (db.prepare(`SELECT o.scheduled_date AS date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id
+        WHERE o.series_id = ? AND o.scheduled_date >= ? AND c.status = 'todo'
+        AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date)
+        ORDER BY o.scheduled_date LIMIT 1`).get(item.id, today) as { date: string } | undefined)?.date
+      : undefined;
+    const skips = (db.prepare('SELECT scheduled_date AS date FROM recurring_skip WHERE series_id = ? ORDER BY scheduled_date DESC LIMIT 5').all(item.id) as { date: string }[]).map(skip => skip.date);
+    const skipCount = (db.prepare('SELECT COUNT(*) AS count FROM recurring_skip WHERE series_id = ?').get(item.id) as { count: number }).count;
+    return { ...item, next, skips, skipCount };
+  });
+  return { items, total, page: current, pageSize: size, pageCount, today };
+}
+
 export function updateSeries(db: Database.Database, actor: string, household: string, id: string, input: SeriesInput): void {
   db.transaction(() => {
     requireParent(db, actor, household, id);

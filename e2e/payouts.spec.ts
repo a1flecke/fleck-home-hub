@@ -108,9 +108,6 @@ test('dashboard preserves form edits made before hydration', async ({ page, brow
     await delayed.getByText('Household time zone', { exact: true }).click();
     const timezone = delayed.locator('form[action="?/timezone"]');
     await timezone.getByLabel('Time zone (for example, America/Chicago)').fill('Asia/Tokyo');
-    await delayed.getByText('Add a recurring chore', { exact: true }).click();
-    const recurring = delayed.locator('form[action="?/series"]').first();
-    await recurring.getByLabel('Starts on').fill('2099-02-01');
     await delayed.getByText('Add a chore', { exact: true }).click();
     const chore = delayed.locator('form[action="?/create"]');
     await chore.getByLabel('Chore title', { exact: true }).fill('Synthetic pre-hydration chore');
@@ -118,21 +115,14 @@ test('dashboard preserves form edits made before hydration', async ({ page, brow
     const child = await chore.getByRole('combobox', { name: 'Assigned child', exact: true }).inputValue();
     await chore.getByLabel('Due date', { exact: true }).fill('2099-03-01');
     await chore.getByLabel('Reward in dollars', { exact: true }).fill('2.50');
-    await recurring.getByRole('textbox', { name: 'Recurring chore title' }).fill('Synthetic weekly task');
-    await recurring.getByRole('combobox', { name: 'Recurring assigned child' }).selectOption({ label: 'Sample Kid' });
-    const assignee = await recurring.getByRole('combobox', { name: 'Recurring assigned child' }).inputValue();
-    await recurring.getByLabel('Monday').check();
     release();
     await delayed.waitForLoadState('networkidle');
     await expect(payday.getByLabel('First payday')).toHaveValue('2099-01-01');
     await expect(payday.getByLabel('Frequency')).toHaveValue('14');
     await expect(timezone.getByLabel('Time zone (for example, America/Chicago)')).toHaveValue('Asia/Tokyo');
-    await expect(recurring.getByLabel('Starts on')).toHaveValue('2099-02-01');
     await expect(chore).toBeVisible();
     await expect(chore.getByLabel('Chore title', { exact: true })).toHaveValue('Synthetic pre-hydration chore');
     expect(await chore.evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ title: 'Synthetic pre-hydration chore', assignee: child, dueDate: '2099-03-01', reward: '2.50' });
-    await expect(recurring.getByLabel('Monday')).toBeChecked();
-    expect(await recurring.evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ title: 'Synthetic weekly task', assignee, startDate: '2099-02-01', weekday: '1' });
     expect(await payday.evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ anchor: '2099-01-01', cadence: '14' });
   } finally { release(); await context.close(); }
 });

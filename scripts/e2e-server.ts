@@ -104,6 +104,34 @@ const disabledExpense = await auth.api.signUpEmail({ body: { name: 'Disabled Exp
 db.prepare('INSERT INTO membership (user_id, household_id, role, disabled_at, disabled_by) VALUES (?, ?, ?, ?, ?)').run(disabledExpense.user.id, household.id, 'parent', Date.now(), bootstrapParent.id);
 const seededAt = new Date().toISOString();
 db.prepare("INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at) VALUES ('revoke-pending-chore', ?, ?, 'Revocation pending chore', '2026-11-01', 250, 'pending_verification', ?, ?)").run(household.id, revokeKid.user.id, seededAt, seededAt);
+// Bounded history journeys: a dedicated household keeps pagination and financial totals
+// independent from concurrently running chores and payout tests.
+const historyParent = await auth.api.signUpEmail({ body: { name: 'History Parent', email: 'history-parent@example.test', password: 'synthetic-history-parent-password' } });
+const historyKid = await auth.api.signUpEmail({ body: { name: 'History Kid', email: 'history-kid@example.test', password: 'synthetic-history-kid-password' } });
+const historySibling = await auth.api.signUpEmail({ body: { name: 'History Sibling', email: 'history-sibling@example.test', password: 'synthetic-history-sibling-password' } });
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-history-household', 'History household');
+for (const [userId, role] of [[historyParent.user.id, 'parent'], [historyKid.user.id, 'kid'], [historySibling.user.id, 'kid']] as const) {
+  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(userId, 'synthetic-history-household', role);
+}
+const historyChore = db.prepare(`INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at)
+  VALUES (?, 'synthetic-history-household', ?, ?, ?, ?, ?, ?, ?)`);
+const historyEarning = db.prepare('INSERT INTO earning (id, chore_id, household_id, child_id, amount_cents, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+for (let index = 1; index <= 60; index++) {
+  const id = `history-completed-${String(index).padStart(3, '0')}`;
+  const stamp = new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString();
+  historyChore.run(id, historyKid.user.id, `History completed ${String(index).padStart(3, '0')}`, '2025-06-01', 100, 'verified', stamp, stamp);
+  historyEarning.run(`history-earning-${String(index).padStart(3, '0')}`, id, 'synthetic-history-household', historyKid.user.id, 100, stamp);
+}
+for (let index = 1; index <= 3; index++) historyChore.run(`history-pending-${index}`, historyKid.user.id, `History pending ${index}`, '2020-01-01', 100, 'pending_verification', seededAt, seededAt);
+for (let index = 1; index <= 4; index++) historyChore.run(`history-overdue-${index}`, historyKid.user.id, `History overdue ${index}`, '2020-01-01', 50, 'todo', seededAt, seededAt);
+historyChore.run('history-sibling-private', historySibling.user.id, 'History sibling private chore', '2025-06-01', 999, 'verified', seededAt, seededAt);
+historyEarning.run('history-sibling-earning', 'history-sibling-private', 'synthetic-history-household', historySibling.user.id, 999, seededAt);
+const historyPayout = db.prepare('INSERT INTO payout (id, household_id, child_id, actor_id, amount_cents, paid_date, note, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+for (let index = 0; index < 25; index++) {
+  historyPayout.run(`history-payout-${String(index).padStart(2, '0')}`, 'synthetic-history-household', historyKid.user.id, historyParent.user.id, 100, `2024-01-${String(index + 1).padStart(2, '0')}`, index === 2 ? 'Synthetic older payment' : `Synthetic payment ${index + 1}`, `history-request-${index}`, new Date(Date.UTC(2024, 0, 1, 0, 0, index)).toISOString());
+}
+db.prepare("INSERT INTO payout_reversal (id, payout_id, actor_id, reason, created_at) VALUES ('history-reversal', 'history-payout-00', ?, 'Synthetic older correction', '2024-02-01T00:00:00.000Z')").run(historyParent.user.id);
+historyPayout.run('history-sibling-payout', 'synthetic-history-household', historySibling.user.id, historyParent.user.id, 500, '2024-01-01', 'Sibling private payment', 'history-sibling-request', '2024-01-01T00:00:00.000Z');
 db.close();
 const mockRecipeFetch = fileURLToPath(new URL('./mock-recipe-fetch.cjs', import.meta.url));
 const nodeOptions = [process.env.NODE_OPTIONS, '--require', mockRecipeFetch].filter(Boolean).join(' ');
