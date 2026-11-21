@@ -81,7 +81,12 @@ export function skipExpense(db: Database.Database, actor: string, household: str
   db.transaction(() => {
     requireParent(db, actor, household);
     const item = getExpense(db, household, id);
-    if (item.cadence === 'once' || item.state !== 'active' || date <= expenseToday(db, household) || !expenseDates(item.due_date, item.cadence, date, date).length) throw new Error('Invalid occurrence');
+    // A skip records that a recurring date is not owed. Future dates need an active plan; a past or
+    // due-today date may be dismissed whatever the plan's state, so a plan entered with an earlier
+    // anchor, or one that was ended, does not leave unpaid dates that only a false payment could clear.
+    // The date must currently be projected: scheduled, not already skipped, paused or after the end.
+    if (item.cadence === 'once' || (date > expenseToday(db, household) && item.state !== 'active')) throw new Error('Invalid occurrence');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !listExpenses(db, actor, household, date, date).some(occurrence => occurrence.id === id)) throw new Error('Invalid occurrence');
     if (db.prepare('SELECT 1 FROM expense_payment WHERE expense_id = ? AND scheduled_date = ?').get(id, date)) throw new Error('Payment history exists');
     db.prepare('INSERT INTO expense_skip VALUES (?, ?, ?, ?)').run(id, date, actor, new Date().toISOString());
   }).immediate();
