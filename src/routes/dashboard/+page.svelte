@@ -36,7 +36,8 @@
   const sectionLinks = { review: 'View all waiting for review', overdue: 'View all overdue chores', today: 'View all chores due today', upcoming: 'View all upcoming chores', later: 'View all later chores', rework: 'View all chores needing rework', verified: 'View all completed chores' } as const;
   let attention = $derived(attentionScopes.filter(scope => data.sections[scope].total > 0));
   let hasChores = $derived(attention.length > 0 || data.sections.verified.total > 0);
-  let pendingTotal = $derived(data.balances.reduce((total, balance) => total + balance.pendingCount, 0));
+  let pendingTotal = $derived(data.counts.review);
+  let pendingCents = $derived(data.pendingRewards);
   const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 </script>
 <svelte:head><title>My day · Fleck Home Hub</title></svelte:head>
@@ -48,6 +49,7 @@
     <a href={resolve('/groceries')} class="text-teal-700">Groceries</a>
     {#if data.role === 'parent'}
       <a href={resolve('/expenses')} class="text-teal-700">Expenses</a>
+      <a href={resolve('/verify')} class="text-teal-700">Review chores{pendingTotal ? ` (${pendingTotal})` : ''}</a>
       <a href={resolve('/chores/series')} class="text-teal-700">Recurring chores{data.activeSeries ? ` (${data.activeSeries})` : ''}</a>
     {/if}
     <a href={resolve('/chores/history?scope=verified')} class="text-teal-700">{data.role === 'parent' ? 'Chore history' : 'My chore history'}</a>
@@ -101,7 +103,12 @@
   {#if pendingTotal}
     <section aria-label="Review status" class="mt-6 rounded-2xl bg-amber-50 p-5">
       <h2 class="text-xl font-bold">{data.role === 'parent' ? 'Chores waiting for you' : 'Waiting for a parent'}</h2>
-      <p class="mt-2"><a href={resolve('/chores/history?scope=review')} class="font-semibold text-teal-800 underline">{pendingTotal} {pendingTotal === 1 ? 'chore is' : 'chores are'} waiting for {data.role === 'parent' ? 'your review' : 'a parent to check'}.</a></p>
+      {#if data.role === 'parent'}
+        <p class="mt-2"><a href={resolve('/verify')} class="font-semibold text-teal-800 underline">{pendingTotal} {pendingTotal === 1 ? 'submission is' : 'submissions are'} waiting for review · {money(pendingCents)} in pending rewards.</a></p>
+        <p class="mt-1 text-sm">Pending rewards are not earned until you verify them.</p>
+      {:else}
+        <p class="mt-2"><a href={resolve('/chores/history?scope=review')} class="font-semibold text-teal-800 underline">{pendingTotal} {pendingTotal === 1 ? 'chore is' : 'chores are'} waiting for a parent to check.</a></p>
+      {/if}
     </section>
   {/if}
   {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}</p>{/if}
@@ -146,7 +153,7 @@
       <section class="mt-6" aria-labelledby={`${scope}-heading`}>
         <div class="flex flex-wrap items-baseline justify-between gap-2">
           <h3 id={`${scope}-heading`} class="text-lg font-bold">{sectionTitles[scope]}</h3>
-          {#if data.sections[scope].total > data.sections[scope].items.length}<a href={resolve(`/chores/history?scope=${scope}`)} class="text-teal-800 underline">{sectionLinks[scope]} ({data.sections[scope].total})</a>{/if}
+          {#if data.sections[scope].total > data.sections[scope].items.length}<a href={scope === 'review' && data.role === 'parent' ? resolve('/verify') : resolve(`/chores/history?scope=${scope}`)} class="text-teal-800 underline">{sectionLinks[scope]} ({data.sections[scope].total})</a>{/if}
         </div>
         {#each data.sections[scope].items as chore (chore.id)}
           <article class="mt-4 rounded-2xl bg-white p-5 shadow-sm">
@@ -161,7 +168,7 @@
             {:else if data.role === 'kid' && (chore.status === 'todo' || chore.status === 'needs_rework')}
               <form method="POST" action="?/transition" class="mt-4"><input type="hidden" name="id" value={chore.id} /><button name="action" value="submit" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Mark complete</button></form>
             {:else if data.role === 'parent' && chore.status === 'pending_verification'}
-              <form method="POST" action="?/transition" class="mt-4 grid gap-3"><input type="hidden" name="id" value={chore.id} /><label>Rework reason<input name="reason" maxlength="1000" class="mt-1 w-full rounded-lg border p-3" /></label><div class="flex flex-wrap gap-3"><button name="action" value="verify" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Verify</button><button name="action" value="rework" class="rounded-xl border border-teal-700 px-4 py-3">Needs rework</button></div></form>
+              <form method="POST" action="?/transition" class="mt-4 grid gap-3"><input type="hidden" name="id" value={chore.id} /><label>Rework reason <span class="text-sm">(required when returning work)</span><input name="reason" maxlength="1000" class="mt-1 w-full rounded-lg border p-3" /></label><div class="flex flex-wrap gap-3"><button name="action" value="verify" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Verify</button><button name="action" value="rework" class="rounded-xl border border-teal-700 px-4 py-3">Needs rework</button></div></form>
             {/if}
           </article>
         {/each}

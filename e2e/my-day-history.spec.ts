@@ -78,7 +78,7 @@ test('schedule and historical correction forms preserve edits made before hydrat
 test('parent pages through bounded chore and payment history and corrects an older payment', async ({ page, browser }, testInfo) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await signIn(page, 'history-parent@example.test', 'synthetic-history-parent-password', 'Hello, History Parent');
-  await expect(page.getByRole('link', { name: /3 chores are waiting for your review/ })).toBeVisible();
+  await expect(page.getByRole('link', { name: /3 submissions are waiting for review/ })).toBeVisible();
   await page.getByRole('link', { name: 'Chore history' }).click();
   await expect(page.getByRole('heading', { name: 'Family chore history' })).toBeVisible();
   await page.getByRole('link', { name: 'History Kid' }).click();

@@ -71,7 +71,7 @@ export function addDays(date: string, days: number): string {
 }
 
 /** Household and role visibility shared by every chore read. A child filter never widens a child's audience. */
-function visibility(audience: ChoreAudience) {
+export function choreVisibility(audience: ChoreAudience) {
   const clauses = ['c.household_id = ?'];
   const parameters: unknown[] = [audience.householdId];
   if (audience.role === 'kid') {
@@ -101,13 +101,13 @@ function scopeFilter(scope: ChoreScope, today: string) {
 }
 
 function whereClause(audience: ChoreAudience, scope: ChoreScope) {
-  const visible = visibility(audience);
+  const visible = choreVisibility(audience);
   const filtered = scopeFilter(scope, audience.today);
   return { sql: `${visible.sql} AND (${filtered.sql})`, parameters: [...visible.parameters, ...filtered.parameters] };
 }
 
 export function choreScopeCounts(db: Database.Database, audience: ChoreAudience): ChoreCounts {
-  const visible = visibility(audience);
+  const visible = choreVisibility(audience);
   const horizon = addDays(audience.today, 7);
   const row = db.prepare(`SELECT
     COALESCE(SUM(CASE WHEN c.status = 'pending_verification' THEN 1 ELSE 0 END), 0) AS review,
@@ -126,6 +126,11 @@ export function choreScopeCounts(db: Database.Database, audience: ChoreAudience)
       ...visible.parameters
     ) as ChoreCounts;
   return row;
+}
+
+export function pendingRewardTotal(db: Database.Database, audience: ChoreAudience): number {
+  const visible = choreVisibility(audience);
+  return (db.prepare(`SELECT COALESCE(SUM(c.reward_cents), 0) AS cents ${FROM} WHERE ${visible.sql} AND c.status = 'pending_verification'`).get(...visible.parameters) as { cents: number }).cents;
 }
 
 function queryChoreItems(db: Database.Database, audience: ChoreAudience, scope: ChoreScope, limit: number, offset: number): ChoreRow[] {
@@ -176,7 +181,7 @@ function recentPayouts(db: Database.Database, householdId: string, childId: stri
 }
 
 export function childEarningSummaries(db: Database.Database, audience: ChoreAudience): ChildEarningSummary[] {
-  const visible = visibility(audience);
+  const visible = choreVisibility(audience);
   const pendingRows = db.prepare(`SELECT c.assignee_id AS id, COUNT(*) AS count, COALESCE(SUM(c.reward_cents), 0) AS cents
     ${FROM} WHERE ${visible.sql} AND c.status = 'pending_verification' GROUP BY c.assignee_id`).all(...visible.parameters) as { id: string; count: number; cents: number }[];
   const pending = new Map(pendingRows.map(row => [row.id, row]));

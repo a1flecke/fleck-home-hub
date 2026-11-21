@@ -132,6 +132,33 @@ for (let index = 0; index < 25; index++) {
 }
 db.prepare("INSERT INTO payout_reversal (id, payout_id, actor_id, reason, created_at) VALUES ('history-reversal', 'history-payout-00', ?, 'Synthetic older correction', '2024-02-01T00:00:00.000Z')").run(historyParent.user.id);
 historyPayout.run('history-sibling-payout', 'synthetic-history-household', historySibling.user.id, historyParent.user.id, 500, '2024-01-01', 'Sibling private payment', 'history-sibling-request', '2024-01-01T00:00:00.000Z');
+// Verification inbox journeys: two parents, two children with pending work, and an empty child.
+const verifyParent = await auth.api.signUpEmail({ body: { name: 'Verify Parent', email: 'verify-parent@example.test', password: 'synthetic-verify-parent-password' } });
+const verifyParentTwo = await auth.api.signUpEmail({ body: { name: 'Verify Parent Two', email: 'verify-parent-two@example.test', password: 'synthetic-verify-parent-two-password' } });
+const verifyKid = await auth.api.signUpEmail({ body: { name: 'Verification Kid', email: 'verify-kid@example.test', password: 'synthetic-verify-kid-password' } });
+const verifySibling = await auth.api.signUpEmail({ body: { name: 'Verification Sibling', email: 'verify-sibling@example.test', password: 'synthetic-verify-sibling-password' } });
+const verifyEmpty = await auth.api.signUpEmail({ body: { name: 'Verification Empty', email: 'verify-empty@example.test', password: 'synthetic-verify-empty-password' } });
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-verify-household', 'Verification household');
+for (const [userId, role] of [[verifyParent.user.id, 'parent'], [verifyParentTwo.user.id, 'parent'], [verifyKid.user.id, 'kid'], [verifySibling.user.id, 'kid'], [verifyEmpty.user.id, 'kid']] as const) {
+  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(userId, 'synthetic-verify-household', role);
+}
+const verifyChore = db.prepare(`INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at)
+  VALUES (?, 'synthetic-verify-household', ?, ?, '2026-11-01', ?, 'pending_verification', ?, ?)`);
+const verifyTransition = db.prepare("INSERT INTO chore_transition (chore_id, actor_id, from_status, to_status, created_at) VALUES (?, ?, 'todo', 'pending_verification', ?)");
+for (let index = 1; index <= 15; index++) {
+  const id = `verify-kid-${String(index).padStart(2, '0')}`;
+  const day = index <= 5 ? 1 : index <= 10 ? 2 : 3;
+  const stamp = new Date(Date.UTC(2026, 10, day, 9, index)).toISOString();
+  verifyChore.run(id, verifyKid.user.id, `Verification kid ${String(index).padStart(2, '0')}`, 200, stamp, stamp);
+  verifyTransition.run(id, verifyKid.user.id, stamp);
+}
+for (let index = 1; index <= 10; index++) {
+  const id = `verify-sibling-${String(index).padStart(2, '0')}`;
+  const day = index <= 5 ? 4 : 5;
+  const stamp = new Date(Date.UTC(2026, 10, day, 8, index)).toISOString();
+  verifyChore.run(id, verifySibling.user.id, `Verification sibling ${String(index).padStart(2, '0')}`, 100, stamp, stamp);
+  verifyTransition.run(id, verifySibling.user.id, stamp);
+}
 db.close();
 const mockRecipeFetch = fileURLToPath(new URL('./mock-recipe-fetch.cjs', import.meta.url));
 const nodeOptions = [process.env.NODE_OPTIONS, '--require', mockRecipeFetch].filter(Boolean).join(' ');

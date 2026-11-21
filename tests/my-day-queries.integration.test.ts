@@ -8,6 +8,7 @@ import {
   listChoreScope,
   childEarningSummaries,
   listPayoutHistory,
+  pendingRewardTotal,
   type ChoreScope
 } from '../src/lib/server/my-day';
 
@@ -66,6 +67,7 @@ it('counts every record while returning bounded dashboard sections', async () =>
   const counts = choreScopeCounts(db, audience);
   expect(counts).toEqual({ review: 120, overdue: 400, rework: 25, today: 20, upcoming: 30, later: 5, verified: 2500 });
   expect(counts.review).toBeGreaterThan(DASHBOARD_SECTION_LIMIT);
+  expect(pendingRewardTotal(db, audience)).toBe(80 * 250 + 40 * 100);
 
   const dashboard = dashboardChoreSections(db, audience);
   expect(dashboard.counts).toEqual(counts);

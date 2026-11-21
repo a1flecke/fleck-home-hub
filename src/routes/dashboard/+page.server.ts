@@ -8,7 +8,7 @@ import { recordPayout, reversePayout, setPayday } from '../../lib/server/payouts
 import { nextPayday } from '../../lib/earnings/payday';
 import { randomUUID } from 'node:crypto';
 import { listMeals } from '../../lib/server/meals';
-import { dashboardChoreSections, childEarningSummaries } from '../../lib/server/my-day';
+import { dashboardChoreSections, childEarningSummaries, pendingRewardTotal } from '../../lib/server/my-day';
 import { requestAccess } from '../../lib/server/request-access';
 import { onboardingStep } from '../../lib/server/onboarding';
 import { listUpcomingEvents } from '../../lib/server/calendar';
@@ -41,7 +41,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
   return {
     onboardingPending: Boolean(onboarding && onboarding !== 'complete'),
     showWelcome: onboarding === 'complete' && url.searchParams.get('welcome') === '1',
-    name, householdId, role, counts, sections, children, balances, today, timezone, payday, meals, upcomingEvents, activeSeries: role === 'parent' ? activeSeriesCount(db, householdId) : 0
+    name, householdId, role, counts, sections, children, balances, pendingRewards: pendingRewardTotal(db, audience), today, timezone, payday, meals, upcomingEvents, activeSeries: role === 'parent' ? activeSeriesCount(db, householdId) : 0
   };
 };
 
@@ -102,7 +102,7 @@ export const actions: Actions = {
     const action = String(form.get('action'));
     if (!['submit', 'verify', 'rework'].includes(action)) return fail(400, { message: 'Invalid action.' });
     try { changeChore(db, userId, householdId, String(form.get('id') ?? ''), action as ChoreAction, String(form.get('reason') ?? '')); }
-    catch { return fail(400, { message: 'Unable to update this chore. Refresh and try again.' }); }
+    catch { return fail(400, { message: action === 'rework' ? 'Enter a reason for returning this work.' : 'Unable to update this chore. Refresh and try again.' }); }
     return { message: action === 'submit' ? 'Nice job! Waiting for a parent to check.' : 'Chore updated.' };
   }
 };
