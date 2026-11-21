@@ -304,3 +304,36 @@ test('display management rejects children, cross-origin requests and invalid nam
     expect(response.headers()['cache-control']).toBe('no-store');
   } finally { await kid.context.close(); await parent.context.close(); }
 });
+
+test('a parent in two households pairs and revokes a display for the household on screen', async ({ browser }) => {
+  const stamp = Date.now();
+  const label = `Second kitchen ${stamp}`;
+  const second = '/settings/displays?household=synthetic-display-second';
+  const parent = await signedIn(browser, 'display-multi@example.test', 'synthetic-display-multi-password', 'Hello, Display Multi Parent');
+  let display: Awaited<ReturnType<typeof pairDisplay>> | undefined;
+  try {
+    await parent.page.goto(second);
+    await expect(parent.page.getByRole('combobox', { name: 'Household', exact: true })).toHaveValue('synthetic-display-second');
+    await parent.page.getByLabel('Display name').fill(label);
+    await parent.page.getByRole('button', { name: 'Create pairing code' }).click();
+    const region = parent.page.getByRole('region', { name: 'New pairing code' });
+    await expect(region.getByRole('heading', { name: `Pairing code for ${label}` })).toBeVisible();
+    const code = (await region.locator('p.font-mono').innerText()).trim();
+    expect(new URL(parent.page.url()).searchParams.get('household')).toBe('synthetic-display-second');
+    await expect(parent.page.getByRole('region', { name: 'Unused pairing codes' })).toContainText(label);
+    await parent.page.goto('/settings/displays?household=synthetic-display-first');
+    await expect(parent.page.getByText(label)).toHaveCount(0);
+
+    display = await pairDisplay(browser, code);
+    await parent.page.goto(second);
+    const device = parent.page.getByRole('region', { name: 'Paired displays' }).getByRole('listitem').filter({ hasText: label });
+    await expect(device).toContainText('Active');
+    await device.getByText(`Revoke ${label}`).click();
+    await device.getByRole('button', { name: `Confirm revoke ${label}` }).click();
+    await expect(parent.page.getByRole('status')).toContainText('Display revoked');
+    await expect(device).toContainText('Revoked');
+    expect(new URL(parent.page.url()).searchParams.get('household')).toBe('synthetic-display-second');
+    await display.page.reload();
+    await expect(display.page.getByRole('heading', { name: 'Family display' })).toHaveCount(0);
+  } finally { await display?.context.close(); await parent.context.close(); }
+});
