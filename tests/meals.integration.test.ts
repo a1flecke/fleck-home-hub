@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
-import { createMeal, listMeals, updateMeal } from '../src/lib/server/meals';
+import { createMeal, listMealWeek, listMeals, moveMeal, removeMeal, updateMeal } from '../src/lib/server/meals';
 import { displayData } from '../src/lib/server/display';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate as migrateDrizzle } from 'drizzle-orm/better-sqlite3/migrator';
@@ -133,6 +133,63 @@ it('upgrades a meal database with recipe details without losing existing meals',
     const columns = db.prepare('PRAGMA table_info(meal)').all() as { name: string }[];
     expect(columns.map(column => column.name)).toContain('recipe_details');
   } finally { db.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+it('lists a bounded week of meals for parents and only shared meals for children', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    for (const id of ['parent', 'kid', 'outsider']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    for (const id of ['home', 'other']) db.prepare('INSERT INTO household VALUES (?, ?)').run(id, id);
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('outsider', 'other', 'parent');
+    const base = { time: '18:00', servings: 4, ingredients: '1 onion', notes: 'Private note at home', source: 'Family cookbook', recipeUrl: 'https://example.test/recipe' };
+    createMeal(db, 'parent', 'home', { ...base, title: 'Private Sunday', date: '2026-11-15', shared: false });
+    createMeal(db, 'parent', 'home', { ...base, title: 'Shared Monday', date: '2026-11-16', shared: true });
+    createMeal(db, 'parent', 'home', { ...base, title: 'Second Monday', date: '2026-11-16', time: '12:00', shared: false });
+    createMeal(db, 'parent', 'home', { ...base, title: 'Shared Saturday', date: '2026-11-21', shared: true });
+    createMeal(db, 'parent', 'home', { ...base, title: 'Outside week', date: '2026-11-22', shared: true });
+    createMeal(db, 'outsider', 'other', { ...base, title: 'Other household', date: '2026-11-16', shared: true });
+
+    expect(listMealWeek(db, 'parent', 'home', '2026-11-15', '2026-11-21').map(meal => meal.title)).toEqual(['Private Sunday', 'Second Monday', 'Shared Monday', 'Shared Saturday']);
+    expect(listMealWeek(db, 'kid', 'home', '2026-11-15', '2026-11-21').map(meal => meal.title)).toEqual(['Shared Monday', 'Shared Saturday']);
+    expect(listMealWeek(db, 'kid', 'home', '2026-11-15', '2026-11-21').every(meal => meal.notes === null)).toBe(true);
+    expect(() => listMealWeek(db, 'outsider', 'home', '2026-11-15', '2026-11-21')).toThrow();
+    expect(() => listMealWeek(db, 'parent', 'home', '2026-11-15', '2026-11-22')).toThrow();
+    expect(() => listMealWeek(db, 'parent', 'home', '2026-02-30', '2026-03-07')).toThrow();
+  } finally { db.close(); }
+});
+
+it('moves and removes meals only for a parent in the owning household', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    for (const id of ['parent', 'kid', 'outsider']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    for (const id of ['home', 'other']) db.prepare('INSERT INTO household VALUES (?, ?)').run(id, id);
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('outsider', 'other', 'parent');
+    const input = { title: 'Moved dinner', date: '2026-11-16', time: '18:30', servings: 5, ingredients: '2 cups beans\n1 onion', notes: 'Keep this note', source: 'eMeals', recipeUrl: 'https://emeals.com/recipes/moved', shared: true };
+    const id = createMeal(db, 'parent', 'home', input);
+    const otherId = createMeal(db, 'outsider', 'other', { ...input, title: 'Other dinner' });
+
+    expect(() => moveMeal(db, 'kid', 'home', id, '2026-11-18')).toThrow();
+    expect(() => moveMeal(db, 'outsider', 'home', id, '2026-11-18')).toThrow();
+    expect(() => moveMeal(db, 'parent', 'home', id, '2026-02-30')).toThrow();
+    expect(() => moveMeal(db, 'parent', 'home', otherId, '2026-11-18')).toThrow();
+    expect(listMeals(db, 'parent', 'home', '2026-11-16')).toHaveLength(1);
+    moveMeal(db, 'parent', 'home', id, '2026-11-18');
+    expect(listMeals(db, 'parent', 'home', '2026-11-16')).toEqual([]);
+    expect(listMeals(db, 'parent', 'home', '2026-11-18')[0]).toMatchObject({ ...input, date: '2026-11-18' });
+
+    expect(() => removeMeal(db, 'kid', 'home', id)).toThrow();
+    expect(() => removeMeal(db, 'outsider', 'home', id)).toThrow();
+    expect(() => removeMeal(db, 'parent', 'home', otherId)).toThrow();
+    removeMeal(db, 'parent', 'home', id);
+    expect(listMeals(db, 'parent', 'home', '2026-11-18')).toEqual([]);
+    expect(listMeals(db, 'outsider', 'other', '2026-11-16')).toHaveLength(1);
+  } finally { db.close(); }
 });
 
 it('upgrades the previous schema without losing household membership and is repeatable', () => {
