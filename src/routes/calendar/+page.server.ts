@@ -3,7 +3,23 @@ import type { Actions, PageServerLoad } from './$types';
 import { getIdentityServices } from '../../lib/server/runtime';
 import { localDate, occurrenceDates } from '../../lib/chores/recurrence';
 import { parseView, viewHeading, viewRange } from '../../lib/calendar/navigation';
+import { addCalendarDays } from '../../lib/calendar/dates';
 import { addUnscheduled, archiveUnscheduled, cancelEvent, cancelOccurrence, createEvent, listEvents, listUnscheduled, scheduleUnscheduled, updateEvent, updateUnscheduled, type EventInput } from '../../lib/server/calendar';
+
+type Services = ReturnType<typeof getIdentityServices>;
+
+/**
+ * Saving keeps the parent on the view they submitted from. When none of the saved event's
+ * occurrences fall in that view, return its first date so the confirmation can link there.
+ */
+function savedElsewhere(db: Services['db'], actor: string, household: string, url: URL, id: string, start: string): string | null {
+  try {
+    const range = viewRange(url.searchParams.get('date') ?? '', parseView(url.searchParams.get('view')));
+    if (listEvents(db, actor, household, range.start, range.end).some(event => event.id === id)) return null;
+  } catch { /* No valid view in the action URL: fall through to the event's own dates. */ }
+  try { return listEvents(db, actor, household, start, addCalendarDays(start, 365)).find(event => event.id === id)?.date ?? null; }
+  catch { return null; }
+}
 
 async function principal(request: Request) {
   let services;
@@ -34,13 +50,18 @@ export const load: PageServerLoad = async ({ request, url }) => {
 };
 
 export const actions = {
-  saveEvent: async ({ request }) => {
+  saveEvent: async ({ request, url }) => {
     const { db, actor, householdId, origin, role } = await principal(request);
     if (request.headers.get('origin') !== origin || role !== 'parent') return fail(403, { message: 'Request not authorized.' });
     const form = await request.formData(), input = parseEvent(form), id = String(form.get('id') ?? ''), inbox = String(form.get('inbox') ?? '');
-    try { if (id) updateEvent(db, actor, householdId, id, input); else if (inbox) scheduleUnscheduled(db, actor, householdId, inbox, input); else createEvent(db, actor, householdId, input); }
+    let saved: string;
+    try {
+      if (id) { updateEvent(db, actor, householdId, id, input); saved = id; }
+      else if (inbox) saved = scheduleUnscheduled(db, actor, householdId, inbox, input);
+      else saved = createEvent(db, actor, householdId, input);
+    }
     catch { return fail(400, { message: 'Unable to save event. Check the date, times and details and try again.', eventError: { id, inbox, input } }); }
-    return { message: 'Event saved.' };
+    return { message: 'Event saved.', savedElsewhere: savedElsewhere(db, actor, householdId, url, saved, input.date) };
   },
   cancel: async ({ request }) => {
     const { db, actor, householdId, origin, role } = await principal(request);

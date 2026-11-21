@@ -8,7 +8,7 @@
   import { groupByDate, monthGrid, monthPreviewLimit } from '../../lib/calendar/presentation';
   import type { PageData } from './$types';
   import type { EventInput } from '../../lib/server/calendar';
-  type FormResult = { message: string; eventError?: { id: string; inbox: string; input: EventInput }; inboxError?: { id: string; input: { title: string; description: string; ownerId: string } } };
+  type FormResult = { message: string; savedElsewhere?: string | null; eventError?: { id: string; inbox: string; input: EventInput }; inboxError?: { id: string; input: { title: string; description: string; ownerId: string } } };
   let { data, form }: { data: PageData; form: FormResult | null } = $props();
   let selectedDate = $derived(data.date);
   let eventError = $derived(form?.eventError);
@@ -26,7 +26,7 @@
   <a href={resolve('/dashboard')} class="text-teal-700">Back to My Day</a>
   <h1 class="mt-6 text-3xl font-bold">Family calendar</h1>
   <p class="mt-2">Times are shown in {data.timezone}.</p>
-  {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}</p>{/if}
+  {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}{#if form.savedElsewhere} It is not in this view. <a href={resolve(`/calendar?date=${encodeURIComponent(form.savedElsewhere)}&view=${data.view}`)} class="font-semibold underline">Go to {viewHeading(form.savedElsewhere, 'day')}</a>{/if}</p>{/if}
   <nav aria-label="Calendar navigation" class="mt-6 flex flex-wrap items-center gap-2">
     <a href={resolve(`/calendar?date=${encodeURIComponent(previousDate)}&view=${data.view}`)} rel="prev" aria-label={`Previous ${data.view}`} class="rounded-xl border border-teal-700 px-4 py-3">Previous</a>
     <a href={resolve(`/calendar?date=${encodeURIComponent(data.today)}&view=${data.view}`)} class="rounded-xl border border-teal-700 px-4 py-3">Today</a>

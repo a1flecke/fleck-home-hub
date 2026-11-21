@@ -115,8 +115,19 @@ test('parent creates and edits an event and schedules an inbox item', async ({ p
   await updated.getByLabel('End time').fill('16:00');
   await updated.getByRole('button', { name: 'Schedule event' }).click();
   await expect(page.getByText('Event saved.')).toBeVisible();
-  await page.goto('/calendar?date=2099-03-08&view=day');
+  // The event is outside the day being viewed, so the confirmation links to where it now appears.
+  await page.getByRole('status').getByRole('link', { name: 'Go to Sunday, March 8, 2099' }).click();
+  await expect(page).toHaveURL(/\/calendar\?date=2099-03-08&view=day$/);
   await expect(articleByTitle(page, updatedInboxTitle)).toBeVisible();
+  // A save that stays visible in the current view offers no detour.
+  await waitForHydration(page);
+  const scheduled = articleByTitle(page, updatedInboxTitle);
+  await scheduled.getByText('Edit event').click();
+  await scheduled.getByLabel('Event title').fill(`${updatedInboxTitle} confirmed`);
+  await scheduled.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText('Event saved.')).toBeVisible();
+  await expect(page.getByRole('status').getByRole('link')).toHaveCount(0);
+  await expect(articleByTitle(page, `${updatedInboxTitle} confirmed`)).toBeVisible();
 });
 
 test('pre-hydration event edits survive hydration and are saved', async ({ page, browser }, testInfo) => {
