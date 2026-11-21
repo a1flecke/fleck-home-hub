@@ -17,3 +17,16 @@ it('binds production server to loopback by default', () => {
     expect(readFileSync(join(root, 'log'), 'utf8')).toBe('127.0.0.1:exec -- node build\n');
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
+
+it('starts the production server with NODE_ENV=production', () => {
+  const root = mkdtempSync(join(tmpdir(), 'hub-start-env-'));
+  try {
+    mkdirSync(join(root, 'scripts')); mkdirSync(join(root, 'bin'));
+    copyFileSync(resolve('scripts/start.sh'), join(root, 'scripts/start.sh'));
+    writeFileSync(join(root, 'bin/mise'), '#!/bin/sh\nprintf "%s\\n" "${NODE_ENV-unset}" > "$TEST_LOG"\n', { mode: 0o755 });
+    const env: NodeJS.ProcessEnv = { PATH: `${join(root, 'bin')}:/usr/bin:/bin`, TEST_LOG: join(root, 'log'), NODE_ENV: 'development' };
+    const result = spawnSync('sh', [join(root, 'scripts/start.sh')], { cwd: root, env, encoding: 'utf8' });
+    expect(result.status).toBe(0);
+    expect(readFileSync(join(root, 'log'), 'utf8')).toBe('production\n');
+  } finally { rmSync(root, { recursive: true, force: true }); }
+});

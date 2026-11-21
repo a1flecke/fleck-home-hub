@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import { createChore, changeChore } from '../src/lib/server/chores';
@@ -102,4 +102,18 @@ it('allows only a parent to configure a valid household payday', async () => {
     setPayday(db, 'parent', 'home', '2026-11-06', 14);
     expect(db.prepare('SELECT anchor_date, cadence_days FROM payday_schedule WHERE household_id = ?').get('home')).toEqual({ anchor_date: '2026-11-06', cadence_days: 14 });
   } finally { db.close(); }
+});
+
+it('records only payouts already made by the household-local date', async () => {
+  const db = await fixture();
+  try {
+    vi.useFakeTimers();
+    // 03:00 UTC on Nov 2 is still Nov 1 in the default America/Chicago household zone.
+    vi.setSystemTime(new Date('2026-11-02T03:00:00Z'));
+    const input = { childId: 'kid', amountCents: 100, date: '2026-11-02', note: '', requestId: 'future' };
+    expect(() => recordPayout(db, 'parent', 'home', input)).toThrow('Payout date cannot be in the future');
+    expect(balance(db, 'home', 'kid')).toEqual({ earned: 500, paid: 0, owed: 500 });
+    recordPayout(db, 'parent', 'home', { ...input, date: '2026-11-01', requestId: 'today' });
+    expect(balance(db, 'home', 'kid')).toEqual({ earned: 500, paid: 100, owed: 400 });
+  } finally { vi.useRealTimers(); db.close(); }
 });

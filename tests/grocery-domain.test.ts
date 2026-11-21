@@ -16,6 +16,21 @@ describe('grocery item matching', () => {
     expect(probableGroceryMatch('black beans', 'black bean')).toBe(true);
   });
 
+  it('matches plurals whose singular already ends in e or ie', () => {
+    for (const [plural, singular] of [['cookies', 'cookie'], ['pies', 'pie'], ['cheeses', 'cheese'], ['brownies', 'brownie'], ['sauces', 'sauce'], ['limes', 'lime'], ['berries', 'berry'], ['peaches', 'peach'], ['glasses', 'glass'], ['potatoes', 'potato']]) {
+      expect(probableGroceryMatch(plural, singular), `${plural} / ${singular}`).toBe(true);
+      expect(probableGroceryMatch(singular, plural), `${singular} / ${plural}`).toBe(true);
+    }
+    expect(probableGroceryMatch('chocolate chip cookies', 'Chocolate chip cookie')).toBe(true);
+    expect(probableGroceryMatch('cookies', '1 cookie')).toBe(true);
+  });
+
+  it('does not create matches from plural stripping alone', () => {
+    expect(probableGroceryMatch('pies', 'pi')).toBe(false);
+    expect(probableGroceryMatch('limes', 'lim')).toBe(false);
+    expect(probableGroceryMatch('glass', 'gla')).toBe(false);
+  });
+
   it('matches legacy items whose name still contains the whole ingredient line', () => {
     expect(probableGroceryMatch('onion', '1 onion')).toBe(true);
     expect(probableGroceryMatch('beans', '2 cups beans')).toBe(true);

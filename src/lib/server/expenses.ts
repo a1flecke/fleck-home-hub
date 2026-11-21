@@ -5,6 +5,8 @@ import { expenseDates, type ExpenseCadence } from '../expenses/recurrence';
 
 type ExpenseInput = { title: string; amountCents: number; dueDate: string; cadence: ExpenseCadence; payee: string; category: string; notes: string };
 type Expense = { id: string; due_date: string; cadence: ExpenseCadence; state: 'active' | 'paused' | 'ended'; ended_on: string | null };
+const BASE_VERSION_DATE = '0000-01-01';
+
 type Version = { title: string; amount_cents: number; payee: string | null; category: string | null; notes: string | null };
 
 function requireParent(db: Database.Database, actor: string, household: string): void {
@@ -34,7 +36,7 @@ export function createExpense(db: Database.Database, actor: string, household: s
     const id = randomUUID();
     const now = new Date().toISOString();
     db.prepare('INSERT INTO expense (id, household_id, creator_id, due_date, cadence, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)').run(id, household, actor, input.dueDate, input.cadence, now, now);
-    db.prepare('INSERT INTO expense_version VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, '0000-01-01', input.title.trim(), input.amountCents, input.payee.trim() || null, input.category.trim() || null, input.notes.trim() || null, actor, now);
+    db.prepare('INSERT INTO expense_version VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, BASE_VERSION_DATE, input.title.trim(), input.amountCents, input.payee.trim() || null, input.category.trim() || null, input.notes.trim() || null, actor, now);
     return id;
   }).immediate();
 }
@@ -46,9 +48,16 @@ export function updateExpense(db: Database.Database, actor: string, household: s
     validate(input);
     if (item.state === 'ended' || (item.cadence !== 'once' && item.due_date !== input.dueDate) || item.cadence !== input.cadence) throw new Error('Schedule cannot be changed');
     if (item.cadence === 'once' && item.due_date !== input.dueDate && db.prepare('SELECT 1 FROM expense_payment WHERE expense_id = ?').get(id)) throw new Error('Payment history exists');
-    const next = new Date(`${expenseToday(db, household)}T00:00:00Z`);
-    next.setUTCDate(next.getUTCDate() + 1);
-    const effective = next.toISOString().slice(0, 10);
+    // A one-off plan has exactly one occurrence, so an edit must describe that occurrence
+    // even when it is due today or overdue. Payments keep their own planned snapshot.
+    // Recurring edits apply only to dates after the household-local edit date.
+    let effective = BASE_VERSION_DATE;
+    if (item.cadence === 'once') db.prepare('DELETE FROM expense_version WHERE expense_id = ? AND effective_date != ?').run(id, BASE_VERSION_DATE);
+    else {
+      const next = new Date(`${expenseToday(db, household)}T00:00:00Z`);
+      next.setUTCDate(next.getUTCDate() + 1);
+      effective = next.toISOString().slice(0, 10);
+    }
     const now = new Date().toISOString();
     db.prepare('INSERT INTO expense_version VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(expense_id, effective_date) DO UPDATE SET title=excluded.title, amount_cents=excluded.amount_cents, payee=excluded.payee, category=excluded.category, notes=excluded.notes, actor_id=excluded.actor_id, created_at=excluded.created_at').run(id, effective, input.title.trim(), input.amountCents, input.payee.trim() || null, input.category.trim() || null, input.notes.trim() || null, actor, now);
     db.prepare('UPDATE expense SET due_date = ?, updated_at = ? WHERE id = ?').run(input.dueDate, now, id);

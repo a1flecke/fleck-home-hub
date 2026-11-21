@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { nextPayday } from '../earnings/payday';
+import { localDate } from '../chores/recurrence';
 
 type PayoutInput = { childId: string; amountCents: number; date: string; note: string; requestId: string };
 
@@ -32,6 +33,9 @@ export function recordPayout(db: Database.Database, actor: string, household: st
     const parsed = new Date(`${input.date}T00:00:00Z`);
     const note = input.note.trim();
     if (!Number.isSafeInteger(input.amountCents) || input.amountCents <= 0 || !/^\d{4}-\d{2}-\d{2}$/.test(input.date) || !Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== input.date || note.length > 1000 || !input.requestId || input.requestId.length > 128) throw new Error('Invalid payout');
+    const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
+    // Payouts record money already handed over; the app never schedules or transfers money.
+    if (input.date > localDate(new Date(), settings?.timezone ?? 'America/Chicago')) throw new Error('Payout date cannot be in the future');
     const existing = db.prepare('SELECT id, actor_id, child_id, amount_cents, paid_date, note FROM payout WHERE household_id = ? AND request_id = ?').get(household, input.requestId) as { id: string; actor_id: string; child_id: string; amount_cents: number; paid_date: string; note: string | null } | undefined;
     if (existing) {
       if (existing.actor_id !== actor || existing.child_id !== input.childId || existing.amount_cents !== input.amountCents || existing.paid_date !== input.date || existing.note !== (note || null)) throw new Error('Request already used');

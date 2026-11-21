@@ -124,7 +124,7 @@
           <Disclosure class="mt-3" expanded={form?.payoutError?.child === balance.id}><summary class="cursor-pointer font-semibold">Record a payment</summary><p class="mt-2 text-sm">Record money you have already paid; this does not transfer money.</p>
             <form method="POST" action="?/payout" class="mt-3 grid gap-3"><input type="hidden" name="child" value={balance.id} /><input type="hidden" name="requestId" value={balance.requestId} />
               <label>Payment amount<input name="amount" type="number" min="0.01" max={(balance.owed / 100).toFixed(2)} step="0.01" required defaultValue={balance.paymentAmount} class="mt-1 block w-full rounded-lg border p-3" /></label>
-              <label>Payment date<input name="date" type="date" bind:value={balance.paymentDate} required class="mt-1 block w-full rounded-lg border p-3" /></label>
+              <label>Payment date<input name="date" type="date" bind:value={balance.paymentDate} max={data.today} required class="mt-1 block w-full rounded-lg border p-3" /></label>
               <label>Payment note<input name="note" maxlength="1000" defaultValue={balance.paymentNote} class="mt-1 block w-full rounded-lg border p-3" /></label>
               <button disabled={balance.owed <= 0} class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white disabled:opacity-50">Record payment</button>
             </form>
