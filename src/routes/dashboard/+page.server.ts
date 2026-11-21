@@ -54,7 +54,7 @@ export const actions: Actions = {
     const payoutError = { child: String(form.get('child') ?? ''), amount, date: String(form.get('date') ?? ''), note: String(form.get('note') ?? ''), requestId: String(form.get('requestId') ?? '') };
     if (!/^\d{1,7}(?:\.\d{1,2})?$/.test(amount)) return fail(400, { message: 'Enter a valid payment amount.', payoutError });
     try { recordPayout(db, userId, householdId, { childId: String(form.get('child') ?? ''), amountCents: Math.round(Number(amount) * 100), date: String(form.get('date') ?? ''), note: String(form.get('note') ?? ''), requestId: String(form.get('requestId') ?? '') }); }
-    catch { return fail(400, { message: 'Unable to record payment. Check the amount and current balance, then try again.', payoutError }); }
+    catch (err) { return fail(400, { message: err instanceof Error && err.message === 'Payout date cannot be in the future' ? 'Choose a payment date on or before today.' : 'Unable to record payment. Check the amount and current balance, then try again.', payoutError }); }
     return { message: 'Payment recorded.' };
   },
   reversePayout: async ({ request }) => {

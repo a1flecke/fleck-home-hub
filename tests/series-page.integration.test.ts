@@ -1,10 +1,10 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import { listSeriesPage } from '../src/lib/server/recurring';
 
 const opened: Database.Database[] = [];
-afterEach(() => { for (const db of opened.splice(0)) db.close(); });
+afterEach(() => { vi.useRealTimers(); for (const db of opened.splice(0)) db.close(); });
 
 async function fixture() {
   const db = new Database(':memory:');
@@ -31,6 +31,9 @@ it('paginates recurring schedules and bounds next occurrences and skips', async 
   const skip = db.prepare("INSERT INTO recurring_skip (series_id, scheduled_date) VALUES ('series-22', ?)");
   for (let day = 1; day <= 8; day++) skip.run(`2026-10-${String(day).padStart(2, '0')}`);
 
+  // The next occurrence depends on the household-local date; pin it instead of reading the real clock.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-16T18:00:00Z'));
   const first = listSeriesPage(db, 'parent', 'home', 1, 10);
   const last = listSeriesPage(db, 'parent', 'home', 3, 10);
   expect(first.total).toBe(23);
@@ -43,4 +46,6 @@ it('paginates recurring schedules and bounds next occurrences and skips', async 
   expect(last.items).toHaveLength(3);
   expect(last.items.at(-1)!.id).toBe('series-00');
   expect(() => listSeriesPage(db, 'kid', 'home', 1, 10)).toThrow();
+  vi.setSystemTime(new Date('2026-11-21T18:00:00Z'));
+  expect(listSeriesPage(db, 'parent', 'home', 1, 10).items[0].next).toBeUndefined();
 });

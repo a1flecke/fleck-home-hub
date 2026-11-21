@@ -1,7 +1,7 @@
 import { expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
-import { createExpense, listExpenses, setExpenseState, skipExpense, updateExpense } from '../src/lib/server/expenses';
+import { createExpense, listExpensePlans, listExpenses, setExpenseState, skipExpense, updateExpense } from '../src/lib/server/expenses';
 
 it('keeps expense plans private and preserves their lifecycle across future edits', async () => {
   const db = new Database(':memory:');
@@ -68,5 +68,47 @@ it('moves an unpaid one-off occurrence and rejects disabled parents', async () =
     db.prepare('UPDATE membership SET disabled_at = ?, disabled_by = ? WHERE user_id = ? AND household_id = ?').run(1, 'other-parent', 'parent', 'home');
     expect(() => listExpenses(db, 'parent', 'home', '2026-01-01', '2026-01-31')).toThrow();
     expect(() => updateExpense(db, 'parent', 'home', id, input)).toThrow();
+  } finally { vi.useRealTimers(); db.close(); }
+});
+
+it('applies an edit to a one-off occurrence that is due today or overdue', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON');
+    await migrate(db);
+    db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run('parent', 'Parent', 'parent@example.test');
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, 'parent')").run('parent', 'home');
+    db.prepare("INSERT INTO household_settings (household_id, timezone) VALUES ('home', 'America/Chicago')").run();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-10T18:00:00Z'));
+    const input = { title: 'Plumber', amountCents: 10000, dueDate: '2026-01-05', cadence: 'once' as const, payee: '', category: '', notes: '' };
+    const overdue = createExpense(db, 'parent', 'home', input);
+    updateExpense(db, 'parent', 'home', overdue, { ...input, title: 'Plumber (corrected)', amountCents: 25000 });
+    expect(listExpenses(db, 'parent', 'home', '2026-01-01', '2026-01-31').map(item => [item.date, item.title, item.amountCents]))
+      .toEqual([['2026-01-05', 'Plumber (corrected)', 25000]]);
+
+    const today = createExpense(db, 'parent', 'home', { ...input, title: 'Vet', dueDate: '2026-01-20' });
+    updateExpense(db, 'parent', 'home', today, { ...input, title: 'Vet visit', amountCents: 9000, dueDate: '2026-01-10' });
+    expect(listExpenses(db, 'parent', 'home', '2026-01-10', '2026-01-10').map(item => [item.title, item.amountCents])).toEqual([['Vet visit', 9000]]);
+    expect(listExpensePlans(db, 'parent', 'home').map(plan => [plan.title, plan.amountCents])).toEqual([['Plumber (corrected)', 25000], ['Vet visit', 9000]]);
+  } finally { vi.useRealTimers(); db.close(); }
+});
+
+it('keeps recurring edits effective only after the household-local date', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON');
+    await migrate(db);
+    db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run('parent', 'Parent', 'parent@example.test');
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, 'parent')").run('parent', 'home');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-01-10T18:00:00Z'));
+    const input = { title: 'Lessons', amountCents: 4000, dueDate: '2026-01-03', cadence: 'weekly' as const, payee: '', category: '', notes: '' };
+    const id = createExpense(db, 'parent', 'home', input);
+    updateExpense(db, 'parent', 'home', id, { ...input, amountCents: 4500 });
+    expect(listExpenses(db, 'parent', 'home', '2026-01-03', '2026-01-17').map(item => [item.date, item.amountCents]))
+      .toEqual([['2026-01-03', 4000], ['2026-01-10', 4000], ['2026-01-17', 4500]]);
   } finally { vi.useRealTimers(); db.close(); }
 });

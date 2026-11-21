@@ -44,6 +44,12 @@ For SQLite mutations that await framework work, inventory every caller and fixtu
 
 For date-sensitive fixtures, seed dates in the same explicit time zone the feature uses. Control the clock at a UTC and local date boundary when testing date selection.
 
+For effective-dated or versioned records, test an edit against a past, a same-day and a future occurrence, and cover single-occurrence plans as well as recurring ones. Records that describe something already done, such as payments and payouts, must reject household-local future dates at the service boundary.
+
+When a security or safety control is enabled by a dependency from an environment variable, such as Better Auth's sign-in limiter and `NODE_ENV`, verify it in the environment the real launcher provides (`scripts/pilot/launch.sh` then `scripts/start.sh`), not only by forcing the variable in a test. Prefer failing closed when the variable is missing, and assert the control with it unset. A test that sets the variable itself proves only the forced case.
+
+For name-matching heuristics, test each rule in both directions with paired matching and non-matching examples, including plurals of words that already end in e or ie.
+
 For SQLite backup and restore, treat the database and its WAL, SHM and rollback journal as related paths. Verify copies in private staging and publish a complete artifact without overwriting the destination. Use real SQLite fixtures to exercise existing companion files, uncheckpointed writes, a path created during the copy and failed-copy cleanup. Assert what remains on disk as well as the exit or error status.
 
 Preserve pnpm's three-day release cooldown and default-deny dependency build policy. Review any exception or build-script approval against the exact dependency and explain why it is necessary; do not weaken the policy to make an install pass. Revalidate the frozen lockfile and test affected native dependencies after changing these settings. These controls reduce exposure to newly compromised releases and unreviewed install-time code; they do not replace dependency review or advisory scanning.

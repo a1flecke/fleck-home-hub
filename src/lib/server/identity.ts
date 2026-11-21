@@ -8,11 +8,21 @@ import { authorize, type Principal } from './authorization';
 
 type Options = { secret: string; origin: string; allowSignUp?: boolean; autoSignIn?: boolean };
 
+/**
+ * Better Auth enables its limiter only when NODE_ENV is exactly "production". The LaunchAgent
+ * starts the server with a minimal environment, so fail closed: only explicit development and
+ * test runs (Vite dev and Vitest set these) may disable sign-in throttling.
+ */
+export function signInRateLimitEnabled(nodeEnv: string | undefined = process.env.NODE_ENV): boolean {
+  return nodeEnv !== 'development' && nodeEnv !== 'test';
+}
+
 function options(database: Database.Database, config: Options) {
   return {
     database,
     secret: config.secret,
     baseURL: config.origin,
+    rateLimit: { enabled: signInRateLimitEnabled() },
     emailAndPassword: { enabled: true, disableSignUp: !config.allowSignUp, autoSignIn: config.autoSignIn },
     // Do not trust client-supplied proxy headers until a verified proxy boundary exists.
     advanced: { useSecureCookies: config.origin.startsWith('https://'), ipAddress: { ipAddressHeaders: [] as string[] } }

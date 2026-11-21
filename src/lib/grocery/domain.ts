@@ -9,20 +9,31 @@ function normalize(value: string): string {
     .replace(/[.!?]+$/, '');
 }
 
-function singularize(word: string): string {
-  if (word.endsWith('ies') && word.length > 3) return `${word.slice(0, -3)}y`;
-  if (word.endsWith('oes') && word.length > 3) return word.slice(0, -2);
-  if (/(?:ches|shes|xes|zes|ses)$/.test(word)) return word.slice(0, -2);
-  if (word.endsWith('s') && !word.endsWith('ss') && word.length > 2) return word.slice(0, -1);
-  return word;
+/**
+ * Possible singular spellings of a final word. English plural rules are ambiguous without a
+ * dictionary ("cookies" -> "cookie", "berries" -> "berry"), so every plausible form is kept and
+ * two names match when their sets overlap. Forms come only from a closed list of suffix rules.
+ */
+function wordForms(word: string): string[] {
+  const forms = new Set([word]);
+  if (word.endsWith('s') && !word.endsWith('ss') && word.length > 2) forms.add(word.slice(0, -1));
+  if (/(?:ches|shes|xes|zes|sses|oes)$/.test(word)) forms.add(word.slice(0, -2));
+  if (word.endsWith('ies') && word.length > 3) forms.add(`${word.slice(0, -3)}y`);
+  return [...forms];
 }
 
-function nameKey(value: string): string {
+function nameKeys(value: string): string[] {
   const normalized = normalize(value);
-  if (!normalized) return '';
+  if (!normalized) return [];
   const words = normalized.split(' ');
-  words[words.length - 1] = singularize(words[words.length - 1]);
-  return words.join(' ');
+  const last = words.pop()!;
+  const prefix = words.length ? `${words.join(' ')} ` : '';
+  return wordForms(last).map(form => prefix + form);
+}
+
+function sameNameKey(left: string, right: string): boolean {
+  const keys = new Set(nameKeys(left));
+  return nameKeys(right).some(key => keys.has(key));
 }
 
 export function sameGroceryName(left: string, right: string): boolean {
@@ -38,12 +49,11 @@ export function sameGroceryName(left: string, right: string): boolean {
  * one product as another merely because a word appears inside both names.
  */
 export function probableGroceryMatch(candidateName: string, existingName: string): boolean {
-  const candidate = nameKey(candidateName);
-  if (!candidate) return false;
-  if (candidate === nameKey(existingName)) return true;
+  if (!normalize(candidateName)) return false;
+  if (sameNameKey(candidateName, existingName)) return true;
   const legacy = parseIngredientLine(existingName);
   if (legacy.needsReview || legacy.name === legacy.original) return false;
-  return candidate === nameKey(legacy.name);
+  return sameNameKey(candidateName, legacy.name);
 }
 
 export function ingredientLines(ingredients: string): string[] {
