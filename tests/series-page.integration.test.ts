@@ -21,6 +21,9 @@ async function fixture() {
 
 it('paginates recurring schedules and bounds next occurrences and skips', async () => {
   const db = await fixture();
+  // The next occurrence depends on the household-local date; pin the clock before deriving any date.
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-16T18:00:00Z'));
   const insert = db.prepare(`INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, start_date, weekdays, state, created_at, updated_at)
     VALUES (?, 'home', 'parent', 'kid', ?, '2026-01-01', '[0,1,2,3,4,5,6]', 'active', ?, ?)`);
   for (let index = 0; index < 23; index++) {
@@ -35,9 +38,6 @@ it('paginates recurring schedules and bounds next occurrences and skips', async 
   const skip = db.prepare("INSERT INTO recurring_skip (series_id, scheduled_date) VALUES ('series-22', ?)");
   for (let day = 1; day <= 8; day++) skip.run(`2026-10-${String(day).padStart(2, '0')}`);
 
-  // The next occurrence depends on the household-local date; pin it instead of reading the real clock.
-  vi.useFakeTimers();
-  vi.setSystemTime(new Date('2026-11-16T18:00:00Z'));
   const first = listSeriesPage(db, 'parent', 'home', 1, 10);
   const last = listSeriesPage(db, 'parent', 'home', 3, 10);
   expect(first.total).toBe(23);
@@ -50,6 +50,7 @@ it('paginates recurring schedules and bounds next occurrences and skips', async 
   expect(last.items).toHaveLength(3);
   expect(last.items.at(-1)!.id).toBe('series-00');
   expect(() => listSeriesPage(db, 'kid', 'home', 1, 10)).toThrow();
-  vi.setSystemTime(new Date('2026-11-21T18:00:00Z'));
+  // Once its date has passed, the occurrence is no longer the next one.
+  vi.setSystemTime(new Date(`${nextDate}T18:00:00Z`).getTime() + 86_400_000);
   expect(listSeriesPage(db, 'parent', 'home', 1, 10).items[0].next).toBeUndefined();
 });
