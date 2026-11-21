@@ -21,6 +21,7 @@ export function changeChore(db: Database.Database, actor: string, household: str
     }
     const next = transition(chore.status, action, member.role);
     const explanation = action === 'rework' ? reason?.trim() || null : null;
+    if (action === 'rework' && !explanation) throw new Error('A rework reason is required');
     if (explanation && explanation.length > 1000) throw new Error('Invalid reason');
     const now = new Date().toISOString();
     db.prepare('UPDATE chore SET status = ?, rework_reason = ?, updated_at = ? WHERE id = ?').run(next, explanation, now, id);
