@@ -222,7 +222,11 @@ test('a verified chore can be partially paid and the child sees the remaining am
   await signIn(page, 'payout-kid');
   const childEarnings = page.getByRole('article', { name: 'Earnings for Payout Kid' });
   await expect(childEarnings.getByText(/^Verified earnings owed:/)).toHaveText(`Verified earnings owed: ${money(owedBefore - 200)}`);
-  await expect(childEarnings.getByText('Synthetic partial payment')).toBeVisible();
+  await childEarnings.getByRole('link', { name: 'See my payment history' }).click();
+  await expect(page.getByRole('heading', { name: "Payout Kid's payments" })).toBeVisible();
+  await expect(page.getByText('Synthetic partial payment')).toBeVisible();
+  await expect(page.getByText(/^Verified earnings owed:/)).toHaveText(`Verified earnings owed: ${money(owedBefore - 200)}`);
+  await page.goto('/dashboard');
   await expect(page.getByText('Record a payment')).toHaveCount(0);
   const forged = await page.request.post('/dashboard?/payout', { form: { child: childId, amount: '1.00', date: '2026-11-01', requestId: 'child-forgery' }, headers: { origin: 'http://127.0.0.1:4173' } });
   expect(forged.status()).not.toBe(200);

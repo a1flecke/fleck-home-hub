@@ -159,6 +159,37 @@ for (let index = 1; index <= 10; index++) {
   verifyChore.run(id, verifySibling.user.id, `Verification sibling ${String(index).padStart(2, '0')}`, 100, stamp, stamp);
   verifyTransition.run(id, verifySibling.user.id, stamp);
 }
+// Kid My Day journeys: one child has work in every section; a sibling owns private financial data.
+const dayParent = await auth.api.signUpEmail({ body: { name: 'Day Parent', email: 'day-parent@example.test', password: 'synthetic-day-parent-password' } });
+const dayKid = await auth.api.signUpEmail({ body: { name: 'Day Kid', email: 'day-kid@example.test', password: 'synthetic-day-kid-password' } });
+const daySibling = await auth.api.signUpEmail({ body: { name: 'Day Sibling', email: 'day-sibling@example.test', password: 'synthetic-day-sibling-password' } });
+const dayEmptyKid = await auth.api.signUpEmail({ body: { name: 'Day Empty Kid', email: 'day-empty-kid@example.test', password: 'synthetic-day-empty-kid-password' } });
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-day-household', 'Day household');
+for (const [userId, role] of [[dayParent.user.id, 'parent'], [dayKid.user.id, 'kid'], [daySibling.user.id, 'kid'], [dayEmptyKid.user.id, 'kid']] as const) {
+  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(userId, 'synthetic-day-household', role);
+}
+const dayToday = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+const dayOffset = (days: number) => new Date(Date.parse(dayToday + 'T00:00:00Z') + days * 86_400_000).toISOString().slice(0, 10);
+const dayChore = db.prepare(`INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, rework_reason, created_at, updated_at)
+  VALUES (?, 'synthetic-day-household', ?, ?, ?, ?, ?, ?, ?, ?)`);
+const dayEarning = db.prepare('INSERT INTO earning (id, chore_id, household_id, child_id, amount_cents, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+for (let index = 1; index <= 3; index++) dayChore.run(`day-today-${index}`, dayKid.user.id, `Day today ${index}`, dayToday, 200, 'todo', null, seededAt, seededAt);
+for (let index = 1; index <= 2; index++) dayChore.run(`day-overdue-${index}`, dayKid.user.id, `Day overdue ${index}`, dayOffset(-index - 1), 100, 'todo', null, seededAt, seededAt);
+dayChore.run('day-rework-one', dayKid.user.id, 'Day rework one', dayOffset(-1), 200, 'needs_rework', 'Please put the books back neatly', seededAt, seededAt);
+for (let index = 1; index <= 2; index++) {
+  dayChore.run(`day-pending-${index}`, dayKid.user.id, `Day pending ${index}`, dayOffset(-1), 150, 'pending_verification', null, seededAt, seededAt);
+  db.prepare("INSERT INTO chore_transition (chore_id, actor_id, from_status, to_status, created_at) VALUES (?, ?, 'todo', 'pending_verification', ?)").run(`day-pending-${index}`, dayKid.user.id, seededAt);
+}
+dayChore.run('day-upcoming-one', dayKid.user.id, 'Day upcoming one', dayOffset(2), 200, 'todo', null, seededAt, seededAt);
+dayChore.run('day-later-one', dayKid.user.id, 'Day later one', dayOffset(60), 200, 'todo', null, seededAt, seededAt);
+for (let index = 1; index <= 2; index++) {
+  dayChore.run(`day-verified-${index}`, dayKid.user.id, `Day verified ${index}`, dayOffset(-2), 250, 'verified', null, seededAt, seededAt);
+  dayEarning.run(`day-earning-${index}`, `day-verified-${index}`, 'synthetic-day-household', dayKid.user.id, 250, seededAt);
+}
+dayChore.run('day-sibling-secret', daySibling.user.id, 'Day sibling secret chore', dayOffset(-1), 999, 'verified', null, seededAt, seededAt);
+dayEarning.run('day-sibling-earning', 'day-sibling-secret', 'synthetic-day-household', daySibling.user.id, 999, seededAt);
+db.prepare('INSERT INTO payout (id, household_id, child_id, actor_id, amount_cents, paid_date, note, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+  .run('day-sibling-payout', 'synthetic-day-household', daySibling.user.id, dayParent.user.id, 500, dayOffset(-1), 'Day sibling secret payment', 'day-sibling-request', seededAt);
 db.close();
 const mockRecipeFetch = fileURLToPath(new URL('./mock-recipe-fetch.cjs', import.meta.url));
 const nodeOptions = [process.env.NODE_OPTIONS, '--require', mockRecipeFetch].filter(Boolean).join(' ');

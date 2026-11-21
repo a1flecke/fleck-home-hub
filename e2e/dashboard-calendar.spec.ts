@@ -105,7 +105,7 @@ test('kid sees the same upcoming event read-only, including without JavaScript',
   await expect(card.getByRole('link', { name: new RegExp(title) })).toBeVisible();
   await expect(card.getByRole('link', { name: 'Add an event' })).toHaveCount(0);
   await expect(card.getByRole('link', { name: 'View calendar' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'My chores' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'To do today', exact: true })).toBeVisible();
   await expect(page.getByText('No chores yet. Enjoy your day!')).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('dashboard-coming-up-kid-mobile.png'), fullPage: true });
 
@@ -113,7 +113,7 @@ test('kid sees the same upcoming event read-only, including without JavaScript',
   try {
     const noScript = await context.newPage();
     await noScript.goto('/dashboard');
-    await expect(noScript.getByRole('heading', { name: 'Coming up' })).toBeVisible();
+    await expect(noScript.getByRole('heading', { name: 'Coming up', exact: true })).toBeVisible();
     const eventLink = noScript.getByRole('link', { name: new RegExp(title) });
     await expect(eventLink).toBeVisible();
     await eventLink.click();
