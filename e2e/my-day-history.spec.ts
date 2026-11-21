@@ -219,3 +219,30 @@ test('a child can finish work from the history page they reach from My Day', asy
     await expect(noScript.getByRole('article').filter({ hasText: 'History overdue 3' })).toHaveCount(0);
   } finally { await context.close(); }
 });
+
+test('schedule changes on a later page stay on that page', async ({ page }) => {
+  await signIn(page, 'history-parent@example.test', 'synthetic-history-parent-password', 'Hello, History Parent');
+  await page.goto('/chores/series');
+  await page.getByText('Add a recurring chore', { exact: true }).click();
+  const assignee = await page.locator('form[action="?/series"]').first().getByRole('combobox', { name: 'Recurring assigned child' }).inputValue();
+  // Far-future starts keep these schedules from generating chores in this household's history.
+  for (let index = 1; index <= 11; index++) {
+    const created = await page.request.post('/chores/series?/series', { form: { title: `Paged schedule ${String(index).padStart(2, '0')}`, assignee, startDate: '2099-03-02', weekday: '1', reward: '' }, headers: { origin } });
+    expect(created.status()).toBe(200);
+  }
+  await page.goto('/chores/series?page=2');
+  await expect(page.getByText(/^Page 2 of \d+$/)).toBeVisible();
+  const schedule = page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Paged schedule 01', exact: true }) });
+  await schedule.getByRole('button', { name: 'Pause' }).click();
+  await expect(page.getByRole('status')).toHaveText('Recurring chore updated.');
+  expect(new URL(page.url()).searchParams.get('page')).toBe('2');
+  await expect(schedule).toContainText('paused');
+  await expect(schedule.getByRole('button', { name: 'Resume' })).toBeVisible();
+
+  await schedule.getByText('Edit future chores').click();
+  await schedule.getByLabel('Recurring chore title').fill('Paged schedule 01 renamed');
+  await schedule.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('status')).toHaveText('Recurring chore saved.');
+  expect(new URL(page.url()).searchParams.get('page')).toBe('2');
+  await expect(page.getByRole('heading', { name: 'Paged schedule 01 renamed', exact: true })).toBeVisible();
+});
