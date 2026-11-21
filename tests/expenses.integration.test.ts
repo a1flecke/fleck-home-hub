@@ -112,3 +112,41 @@ it('keeps recurring edits effective only after the household-local date', async 
       .toEqual([['2026-01-03', 4000], ['2026-01-10', 4000], ['2026-01-17', 4500]]);
   } finally { vi.useRealTimers(); db.close(); }
 });
+
+it('lets a parent dismiss overdue recurring occurrences that were never owed', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON');
+    await migrate(db);
+    db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run('parent', 'Parent', 'parent@example.test');
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, 'parent')").run('parent', 'home');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-21T18:00:00Z'));
+    // Entering an existing bill with its usual due date projects past months as overdue.
+    const input = { title: 'Rent', amountCents: 150000, dueDate: '2025-01-01', cadence: 'monthly' as const, payee: '', category: '', notes: '' };
+    const id = createExpense(db, 'parent', 'home', input);
+    const overdue = () => listExpenses(db, 'parent', 'home', '2026-08-23', '2026-11-20').map(item => item.date);
+    expect(overdue()).toEqual(['2026-09-01', '2026-10-01', '2026-11-01']);
+
+    skipExpense(db, 'parent', 'home', id, '2026-09-01');
+    expect(overdue()).toEqual(['2026-10-01', '2026-11-01']);
+    expect(() => skipExpense(db, 'parent', 'home', id, '2026-09-01')).toThrow('Invalid occurrence');
+    expect(() => skipExpense(db, 'parent', 'home', id, '2026-10-02')).toThrow('Invalid occurrence');
+
+    // Ending the plan stops future dates; its past unpaid dates can still be dismissed.
+    setExpenseState(db, 'parent', 'home', id, 'ended');
+    expect(overdue()).toEqual(['2026-10-01', '2026-11-01']);
+    skipExpense(db, 'parent', 'home', id, '2026-10-01');
+    expect(overdue()).toEqual(['2026-11-01']);
+    expect(() => skipExpense(db, 'parent', 'home', id, '2026-12-01')).toThrow('Invalid occurrence');
+
+    // Future dates still require an active plan, and one-off plans are moved rather than skipped.
+    const paused = createExpense(db, 'parent', 'home', { ...input, title: 'Lessons', dueDate: '2026-11-03', cadence: 'weekly' });
+    setExpenseState(db, 'parent', 'home', paused, 'paused');
+    expect(() => skipExpense(db, 'parent', 'home', paused, '2026-11-24')).toThrow('Invalid occurrence');
+    skipExpense(db, 'parent', 'home', paused, '2026-11-17');
+    const once = createExpense(db, 'parent', 'home', { ...input, title: 'Repair', dueDate: '2026-11-02', cadence: 'once' });
+    expect(() => skipExpense(db, 'parent', 'home', once, '2026-11-02')).toThrow('Invalid occurrence');
+  } finally { vi.useRealTimers(); db.close(); }
+});

@@ -63,10 +63,13 @@ export const load: PageServerLoad = async ({ request, url }) => {
     return { ...item, canReplace, requestId: randomUUID() };
   });
   const plans = listExpensePlans(db, actor, household);
+  const recurring = new Set(plans.filter(plan => plan.cadence !== 'once').map(plan => plan.id));
   const activeRecurring = new Set(plans.filter(plan => plan.state === 'active' && plan.cadence !== 'once').map(plan => plan.id));
+  // Matches skipExpense: future dates need an active plan; due and overdue dates of any recurring plan can be dismissed.
   const occurrence = (item: (typeof selected)[number]) => {
     const key = item.id + '/' + item.date;
-    return { ...item, paid: paid.has(key), canSkip: item.date > today && activeRecurring.has(item.id) && !recorded.has(key), requestId: randomUUID() };
+    const canSkip = recurring.has(item.id) && !recorded.has(key) && (item.date <= today || activeRecurring.has(item.id));
+    return { ...item, paid: paid.has(key), canSkip, requestId: randomUUID() };
   };
   return {
     today, date, through, days, overdueFrom, overdueThrough, notice: url.searchParams.get('notice'), selected: selected.map(occurrence),

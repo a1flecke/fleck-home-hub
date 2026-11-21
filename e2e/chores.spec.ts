@@ -229,7 +229,7 @@ test('a recurring occurrence is submitted and verified independently', async ({ 
   await form.getByRole('button', { name: 'Add recurring chore' }).click();
   await expect(page.getByText('Recurring chore saved.')).toBeVisible();
   const series = page.getByRole('article').filter({ hasText: title }).filter({ hasText: 'Skip occurrence' });
-  const seriesId = await series.locator('form[action="?/seriesControl"] input[name="id"]').first().inputValue();
+  const seriesId = await series.locator('form[action^="?/seriesControl"] input[name="id"]').first().inputValue();
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   await page.goto('/dashboard');
   const occurrence = page.getByRole('article').filter({ hasText: title }).filter({ hasText: `Due ${today}` });

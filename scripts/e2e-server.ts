@@ -81,6 +81,11 @@ const displayTwo = await auth.api.signUpEmail({ body: { name: 'Display Parent Tw
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-display-household', 'Display household');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(displayOne.user.id, 'synthetic-display-household', 'parent');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(displayTwo.user.id, 'synthetic-display-household', 'parent');
+// Multi-household display management: one parent in two households. "A ..." sorts first, so it is
+// the default; the journeys manage the second household explicitly.
+const displayMulti = await auth.api.signUpEmail({ body: { name: 'Display Multi Parent', email: 'display-multi@example.test', password: 'synthetic-display-multi-password' } });
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?), (?, ?)').run('synthetic-display-first', 'A display home', 'synthetic-display-second', 'B display home');
+for (const id of ['synthetic-display-first', 'synthetic-display-second']) db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(displayMulti.user.id, id, 'parent');
 // Dashboard calendar journeys: an isolated household in a non-host time zone.
 const calendarParent = await auth.api.signUpEmail({ body: { name: 'Calendar Parent', email: 'calendar-parent@example.test', password: 'synthetic-calendar-parent-password' } });
 const calendarKid = await auth.api.signUpEmail({ body: { name: 'Calendar Kid', email: 'calendar-kid@example.test', password: 'synthetic-calendar-kid-password' } });

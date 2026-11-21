@@ -57,7 +57,7 @@
         {#if series.skips.length}<p>Skipped: {series.skips.join(', ')}{#if series.skipCount > series.skips.length} · {series.skipCount - series.skips.length} older in history{/if}</p>{/if}
         {#if series.state !== 'ended'}
           <Disclosure class="mt-3" expanded={seriesError?.id === series.id}><summary class="cursor-pointer font-semibold">Edit future chores</summary>
-            <form method="POST" action="?/series" class="mt-3 grid gap-3">
+            <form method="POST" action={`?/series&page=${data.page}`} class="mt-3 grid gap-3">
               <input type="hidden" name="id" value={series.id} /><input type="hidden" name="startDate" value={series.startDate} /><input type="hidden" name="endDate" value={series.endDate ?? ''} />
               {#each JSON.parse(series.weekdays) as day (day)}<input type="hidden" name="weekday" value={day} />{/each}
               <label>Recurring chore title<input name="title" defaultValue={series.editTitle} required maxlength="120" class="mt-1 w-full rounded-lg border p-3" /></label>
@@ -67,8 +67,8 @@
               <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Save changes</button>
             </form>
           </Disclosure>
-          <form method="POST" action="?/seriesControl" class="mt-3 flex flex-wrap gap-3"><input type="hidden" name="id" value={series.id} /><button name="action" value={series.state === 'active' ? 'paused' : 'active'} class="rounded-xl border border-teal-700 px-4 py-3">{series.state === 'active' ? 'Pause' : 'Resume'}</button><button name="action" value="ended" class="rounded-xl border border-teal-700 px-4 py-3">End series</button></form>
-          <form method="POST" action="?/seriesControl" class="mt-3 flex flex-wrap items-end gap-3"><input type="hidden" name="id" value={series.id} /><input type="hidden" name="action" value="skip" /><label>Skip a date<input name="date" type="date" required class="mt-1 block rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Skip occurrence</button></form>
+          <form method="POST" action={`?/seriesControl&page=${data.page}`} class="mt-3 flex flex-wrap gap-3"><input type="hidden" name="id" value={series.id} /><button name="action" value={series.state === 'active' ? 'paused' : 'active'} class="rounded-xl border border-teal-700 px-4 py-3">{series.state === 'active' ? 'Pause' : 'Resume'}</button><button name="action" value="ended" class="rounded-xl border border-teal-700 px-4 py-3">End series</button></form>
+          <form method="POST" action={`?/seriesControl&page=${data.page}`} class="mt-3 flex flex-wrap items-end gap-3"><input type="hidden" name="id" value={series.id} /><input type="hidden" name="action" value="skip" /><label>Skip a date<input name="date" type="date" required class="mt-1 block rounded-lg border p-3" /></label><button class="rounded-xl border border-teal-700 px-4 py-3">Skip occurrence</button></form>
         {/if}
       </article>
     {/each}

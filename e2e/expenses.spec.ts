@@ -318,3 +318,36 @@ test('edit, payment and reversal retain pre-hydration changes and recover reject
   await expect(bill).toContainText('Upcoming');
   expect(new URL(page.url()).searchParams.get('date')).toBe(newDate);
 });
+
+test('a plan entered with an earlier due date lets a parent dismiss overdue dates it never owed', async ({ browser }, testInfo) => {
+  const { context, page } = await parentPage(browser, 375, false);
+  const title = 'Synthetic backdated rent ' + testInfo.repeatEachIndex;
+  try {
+    await page.goto('/expenses');
+    await page.getByText('Add expense', { exact: true }).click();
+    const add = page.getByRole('form', { name: 'Add expense' });
+    await add.getByLabel('Title').fill(title);
+    await add.getByLabel('Planned amount').fill('1500');
+    await add.getByLabel('Due date').fill(dateAfter(-21));
+    await add.getByLabel('Frequency').selectOption('weekly');
+    await add.getByRole('button', { name: 'Save expense' }).click();
+    await expect(page.getByRole('status')).toHaveText('Expense added.');
+    // Saving shows the new plan from its first date; the overdue list is relative to today.
+    await page.goto('/expenses');
+    const overdue = page.getByRole('region', { name: 'Overdue expenses' }).getByRole('article').filter({ hasText: title });
+    await expect(overdue).toHaveCount(3);
+    const oldest = overdue.filter({ has: page.locator(`time[datetime="${dateAfter(-21)}"]`) });
+    await oldest.getByRole('button', { name: 'Skip this occurrence' }).click();
+    await expect(page.getByRole('status')).toHaveText('Occurrence skipped.');
+    await expect(overdue).toHaveCount(2);
+    await expect(overdue.filter({ has: page.locator(`time[datetime="${dateAfter(-21)}"]`) })).toHaveCount(0);
+    // A paid overdue date keeps its payment and cannot be skipped.
+    const paid = overdue.filter({ has: page.locator(`time[datetime="${dateAfter(-14)}"]`) });
+    await paid.getByText('Record paid', { exact: true }).click();
+    await paid.getByRole('form', { name: 'Record payment' }).getByRole('button', { name: 'Save payment' }).click();
+    await expect(overdue).toHaveCount(1);
+    const receipt = page.getByRole('region', { name: 'Payment history' }).getByRole('article').filter({ hasText: title });
+    await expect(receipt).toContainText('Recorded paid');
+    await expect(receipt.getByRole('button', { name: 'Skip this occurrence' })).toHaveCount(0);
+  } finally { await context.close(); }
+});
