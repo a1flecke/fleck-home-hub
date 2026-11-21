@@ -175,3 +175,47 @@ test('history routes reject anonymous and disabled sessions', async ({ page, bro
     expect((await context.request.get('/earnings/not-a-household-child', { maxRedirects: 0 })).status()).toBe(403);
   } finally { await context.close(); }
 });
+
+test('a parent review on a child-filtered history page keeps the child filter', async ({ page }) => {
+  await signIn(page, 'history-parent@example.test', 'synthetic-history-parent-password', 'Hello, History Parent');
+  await page.goto('/chores/history?scope=review');
+  await page.getByRole('navigation', { name: 'Filter by child' }).getByRole('link', { name: 'History Kid', exact: true }).click();
+  await expect(page).toHaveURL(/[?&]child=/);
+  const childId = new URL(page.url()).searchParams.get('child');
+  const pending = page.getByRole('article').filter({ hasText: 'History pending 2' });
+  await pending.getByRole('button', { name: 'Verify', exact: true }).click();
+  await expect(page.getByRole('status')).toContainText('Chore verified');
+  await expect(page.getByRole('article').filter({ hasText: 'History pending 2' })).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.get('child')).toBe(childId);
+  expect(new URL(page.url()).searchParams.get('scope')).toBe('review');
+  await expect(page.getByRole('navigation', { name: 'Filter by child' }).getByRole('link', { name: 'History Kid', exact: true })).toHaveAttribute('aria-current', 'page');
+});
+
+test('a child can finish work from the history page they reach from My Day', async ({ page, browser }) => {
+  await signIn(page, 'history-kid@example.test', 'synthetic-history-kid-password', "History Kid's My Day");
+  await page.goto('/chores/history?scope=overdue');
+  await expect(page.getByRole('heading', { name: 'My chore history' })).toBeVisible();
+  const overdue = page.getByRole('article').filter({ hasText: 'History overdue 4' });
+  await overdue.getByRole('button', { name: 'Mark complete' }).click();
+  await expect(page.getByRole('status')).toContainText('Waiting for a parent to check');
+  await expect(page.getByRole('article').filter({ hasText: 'History overdue 4' })).toHaveCount(0);
+  expect(new URL(page.url()).searchParams.get('scope')).toBe('overdue');
+  await page.goto('/chores/history?scope=review');
+  await expect(page.getByRole('article').filter({ hasText: 'History overdue 4' })).toContainText('Waiting for parent verification');
+  await expect(page.getByRole('article').filter({ hasText: 'History overdue 4' }).getByRole('button')).toHaveCount(0);
+
+  // A child still cannot review work, and cannot submit a sibling's chore, from this route.
+  const forgedReview = await page.request.post('/chores/history?/transition&scope=review&page=1', { form: { id: 'history-pending-3', action: 'verify' }, headers: { origin }, maxRedirects: 0 });
+  expect(forgedReview.status()).toBe(400);
+  const forgedSibling = await page.request.post('/chores/history?/transition&scope=overdue&page=1', { form: { id: 'history-sibling-private', action: 'submit' }, headers: { origin }, maxRedirects: 0 });
+  expect(forgedSibling.status()).toBe(400);
+
+  const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
+  try {
+    const noScript = await context.newPage();
+    await noScript.goto('/chores/history?scope=overdue');
+    await noScript.getByRole('article').filter({ hasText: 'History overdue 3' }).getByRole('button', { name: 'Mark complete' }).click();
+    await expect(noScript.getByRole('status')).toContainText('Waiting for a parent to check');
+    await expect(noScript.getByRole('article').filter({ hasText: 'History overdue 3' })).toHaveCount(0);
+  } finally { await context.close(); }
+});

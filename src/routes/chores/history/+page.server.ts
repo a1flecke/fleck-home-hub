@@ -47,18 +47,21 @@ export const load: PageServerLoad = async ({ request, url }) => {
 
 export const actions: Actions = {
   transition: async ({ request, url }) => {
-    const { db, userId, householdId, origin } = await member(request);
+    const { db, userId, householdId, origin, role } = await member(request);
     if (request.headers.get('origin') !== origin) return fail(403, { message: 'Request not authorized.' });
     const form = await request.formData();
     const action = String(form.get('action'));
+    // Parents review from history; children finish their own work here when My Day links them in.
+    const allowed: ChoreAction[] = role === 'parent' ? ['verify', 'rework'] : ['submit'];
     const requestedScope = url.searchParams.get('scope');
     const scope = isChoreScope(requestedScope) ? requestedScope : 'review';
     const page = pageNumber(url);
     const child = url.searchParams.get('child') ?? '';
     const destination = `/chores/history?scope=${scope}&page=${page}${child ? `&child=${encodeURIComponent(child)}` : ''}`;
-    if (!['verify', 'rework'].includes(action)) return fail(400, { message: 'Invalid action.' });
+    if (!allowed.includes(action as ChoreAction)) return fail(400, { message: 'Invalid action.' });
     try { changeChore(db, userId, householdId, String(form.get('id') ?? ''), action as ChoreAction, String(form.get('reason') ?? '')); }
-    catch { return fail(400, { message: 'Unable to update this chore. Refresh and try again.' }); }
-    redirect(303, `${destination}&notice=${action === 'verify' ? 'verified' : 'rework'}`);
+    catch { return fail(400, { message: action === 'rework' ? 'Enter a reason for returning this work.' : 'Unable to update this chore. Refresh and try again.' }); }
+    const notice = action === 'verify' ? 'verified' : action === 'rework' ? 'rework' : 'submitted';
+    redirect(303, `${destination}&notice=${notice}`);
   }
 };
