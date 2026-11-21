@@ -7,6 +7,7 @@
   import { viewHeading } from '../../lib/calendar/navigation';
   import { addCalendarDays } from '../../lib/calendar/dates';
   import { eventTimeLabel, groupByDate, sortOccurrences } from '../../lib/calendar/presentation';
+  import KidDay from './KidDay.svelte';
   import type { PageData } from './$types';
   type PayoutError = { child: string; amount: string; date: string; note: string; requestId: string };
   type FormResult = { message: string; createError?: { title: string; description: string; assignee: string; dueDate: string; reward: string }; correctionError?: { id: string; reason: string }; payoutError?: PayoutError };
@@ -41,6 +42,9 @@
   const money = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 </script>
 <svelte:head><title>My day · Fleck Home Hub</title></svelte:head>
+{#if data.role === 'kid'}
+  <KidDay {data} {form} />
+{:else}
 <main class="mx-auto max-w-4xl px-5 py-8">
   <nav aria-label="Household areas" class="flex flex-wrap gap-x-4 gap-y-2">
     <a href={resolve('/display')} class="text-teal-700">Family display</a>
@@ -164,10 +168,7 @@
             {:else if chore.status === 'pending_verification'}<p class="mt-3 font-semibold">Waiting for parent verification</p>
             {:else if chore.status === 'needs_rework'}<p class="mt-3 font-semibold">Needs rework</p>{#if chore.reworkReason}<p>{chore.reworkReason}</p>{/if}
             {:else}<p class="mt-3 font-semibold">{chore.rewardCents ? `Approved! You earned ${money(chore.rewardCents)}!` : 'Approved! Great work!'}</p>{/if}
-            {#if data.role === 'kid' && chore.scheduledDate && chore.scheduledDate > data.today && chore.status === 'todo'}<p class="mt-3">Coming up</p>
-            {:else if data.role === 'kid' && (chore.status === 'todo' || chore.status === 'needs_rework')}
-              <form method="POST" action="?/transition" class="mt-4"><input type="hidden" name="id" value={chore.id} /><button name="action" value="submit" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Mark complete</button></form>
-            {:else if data.role === 'parent' && chore.status === 'pending_verification'}
+            {#if data.role === 'parent' && chore.status === 'pending_verification'}
               <form method="POST" action="?/transition" class="mt-4 grid gap-3"><input type="hidden" name="id" value={chore.id} /><label>Rework reason <span class="text-sm">(required when returning work)</span><input name="reason" maxlength="1000" class="mt-1 w-full rounded-lg border p-3" /></label><div class="flex flex-wrap gap-3"><button name="action" value="verify" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Verify</button><button name="action" value="rework" class="rounded-xl border border-teal-700 px-4 py-3">Needs rework</button></div></form>
             {/if}
           </article>
@@ -194,3 +195,4 @@
   <p class="mt-8"><a href={resolve('/settings/sessions')} class="text-teal-700">Signed-in devices</a></p>
   <form method="POST" action={resolve('/sign-out')}><button class="mt-8 rounded-xl border border-teal-700 px-4 py-3 text-teal-700">Sign out</button></form>
 </main>
+{/if}

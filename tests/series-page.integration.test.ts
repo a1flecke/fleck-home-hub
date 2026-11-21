@@ -2,6 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import { listSeriesPage } from '../src/lib/server/recurring';
+import { localDate } from '../src/lib/chores/recurrence';
 
 const opened: Database.Database[] = [];
 afterEach(() => { for (const db of opened.splice(0)) db.close(); });
@@ -26,8 +27,11 @@ it('paginates recurring schedules and bounds next occurrences and skips', async 
     const stamp = new Date(Date.UTC(2026, 0, 1, 0, 0, index)).toISOString();
     insert.run(`series-${String(index).padStart(2, '0')}`, `Series ${index}`, stamp, stamp);
   }
-  db.prepare("INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at) VALUES ('next-chore', 'home', 'kid', 'Series 22', '2026-11-20', 100, 'todo', '2026-11-16', '2026-11-16')").run();
-  db.prepare("INSERT INTO recurring_occurrence (series_id, household_id, scheduled_date, chore_id) VALUES ('series-22', 'home', '2026-11-20', 'next-chore')").run();
+  const today = localDate(new Date(), 'America/Chicago');
+  const next = new Date(`${today}T00:00:00.000Z`); next.setUTCDate(next.getUTCDate() + 1);
+  const nextDate = next.toISOString().slice(0, 10);
+  db.prepare("INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at) VALUES ('next-chore', 'home', 'kid', 'Series 22', ?, 100, 'todo', ?, ?)").run(nextDate, today, today);
+  db.prepare("INSERT INTO recurring_occurrence (series_id, household_id, scheduled_date, chore_id) VALUES ('series-22', 'home', ?, 'next-chore')").run(nextDate);
   const skip = db.prepare("INSERT INTO recurring_skip (series_id, scheduled_date) VALUES ('series-22', ?)");
   for (let day = 1; day <= 8; day++) skip.run(`2026-10-${String(day).padStart(2, '0')}`);
 
@@ -37,7 +41,7 @@ it('paginates recurring schedules and bounds next occurrences and skips', async 
   expect(first.pageCount).toBe(3);
   expect(first.items).toHaveLength(10);
   expect(first.items[0].id).toBe('series-22');
-  expect(first.items[0].next).toBe('2026-11-20');
+  expect(first.items[0].next).toBe(nextDate);
   expect(first.items[0].skips).toEqual(['2026-10-08', '2026-10-07', '2026-10-06', '2026-10-05', '2026-10-04']);
   expect(first.items[0].skipCount).toBe(8);
   expect(last.items).toHaveLength(3);
