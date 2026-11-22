@@ -15,9 +15,19 @@ it('detects policy drift and nonexistent commands', () => {
     writeFileSync(join(root, 'mise.toml'), '[tasks.test]\nrun = "pnpm test"\n');
     writeFileSync(join(root, 'package.json'), JSON.stringify({ packageManager: 'pnpm@12.16.1' }));
     writeFileSync(join(root, '.opencode/commands/work.md'), 'Read AGENTS.md.');
-    const policy = { share: 'disabled', permissions: [{ action: 'shell', resource: '*', effect: 'ask' }], policies: [{ action: 'tool.use', resource: 'shell:gh pr merge *', effect: 'deny' }, { action: 'tool.use', resource: 'shell:git push --force *', effect: 'deny' }], agents: { build: { permissions: ['gh pr merge *', 'git push --force *', 'git reset --hard *', 'git clean *'].map(resource => ({ action: 'shell', resource, effect: 'deny' })) } } };
+    const policy = { share: 'disabled', permissions: [{ action: 'shell', resource: '*', effect: 'ask' }], policies: ['shell:gh pr merge *', 'shell:git push --force *', 'shell:git commit *--no-ver*', 'shell:git push *--no-ver*'].map(resource => ({ action: 'tool.use', resource, effect: 'deny' })), agents: { build: { permissions: ['gh pr merge *', 'git push --force *', 'git reset --hard *', 'git clean *', 'git commit *--no-ver*', 'git push *--no-ver*'].map(resource => ({ action: 'shell', resource, effect: 'deny' })) } } };
     writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
     expect(run().status).toBe(0);
+    // Hook bypasses must stay denied both as a final build-agent rule and as a hard policy.
+    for (const resource of ['git commit *--no-ver*', 'git push *--no-ver*']) {
+      const withoutRule = { ...policy, agents: { build: { permissions: policy.agents.build.permissions.filter(rule => rule.resource !== resource) } } };
+      writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(withoutRule));
+      expect(run().status, resource).not.toBe(0);
+      const withoutPolicy = { ...policy, policies: policy.policies.filter(rule => rule.resource !== `shell:${resource}`) };
+      writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(withoutPolicy));
+      expect(run().status, `shell:${resource}`).not.toBe(0);
+    }
+    writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
     writeFileSync(join(root, 'AGENTS.md'), 'Use mise run test. Never merge or approve your own PR. Never force-push.');
     expect(run().status).not.toBe(0);
     writeFileSync(join(root, 'AGENTS.md'), shared);

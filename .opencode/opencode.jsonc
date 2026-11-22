@@ -111,6 +111,13 @@
         { "action": "shell", "resource": "git push --force-with-lease *", "effect": "ask" },
         { "action": "shell", "resource": "git push * --force-with-lease", "effect": "ask" },
         { "action": "shell", "resource": "git push * --force-with-lease *", "effect": "ask" },
+        // Skipping the commit or pre-push hook bypasses the secret guard and the full pre-push verification.
+        // Git accepts any unambiguous prefix of --no-verify. Globs cannot see clustered short options
+        // such as `git commit -anm`; the Claude hook parses those, and Git hooks remain the real check.
+        { "action": "shell", "resource": "git commit *--no-ver*", "effect": "deny" },
+        { "action": "shell", "resource": "git push *--no-ver*", "effect": "deny" },
+        { "action": "shell", "resource": "git commit -n *", "effect": "deny" },
+        { "action": "shell", "resource": "git commit * -n *", "effect": "deny" },
         { "action": "shell", "resource": "gh pr merge *", "effect": "deny" },
         { "action": "shell", "resource": "gh pr review *--approve*", "effect": "deny" },
         { "action": "shell", "resource": "gh pr review -a*", "effect": "deny" },
@@ -128,6 +135,8 @@
     { "action": "tool.use", "resource": "shell:gh pr merge *", "effect": "deny" },
     { "action": "tool.use", "resource": "shell:gh pr review * --approve*", "effect": "deny" },
     { "action": "tool.use", "resource": "shell:git push --force *", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git commit *--no-ver*", "effect": "deny" },
+    { "action": "tool.use", "resource": "shell:git push *--no-ver*", "effect": "deny" },
     { "action": "tool.use", "resource": "shell:git reset --hard *", "effect": "deny" },
     { "action": "tool.use", "resource": "shell:git clean *", "effect": "deny" },
     { "action": "tool.use", "resource": "shell:pkill *", "effect": "deny" },

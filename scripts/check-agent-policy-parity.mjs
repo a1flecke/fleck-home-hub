@@ -25,7 +25,9 @@ try {
   const build = config.agents?.build?.permissions ?? [];
   if (!Array.isArray(build) || build.some(unsafeBuildAllow)) problems.push('OpenCode build agent must not allow a shell-wide wildcard, an interpreter or a command runner');
   for (const resource of ['gh pr merge *', 'git push --force *', 'git reset --hard *', 'git clean *']) if (build.findLast(x => x.action === 'shell' && x.resource === resource)?.effect !== 'deny') problems.push(`Build agent must finally deny: ${resource}`);
-  for (const resource of ['shell:gh pr merge *', 'shell:git push --force *']) if (!config.policies?.some(x => x.action === 'tool.use' && x.resource === resource && x.effect === 'deny')) problems.push(`Missing hard deny: ${resource}`);
+  // Skipping Git hooks bypasses the commit secret guard and the pre-push verification.
+  for (const resource of ['git commit *--no-ver*', 'git push *--no-ver*']) if (build.findLast(x => x.action === 'shell' && x.resource === resource)?.effect !== 'deny') problems.push(`Build agent must finally deny: ${resource}`);
+  for (const resource of ['shell:gh pr merge *', 'shell:git push --force *', 'shell:git commit *--no-ver*', 'shell:git push *--no-ver*']) if (!config.policies?.some(x => x.action === 'tool.use' && x.resource === resource && x.effect === 'deny')) problems.push(`Missing hard deny: ${resource}`);
   for (const [path, text] of surfaces) {
     if (path.startsWith('.opencode/commands/') && !text.includes('AGENTS.md')) problems.push(`${path}: missing shared policy reference`);
     if (/(?:^|\s)(?:npm|yarn)\s+(?:install|run|test|build)\b/m.test(text)) problems.push(`${path}: conflicting package manager`);
