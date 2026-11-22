@@ -14,7 +14,9 @@ import {
   type IngredientSource
 } from '../grocery/handoff';
 import { parseIngredientLine } from '../grocery/ingredient-parser';
+import { buildWeekIngredientReview, type WeekIngredientRef, type WeekIngredientReview } from '../grocery/week';
 import { parseRecipeDetailsJson, recipeDetailsForMeal } from '../meals/recipe-details';
+import { listMealWeek } from './meals';
 
 type ItemInput = { name: string; quantity: string; unit: string };
 type Item = ItemInput & { id: string; completed: boolean; version: number };
@@ -23,6 +25,10 @@ export type BoughtSelection = { id: string; version: number };
 
 /** One request may review at most this many bought rows before clearing. */
 export const MAX_BOUGHT_CLEAR_ROWS = 200;
+/** One week may review or confirm at most this many selected ingredient lines. */
+export const MAX_WEEK_INGREDIENT_LINES = 150;
+/** A retry key is an opaque client value with a bounded length. */
+export const MAX_CONFIRMATION_KEY_LENGTH = 100;
 
 export class IngredientValidationError extends Error {}
 export class IngredientConflictError extends Error {
@@ -37,6 +43,11 @@ export class GroceryClearValidationError extends Error {}
 export class GroceryClearConflictError extends Error {
   constructor() { super('Bought items changed or are no longer available'); }
 }
+export class WeekIngredientValidationError extends Error {}
+export class WeekIngredientConflictError extends Error {
+  constructor(readonly keys: string[]) { super('Week ingredient now matches an active grocery item'); }
+}
+export class StaleWeekIngredientSelectionError extends Error {}
 
 function authorize(db: Database.Database, actor: string, household: string, parent = false) {
   const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
@@ -122,8 +133,7 @@ export function clearBoughtGroceries(db: Database.Database, actor: string, house
   }).immediate();
 }
 
-function mealIngredients(db: Database.Database, actor: string, household: string, mealId: string): { title: string; refs: MealIngredientRef[] } {
-  authorize(db, actor, household, true);
+function mealIngredientRefs(db: Database.Database, household: string, mealId: string): { title: string; refs: MealIngredientRef[] } {
   const meal = db.prepare('SELECT title, ingredients, recipe_url AS recipeUrl, recipe_details AS recipeDetailsJson FROM meal WHERE id = ? AND household_id = ?').get(mealId, household) as { title: string; ingredients: string; recipeUrl: string | null; recipeDetailsJson: string | null } | undefined;
   if (!meal) throw new Error('Meal not found');
   const details = recipeDetailsForMeal(parseRecipeDetailsJson(meal.recipeDetailsJson), meal.recipeUrl);
@@ -131,6 +141,11 @@ function mealIngredients(db: Database.Database, actor: string, household: string
   ingredientLines(meal.ingredients).forEach((line, index) => refs.push({ key: familyIngredientKey(index), line, source: 'family', group: null }));
   details?.groups.forEach((group, groupIndex) => group.lines.forEach((line, lineIndex) => refs.push({ key: providerIngredientKey(groupIndex, lineIndex), line, source: 'provider', group: group.name })));
   return { title: meal.title, refs };
+}
+
+function mealIngredients(db: Database.Database, actor: string, household: string, mealId: string): { title: string; refs: MealIngredientRef[] } {
+  authorize(db, actor, household, true);
+  return mealIngredientRefs(db, household, mealId);
 }
 
 function normalizedLine(value: string): string {
@@ -217,6 +232,104 @@ export function confirmMealIngredients(db: Database.Database, actor: string, hou
       added++;
     }
     return { added, skipped };
+  }).immediate();
+}
+
+function weekIngredientRefs(db: Database.Database, actor: string, household: string, start: string, end: string) {
+  const meals = listMealWeek(db, actor, household, start, end);
+  const refs: WeekIngredientRef[] = meals.flatMap(meal => mealIngredientRefs(db, household, meal.id).refs.map(ref => ({
+    ...ref,
+    key: `${meal.id}:${ref.key}`,
+    mealId: meal.id,
+    mealTitle: meal.title,
+    mealDate: meal.date
+  })));
+  return { meals, refs };
+}
+
+/** Lists every ingredient line a parent can choose from one bounded meal week. */
+export function weekIngredientSources(db: Database.Database, actor: string, household: string, start: string, end: string): WeekIngredientRef[] {
+  authorize(db, actor, household, true);
+  return weekIngredientRefs(db, actor, household, start, end).refs;
+}
+
+/** Builds the editable multi-meal review; nothing is written. */
+export function reviewWeekIngredients(
+  db: Database.Database,
+  actor: string,
+  household: string,
+  start: string,
+  end: string,
+  selections: string[],
+  overrides: IngredientReviewOverrides = {}
+): WeekIngredientReview & { weekStart: string; weekEnd: string; mealCount: number } {
+  authorize(db, actor, household, true);
+  const { meals, refs } = weekIngredientRefs(db, actor, household, start, end);
+  if (!Array.isArray(selections) || !selections.length || selections.length > MAX_WEEK_INGREDIENT_LINES) throw new WeekIngredientValidationError('Choose ingredients');
+  const unique = [...new Set(selections)];
+  if (unique.length !== selections.length) throw new StaleWeekIngredientSelectionError('Ingredient selection changed');
+  const byKey = new Map(refs.map(ref => [ref.key, ref]));
+  if (unique.some(key => !byKey.has(key))) throw new StaleWeekIngredientSelectionError('Ingredient selection changed');
+  const active = listGroceries(db, actor, household).filter(item => !item.completed);
+  const review = buildWeekIngredientReview(unique.map(key => byKey.get(key)!), active, overrides);
+  return { ...review, weekStart: start, weekEnd: end, mealCount: meals.length };
+}
+
+/**
+ * Revalidates every selected line against the current week, current active list and current
+ * parent membership inside one immediate transaction, then writes the accepted rows together.
+ * A confirmation key makes a retried or double-clicked submission return the original result
+ * instead of creating another set of rows.
+ */
+export function confirmWeekIngredients(
+  db: Database.Database,
+  actor: string,
+  household: string,
+  start: string,
+  end: string,
+  decisions: IngredientDecision[],
+  confirmationKey: string
+): { added: number; skipped: number; replayed: boolean } {
+  return db.transaction(() => {
+    authorize(db, actor, household, true);
+    if (typeof confirmationKey !== 'string' || !confirmationKey || confirmationKey.length > MAX_CONFIRMATION_KEY_LENGTH) throw new WeekIngredientValidationError('Invalid confirmation');
+    const previous = db.prepare('SELECT added, skipped FROM grocery_week_confirmation WHERE household_id = ? AND confirmation_key = ?').get(household, confirmationKey) as { added: number; skipped: number } | undefined;
+    if (previous) return { added: previous.added, skipped: previous.skipped, replayed: true };
+
+    const { refs } = weekIngredientRefs(db, actor, household, start, end);
+    const byKey = new Map(refs.map(ref => [ref.key, ref]));
+    if (!Array.isArray(decisions) || !decisions.length || decisions.length > MAX_WEEK_INGREDIENT_LINES) throw new WeekIngredientValidationError('Choose ingredients');
+    const keys = new Set<string>();
+    for (const decision of decisions) {
+      const ref = decision && byKey.get(decision.key);
+      if (!decision || typeof decision.key !== 'string' || !decision.key || decision.key.length > 200 || keys.has(decision.key) ||
+          typeof decision.line !== 'string' || !ref || ref.line !== decision.line || !ingredientActions.includes(decision.action)) {
+        throw new StaleWeekIngredientSelectionError('Ingredient selection changed');
+      }
+      keys.add(decision.key);
+    }
+
+    const active = listGroceries(db, actor, household).filter(item => !item.completed);
+    const prepared = new Map<string, ItemInput>();
+    const conflicts: string[] = [];
+    for (const decision of decisions) {
+      if (decision.action === 'skip') continue;
+      let value: ItemInput;
+      try { value = validate({ name: decision.name, quantity: decision.quantity, unit: decision.unit }); }
+      catch { throw new WeekIngredientValidationError('Invalid grocery item'); }
+      if (decision.action === 'add' && active.some(item => probableGroceryMatch(value.name, item.name))) conflicts.push(decision.key);
+      prepared.set(decision.key, value);
+    }
+    if (conflicts.length) throw new WeekIngredientConflictError(conflicts);
+
+    let added = 0, skipped = 0;
+    for (const decision of decisions) {
+      if (decision.action === 'skip') { skipped++; continue; }
+      insertGrocery(db, actor, household, prepared.get(decision.key)!);
+      added++;
+    }
+    db.prepare('INSERT INTO grocery_week_confirmation (id, household_id, actor_id, confirmation_key, week_start, week_end, added, skipped, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(randomUUID(), household, actor, confirmationKey, start, end, added, skipped, new Date().toISOString());
+    return { added, skipped, replayed: false };
   }).immediate();
 }
 

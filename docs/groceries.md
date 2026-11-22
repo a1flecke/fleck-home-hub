@@ -39,6 +39,27 @@ A parent selects ingredient lines from a meal and chooses **Review selected ingr
 
 The parent can edit the name, quantity and unit, then choose **Add as new item**, **Skip this item**, or, when a match exists, **Keep separate duplicate**. Confirming writes the accepted rows in one immediate transaction and shows how many were added and skipped.
 
+## Shopping a planned week
+
+The planner links to **Shop the week**. A parent chooses one household-local week and selects ingredient lines from more than one planned meal, including family-entered lines and already-saved eMeals provider lines. Nothing is written while selecting.
+
+The editable review shows, for every selected line:
+
+- the original ingredient text, suggested name, quantity and unit;
+- **Family-entered ingredients** or **Recipe ingredients from eMeals** with the provider group;
+- every selected meal that needs the ingredient, with its date and amount;
+- a probable match on the active grocery list;
+- a warning when a line could not be split confidently;
+- a warning when the same ingredient appears for another selected meal.
+
+A cross-meal or within-selection duplicate keeps its own quantity and unit, defaults to **Skip this item**, and is never added to another quantity. The parent can choose **Add this item** to keep a separate row or **Skip this item**. When an active grocery item matches, the choices are **Skip this item** and **Keep separate duplicate**, consistent with the single-meal handoff. Incompatible or different units are never combined.
+
+Confirming re-reads the selected week's meals and lines, the current active grocery list and the active parent membership inside one SQLite immediate transaction. A forged, cross-household, stale or duplicate selection rejects the action. If another parent added a matching item after review, the whole action is rejected, no rows are written, and the review is shown again with the submitted edits so the parent can choose **Keep separate duplicate** or **Skip**. A successful confirmation writes all accepted rows atomically, leaves the meals unchanged, and opens Groceries with the actual number added and skipped.
+
+Each review carries a random confirmation key. A retry or double click with the same key returns the first result without adding the rows again, including across two SQLite connections. A different review creates a new key.
+
+Migration `0018_grocery_week_confirmation` adds the small confirmation record used only for retry safety; it is not another grocery list. Back up the database before upgrading. Screenshots: [week selection](screenshots/shop-week-selection-mobile.png), [editable review](screenshots/shop-week-review-mobile.png), and [an explicit duplicate decision after a conflict](screenshots/shop-week-conflict-mobile.png).
+
 ## Adding several items at once
 
 The grocery list links to **Add several groceries**, where an active household member can paste up to 30 nonempty lines in a single request. The pasted text is limited to 6,000 characters. Blank lines are ignored.

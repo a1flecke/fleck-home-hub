@@ -33,6 +33,24 @@
   </header>
   {#if form?.message}<p role="status" class="mt-4 rounded-2xl bg-teal-50 p-4 text-teal-900">{form.message}</p>{/if}
 
+  <section aria-labelledby="family-dinners-heading" class="mt-6 rounded-3xl bg-white p-5 shadow-sm">
+    <div class="flex flex-wrap items-baseline justify-between gap-2">
+      <h2 id="family-dinners-heading" class="text-2xl font-bold">Family dinners</h2>
+      <a href={resolve(`/meals?date=${data.today}`)} class="font-semibold text-teal-800 underline">See the full week</a>
+    </div>
+    <p class="mt-2 text-sm text-stone-600">Only dinners your family chose to share.</p>
+    {#each data.dinnerDays as day (day.date)}
+      <div class="mt-4 border-t border-stone-200 pt-3 first:border-0 first:pt-0">
+        <h3 class="font-semibold">{day.label} · {day.date}{#if day.isToday} · Today{/if}</h3>
+        {#if day.meals.length}
+          <ul class="mt-1 space-y-1">{#each day.meals as meal (meal.id)}<li>{meal.title}{#if meal.time} · {meal.time}{/if}</li>{/each}</ul>
+        {:else}
+          <p class="mt-1 text-stone-600">No shared dinner planned.</p>
+        {/if}
+      </div>
+    {/each}
+  </section>
+
   <section aria-labelledby="todo-today-heading" class="mt-6 rounded-3xl bg-white p-5 shadow-sm">
     <h2 id="todo-today-heading" class="text-2xl font-bold">To do today</h2>
     {#if !hasChores}
