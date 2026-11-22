@@ -337,3 +337,37 @@ test('a parent in two households pairs and revokes a display for the household o
     await expect(display.page.getByRole('heading', { name: 'Family display' })).toHaveCount(0);
   } finally { await display?.context.close(); await parent.context.close(); }
 });
+
+test('a parent in two households chooses what the selected household shares', async ({ browser }) => {
+  const stamp = Date.now();
+  const event = `Second household event ${stamp}`;
+  const owner = await signedIn(browser, 'display-second@example.test', 'synthetic-display-second-password', 'Hello, Display Second Parent');
+  const parent = await signedIn(browser, 'display-multi@example.test', 'synthetic-display-multi-password', 'Hello, Display Multi Parent');
+  let display: Awaited<ReturnType<typeof pairDisplay>> | undefined;
+  try {
+    await addEvent(owner.page, event, { share: false });
+    await parent.page.goto('/display/settings');
+    await expect(parent.page.getByRole('region', { name: 'Choose what to share' })).not.toContainText(event);
+
+    await parent.page.goto('/settings/displays?household=synthetic-display-second');
+    await parent.page.getByRole('link', { name: 'Choose what to share' }).click();
+    await expect(parent.page.getByRole('combobox', { name: 'Household', exact: true })).toHaveValue('synthetic-display-second');
+    const item = parent.page.getByRole('region', { name: 'Choose what to share' }).getByRole('article').filter({ hasText: event });
+    await item.getByRole('button', { name: 'Show on display' }).click();
+    await expect(parent.page.getByRole('status')).toHaveText('Display updated.');
+    await expect(item.getByRole('button', { name: 'Remove from display' })).toBeVisible();
+    expect(new URL(parent.page.url()).searchParams.get('household')).toBe('synthetic-display-second');
+
+    await parent.page.goto('/settings/displays?household=synthetic-display-second');
+    await parent.page.getByLabel('Display name').fill(`Second hall ${stamp}`);
+    await parent.page.getByRole('button', { name: 'Create pairing code' }).click();
+    const code = (await parent.page.getByRole('region', { name: 'New pairing code' }).locator('p.font-mono').innerText()).trim();
+    display = await pairDisplay(browser, code);
+    await expect(display.page.getByText(event)).toBeVisible();
+
+    // A household the parent does not administer is refused rather than silently replaced.
+    expect((await parent.page.request.get('/display/settings?household=synthetic-display-household', { maxRedirects: 0 })).status()).toBe(403);
+    const forged = await parent.page.request.post('/display/settings?/share&household=synthetic-display-household', { form: { kind: 'event', id: 'x', visible: 'yes' }, headers: { origin }, maxRedirects: 0 });
+    expect(forged.status()).toBe(403);
+  } finally { await display?.context.close(); await parent.context.close(); await owner.context.close(); }
+});
