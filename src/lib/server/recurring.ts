@@ -70,7 +70,7 @@ export function setSeriesState(db: Database.Database, actor: string, household: 
     const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
     const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
     if (existing.state === 'paused' && state !== 'paused' && existing.paused_on) {
-      db.prepare(`INSERT OR IGNORE INTO recurring_skip (series_id, scheduled_date) SELECT o.series_id, o.scheduled_date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date >= ? AND o.scheduled_date < ? AND c.status = 'todo'`).run(id, existing.paused_on, today);
+      db.prepare(`INSERT OR IGNORE INTO recurring_skip (series_id, scheduled_date) SELECT o.series_id, o.scheduled_date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date >= ? AND o.scheduled_date < ? AND c.status = 'todo' AND c.cancelled_at IS NULL`).run(id, existing.paused_on, today);
     }
     if (existing.state === 'active' && state === 'paused') {
       db.prepare('INSERT INTO recurring_pause_interval (series_id, started_on, actor_id, created_at) VALUES (?, ?, ?, ?)').run(id, today, actor, new Date().toISOString());
@@ -91,8 +91,8 @@ export function skipOccurrence(db: Database.Database, actor: string, household: 
     requireParent(db, actor, household, id);
     const series = db.prepare('SELECT start_date, end_date, weekdays, state FROM recurring_series WHERE id = ? AND household_id = ?').get(id, household) as { start_date: string; end_date: string | null; weekdays: string; state: string };
     if (series.state === 'ended' || date < series.start_date || (series.end_date && date > series.end_date) || !occurrenceDates(date, date, JSON.parse(series.weekdays)).length) throw new Error('Not a scheduled occurrence');
-    const existing = db.prepare('SELECT c.status FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date = ?').get(id, date) as { status: string } | undefined;
-    if (existing && existing.status !== 'todo') throw new Error('Occurrence already submitted');
+    const existing = db.prepare('SELECT c.status, c.cancelled_at FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date = ?').get(id, date) as { status: string; cancelled_at: string | null } | undefined;
+    if (existing && existing.status !== 'todo' && !existing.cancelled_at) throw new Error('Occurrence already submitted');
     db.prepare('INSERT OR IGNORE INTO recurring_skip (series_id, scheduled_date) VALUES (?, ?)').run(id, date);
   }).immediate();
 }
@@ -134,7 +134,7 @@ export function listSeriesPage(db: Database.Database, actor: string, household: 
   const items = rows.map(item => {
     const next = item.state === 'active'
       ? (db.prepare(`SELECT o.scheduled_date AS date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id
-        WHERE o.series_id = ? AND o.scheduled_date >= ? AND c.status = 'todo'
+        WHERE o.series_id = ? AND o.scheduled_date >= ? AND c.status = 'todo' AND c.cancelled_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date)
         ORDER BY o.scheduled_date LIMIT 1`).get(item.id, today) as { date: string } | undefined)?.date
       : undefined;
@@ -155,6 +155,6 @@ export function updateSeries(db: Database.Database, actor: string, household: st
     const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
     const result = db.prepare("UPDATE recurring_series SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, start_date = ?, end_date = ?, weekdays = ?, updated_at = ? WHERE id = ? AND household_id = ? AND state != 'ended'").run(input.assigneeId, title, description, input.rewardCents ?? null, input.startDate, input.endDate || null, weekdays, new Date().toISOString(), id, household);
     if (!result.changes) throw new Error('Series ended');
-    db.prepare(`UPDATE chore SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, updated_at = ? WHERE household_id = ? AND status = 'todo' AND id IN (SELECT o.chore_id FROM recurring_occurrence o WHERE o.series_id = ? AND o.scheduled_date > ? AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date))`).run(input.assigneeId, title, description, input.rewardCents ?? null, new Date().toISOString(), household, id, today);
+    db.prepare(`UPDATE chore SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, updated_at = ? WHERE household_id = ? AND status = 'todo' AND cancelled_at IS NULL AND id IN (SELECT o.chore_id FROM recurring_occurrence o WHERE o.series_id = ? AND o.scheduled_date > ? AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date))`).run(input.assigneeId, title, description, input.rewardCents ?? null, new Date().toISOString(), household, id, today);
   }).immediate();
 }

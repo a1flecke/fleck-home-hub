@@ -43,7 +43,10 @@ it('upgrades the contiguous display-pairing baseline without altering household 
     const before = readRows();
     expect(before.every(rows => rows.length > 0)).toBe(true);
     migrateDrizzle(drizzle(db), { migrationsFolder: 'drizzle' });
-    expect(readRows()).toEqual(before);
+    const after = readRows();
+    // The chore edit/cancel migration adds nullable columns; every previously stored value must survive.
+    expect(after.map((rows, index) => index === 2 ? rows.map(row => { const copy = { ...(row as Record<string, unknown>) }; delete copy.cancelled_at; delete copy.cancelled_by; return copy; }) : rows)).toEqual(before);
+    expect(after[2].every(row => (row as { cancelled_at: unknown; cancelled_by: unknown }).cancelled_at === null && (row as { cancelled_at: unknown; cancelled_by: unknown }).cancelled_by === null)).toBe(true);
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'expense'").get()).toEqual({ name: 'expense' });
     expect(db.pragma('foreign_key_check')).toEqual([]);
     expect(db.pragma('integrity_check')).toEqual([{ integrity_check: 'ok' }]);

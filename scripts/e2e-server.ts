@@ -201,6 +201,7 @@ db.prepare('INSERT INTO payout (id, household_id, child_id, actor_id, amount_cen
 // Weekly chore board journeys: a populated household for display/filters and a separate
 // empty household so the first-chore empty state stays meaningful.
 const weekParent = await auth.api.signUpEmail({ body: { name: 'Week Parent', email: 'week-parent@example.test', password: 'synthetic-week-parent-password' } });
+const weekParentTwo = await auth.api.signUpEmail({ body: { name: 'Week Parent Two', email: 'week-parent-two@example.test', password: 'synthetic-week-parent-two-password' } });
 const weekKid = await auth.api.signUpEmail({ body: { name: 'Week Kid', email: 'week-kid@example.test', password: 'synthetic-week-kid-password' } });
 const weekSibling = await auth.api.signUpEmail({ body: { name: 'Week Sibling', email: 'week-sibling@example.test', password: 'synthetic-week-sibling-password' } });
 const weekEmptyParent = await auth.api.signUpEmail({ body: { name: 'Week Empty Parent', email: 'week-empty-parent@example.test', password: 'synthetic-week-empty-parent-password' } });
@@ -208,6 +209,7 @@ const weekEmptyKid = await auth.api.signUpEmail({ body: { name: 'Week Empty Kid'
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?), (?, ?)').run('synthetic-chore-week-household', 'Chore week household', 'synthetic-chore-week-empty-household', 'Empty chore week household');
 for (const [userId, householdId, role] of [
   [weekParent.user.id, 'synthetic-chore-week-household', 'parent'],
+  [weekParentTwo.user.id, 'synthetic-chore-week-household', 'parent'],
   [weekKid.user.id, 'synthetic-chore-week-household', 'kid'],
   [weekSibling.user.id, 'synthetic-chore-week-household', 'kid'],
   [weekEmptyParent.user.id, 'synthetic-chore-week-empty-household', 'parent'],
@@ -222,6 +224,13 @@ weekChore.run('week-rework', weekKid.user.id, 'Week rework chore', '2099-03-02',
 weekChore.run('week-verified', weekSibling.user.id, 'Week verified chore', '2099-03-03', 200, 'verified', null, seededAt, seededAt);
 db.prepare('INSERT INTO earning (id, chore_id, household_id, child_id, amount_cents, created_at) VALUES (?, ?, ?, ?, ?, ?)')
   .run('week-verified-earning', 'week-verified', 'synthetic-chore-week-household', weekSibling.user.id, 200, seededAt);
+// Edit/cancel journeys: an editable one-off, a recurring occurrence in a later week, and a
+// second parent for the stale-edit conflict. These stay outside the first week's counts.
+weekChore.run('week-hydration', weekKid.user.id, 'Week hydration chore', '2099-04-06', 250, 'todo', null, seededAt, seededAt);
+db.prepare(`INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, description, reward_cents, start_date, weekdays, state, created_at, updated_at)
+  VALUES ('week-series', 'synthetic-chore-week-household', ?, ?, 'Week repeating chore', NULL, 175, '2099-03-09', '[1]', 'active', ?, ?)`).run(weekParent.user.id, weekKid.user.id, seededAt, seededAt);
+weekChore.run('week-repeating', weekKid.user.id, 'Week repeating chore', '2099-03-09', 175, 'todo', null, seededAt, seededAt);
+db.prepare("INSERT INTO recurring_occurrence (series_id, household_id, scheduled_date, chore_id) VALUES ('week-series', 'synthetic-chore-week-household', '2099-03-09', 'week-repeating')").run();
 db.close();
 const mockRecipeFetch = fileURLToPath(new URL('./mock-recipe-fetch.cjs', import.meta.url));
 const nodeOptions = [process.env.NODE_OPTIONS, '--require', mockRecipeFetch].filter(Boolean).join(' ');

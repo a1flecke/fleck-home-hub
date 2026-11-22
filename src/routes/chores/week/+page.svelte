@@ -2,13 +2,18 @@
   import { resolve } from '$app/paths';
   import { addCalendarDays } from '../../../lib/calendar/dates';
   import Disclosure from '../../calendar/Disclosure.svelte';
+  import ChoreDescriptionField from './ChoreDescriptionField.svelte';
   import type { PageData } from './$types';
 
   type CreateError = { title: string; description: string; assignee: string; dueDate: string; reward: string };
-  type FormResult = { message: string; createError?: CreateError };
+  type EditError = { id: string; updatedAt: string; title: string; description: string; assignee: string; dueDate: string; reward: string };
+  type CancelError = { id: string; updatedAt: string };
+  type FormResult = { message: string; createError?: CreateError; editError?: EditError; cancelError?: CancelError };
   let { data, form }: { data: PageData; form: FormResult | null } = $props();
   let createError = $derived(form?.createError);
   let createDescription = $derived(createError?.description ?? '');
+  let editError = $derived(form?.editError);
+  let cancelError = $derived(form?.cancelError);
   const statusOrder = ['all', 'todo', 'pending_verification', 'needs_rework', 'verified'] as const;
   const statusLabels = {
     all: 'All statuses',
@@ -29,6 +34,13 @@
     if (changes.date) params.push(`date=${encodeURIComponent(changes.date)}`);
     if (changes.add) params.push('add=1');
     return `${params.join('&')}${changes.add ? '#add-chore' : ''}`;
+  }
+
+  function actionUrl(action: 'edit' | 'cancel') {
+    const params = [`week=${encodeURIComponent(data.start)}`, `date=${encodeURIComponent(data.focusDate)}`];
+    if (data.childId) params.push(`child=${encodeURIComponent(data.childId)}`);
+    if (data.status !== 'all') params.push(`status=${encodeURIComponent(data.status)}`);
+    return `?/${action}&${params.join('&')}`;
   }
 
   function historyScope(chore: PageData['days'][number]['children'][number]['chores'][number]) {
@@ -70,6 +82,8 @@
   </form>
 
   {#if data.notice === 'created'}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">Chore added. It appears on its scheduled day below.</p>{/if}
+  {#if data.notice === 'updated'}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">Chore updated. The week shows the corrected assignment.</p>{/if}
+  {#if data.notice === 'cancelled'}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">Chore cancelled. It no longer appears in the week.</p>{/if}
   {#if form?.message}<p role="alert" class="mt-4 rounded-xl bg-rose-50 p-4">{form.message}</p>{/if}
 
   <nav aria-label="Filter by child" class="mt-5 flex flex-wrap gap-x-4 gap-y-2">
@@ -95,7 +109,7 @@
         <p class="mt-3 text-sm">This creates one one-time chore. It starts as To do and earns nothing until a parent verifies completed work.</p>
         <form method="POST" action={`?/create&week=${encodeURIComponent(data.start)}&date=${encodeURIComponent(data.focusDate)}${data.childId ? `&child=${encodeURIComponent(data.childId)}` : ''}${data.status !== 'all' ? `&status=${encodeURIComponent(data.status)}` : ''}`} aria-label="Add a chore for this week" class="mt-4 grid gap-3">
           <label>Chore title<input name="title" required maxlength="120" defaultValue={createError?.title ?? ''} class="mt-1 w-full rounded-lg border p-3" /></label>
-          <label>Description (optional)<textarea name="description" maxlength="1000" bind:value={createDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
+          <label>Description (optional)<textarea name="description" aria-label="Description (optional)" maxlength="1000" bind:value={createDescription} class="mt-1 w-full rounded-lg border p-3"></textarea></label>
           <label>Assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === (createError?.assignee ?? data.children[0].id)}>{child.name}</option>{/each}</select></label>
           <label>Due date<input name="dueDate" type="date" required defaultValue={createError?.dueDate ?? data.focusDate} class="mt-1 w-full rounded-lg border p-3" /></label>
           <label>Reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" defaultValue={createError?.reward ?? ''} class="mt-1 w-full rounded-lg border p-3" /></label>
@@ -135,6 +149,8 @@
                 <h3 class="text-lg font-bold">{child.name}</h3>
                 <ul class="mt-2 grid gap-3">
                   {#each child.chores as chore (chore.id)}
+                    {@const rejected = editError?.id === chore.id ? editError : undefined}
+                    {@const cancelRejected = cancelError?.id === chore.id ? cancelError : undefined}
                     <li>
                       <article aria-label={`${chore.title} for ${chore.childName}`} class="rounded-xl border border-slate-200 p-4">
                         <h4 class="text-lg font-bold">{chore.title}</h4>
@@ -148,6 +164,31 @@
                           {#if chore.isRecurring}<a href={resolve('/chores/series')} class="font-semibold text-teal-700 underline">Manage repeating schedule</a>{/if}
                           <a href={resolve(`/chores/history?scope=${historyScope(chore)}&child=${encodeURIComponent(chore.assigneeId)}`)} class="text-teal-700 underline">View in history</a>
                         </div>
+                        {#if chore.status === 'todo' && !chore.isRecurring}
+                          <details class="mt-4" {...rejected ? { open: true } : {}}>
+                            <summary class="cursor-pointer font-bold">Edit chore</summary>
+                            <form method="POST" action={actionUrl('edit')} aria-label={`Edit ${chore.title}`} class="mt-3 grid gap-3">
+                              <input type="hidden" name="id" value={chore.id} />
+                              <input type="hidden" name="updatedAt" value={rejected?.updatedAt ?? chore.updatedAt} />
+                              <label>Chore title<input name="title" required maxlength="120" defaultValue={rejected?.title ?? chore.title} class="mt-1 w-full rounded-lg border p-3" /></label>
+                              <label>Description (optional)<ChoreDescriptionField initial={rejected?.description ?? chore.description ?? ''} /></label>
+                              <label>Assigned child<select name="assignee" class="mt-1 w-full rounded-lg border p-3">{#each data.children as child (child.id)}<option value={child.id} selected={child.id === (rejected?.assignee ?? chore.assigneeId)}>{child.name}</option>{/each}</select></label>
+                              <label>Due date<input name="dueDate" type="date" required defaultValue={rejected?.dueDate ?? chore.dueDate} class="mt-1 w-full rounded-lg border p-3" /></label>
+                              <label>Reward in dollars<input name="reward" type="number" min="0" max="1000000" step="0.01" defaultValue={rejected ? rejected.reward : chore.rewardCents === null ? '' : (chore.rewardCents / 100).toFixed(2)} class="mt-1 w-full rounded-lg border p-3" /></label>
+                              <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Save changes</button>
+                            </form>
+                          </details>
+                          <details class="mt-4" {...cancelRejected ? { open: true } : {}}>
+                            <summary class="cursor-pointer font-bold">Cancel chore…</summary>
+                            <p class="mt-2 text-sm">This removes the chore from the week and it cannot be undone. Its record is kept for history; no reward is created.</p>
+                            <form method="POST" action={actionUrl('cancel')} aria-label={`Cancel ${chore.title}`} class="mt-3 grid gap-3">
+                              <input type="hidden" name="id" value={chore.id} />
+                              <input type="hidden" name="updatedAt" value={cancelRejected?.updatedAt ?? chore.updatedAt} />
+                              <label class="flex items-center gap-3"><input name="confirm" type="checkbox" value="yes" required class="h-5 w-5" />I understand this chore will be cancelled</label>
+                              <button class="rounded-xl border border-red-700 px-4 py-3 font-semibold text-red-800">Cancel this chore</button>
+                            </form>
+                          </details>
+                        {/if}
                       </article>
                     </li>
                   {/each}
