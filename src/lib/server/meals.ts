@@ -5,6 +5,12 @@ import { normalizeRecipeDetails, parseRecipeDetailsJson, recipeDetailsForMeal, t
 
 export type MealInput = { title: string; date: string; time?: string; servings?: number; ingredients: string; notes?: string; source?: string; recipeUrl?: string; recipeDetails?: RecipeDetails | null; shared: boolean; submissionKey?: string };
 export type Meal = { id: string; title: string; date: string; time: string | null; servings: number | null; ingredients: string; notes: string | null; source: string | null; recipeUrl: string | null; recipeDetails: RecipeDetails | null; shared: boolean };
+export type MealCopySource = Omit<Meal, 'notes'>;
+export type MealDraft = { title: string; date: string; time: string; servings: number | null; ingredients: string; source: string | null; recipeUrl: string | null; recipeDetails: RecipeDetails | null; shared: boolean; submissionKey?: string };
+
+/** A "Plan again" search is bounded in both the query and the number of returned meals. */
+export const MAX_RECENT_MEALS = 40;
+export const MAX_RECENT_MEAL_QUERY = 80;
 
 function authorize(db: Database.Database, actor: string, household: string, parent = false) {
   const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
@@ -91,6 +97,52 @@ export function removeMeal(db: Database.Database, actor: string, household: stri
  */
 export function householdSharedMeals(db: Database.Database, household: string, date: string): Meal[] {
   return mealsForRole(db, household, date, date, 'kid');
+}
+
+const copyColumns = 'id, title, meal_date AS date, meal_time AS time, servings, ingredients, source, recipe_url AS recipeUrl, recipe_details AS recipeDetailsJson, shared';
+
+function copySourceFromRow(row: Omit<MealCopySource, 'recipeDetails'> & { recipeDetailsJson: string | null }): MealCopySource {
+  const { recipeDetailsJson, ...meal } = row;
+  return { ...meal, recipeDetails: recipeDetailsForMeal(parseRecipeDetailsJson(recipeDetailsJson), row.recipeUrl), shared: !!row.shared };
+}
+
+/**
+ * Parents can search the household's saved dinners by title. Notes are never returned, and the
+ * result is capped so the selection cannot grow into an unbounded history page.
+ */
+export function recentMeals(db: Database.Database, actor: string, household: string, query = ''): MealCopySource[] {
+  authorize(db, actor, household, true);
+  const term = query.trim();
+  if (term.length > MAX_RECENT_MEAL_QUERY) throw new Error('Invalid meal search');
+  const rows = term
+    ? db.prepare(`SELECT ${copyColumns} FROM meal WHERE household_id = ? AND instr(lower(title), lower(?)) > 0 ORDER BY meal_date DESC, updated_at DESC, id LIMIT ?`).all(household, term, MAX_RECENT_MEALS)
+    : db.prepare(`SELECT ${copyColumns} FROM meal WHERE household_id = ? ORDER BY meal_date DESC, updated_at DESC, id LIMIT ?`).all(household, MAX_RECENT_MEALS);
+  return (rows as (Omit<MealCopySource, 'recipeDetails'> & { recipeDetailsJson: string | null })[]).map(copySourceFromRow);
+}
+
+/** Reads one source meal for a copy without exposing private notes, or throws if it is gone. */
+export function mealCopySource(db: Database.Database, actor: string, household: string, id: string): MealCopySource {
+  authorize(db, actor, household, true);
+  const row = db.prepare(`SELECT ${copyColumns} FROM meal WHERE id = ? AND household_id = ?`).get(id, household) as (Omit<MealCopySource, 'recipeDetails'> & { recipeDetailsJson: string | null }) | undefined;
+  if (!row) throw new Error('Meal not found');
+  return copySourceFromRow(row);
+}
+
+/** Validates editable copy fields with the same rules as a saved meal, without writing a row. */
+export function normalizeMealDraft(input: MealInput): MealDraft {
+  const value = validate(input);
+  return {
+    title: value.title,
+    date: input.date,
+    time: input.time || '',
+    servings: input.servings ?? null,
+    ingredients: value.ingredients,
+    source: value.source,
+    recipeUrl: value.recipeUrl,
+    recipeDetails: value.recipeDetails,
+    shared: !!input.shared,
+    submissionKey: value.submissionKey ?? undefined
+  };
 }
 
 function mealsForRole(db: Database.Database, household: string, start: string, end: string, role: string): Meal[] {

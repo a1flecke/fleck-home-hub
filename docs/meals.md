@@ -13,6 +13,20 @@ A parent can:
 
 Planning, editing, moving and removal are parent-only at the server boundary. Children see only explicitly shared meals in the same weekly view, without private notes, and never receive meal controls. A rejected save, move or removal keeps the submitted draft, the affected day open and the selected week visible. All navigation, forms and removal confirmation use native HTML and work without JavaScript. See the [mobile planner](screenshots/meal-week-mobile.png) and [desktop planner](screenshots/meal-week-desktop.png).
 
+## Plan it again
+
+The planner links to **Plan it again from a recent meal**. A parent can search up to 40 recent household dinners by title, choose **Plan again**, adjust the new meal name, date, serving time, servings, ingredients, recipe source and recipe link, then choose **Preview plan**. The preview shows the exact values that will be saved, the recipe attribution and the ingredient list. Nothing is written before **Save this plan**.
+
+- The copy is a new row. The original meal, its notes and its sharing choice are never changed.
+- The copy is private unless the parent explicitly selects **Share this new meal on the family display** at the final step.
+- Private notes are not copied.
+- Recipe attribution and a valid saved link are carried over without fetching provider content. Changing the link drops saved provider details that no longer match it.
+- The source and the search are rechecked on preview and save. A removed or cross-household source is reported as no longer available, and no row is written.
+- A submission key makes a double click or retry return the already-created copy rather than creating a second one.
+- Children cannot open the planning page or read private source meals.
+
+The search is bounded to a title substring of at most 80 characters and at most 40 results. Screenshots: [preview on a phone](screenshots/plan-again-preview-mobile.png) and [recent-meal list on desktop](screenshots/plan-again-list-desktop.png).
+
 Parents can add and edit meals for a household-local date, including a serving time, servings, a family-entered ingredient list with quantities, private notes, source attribution and an optional HTTPS recipe link. Ingredients are stored as text, one per line. The grocery handoff suggests a structured name, quantity and unit for parent review, but it never rewrites the meal. A link and source are optional. The application fetches a recipe page only when a parent explicitly chooses **Preview recipe details** for a recognized eMeals link. It never collects eMeals credentials or synchronizes accounts.
 
 ## Add dinner from a recipe link
