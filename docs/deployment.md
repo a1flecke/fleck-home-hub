@@ -119,7 +119,7 @@ To update: create and verify a fresh backup, stop the service, install locked to
 
 | Status | Evidence or remaining work |
 | --- | --- |
-| Verified automatically (Linux-compatible, synthetic) | Preflight, launcher, plist generation, launchd dry-run/apply logic with an injected runner, health states and recovery, secret non-disclosure, backup and failed-migration recovery. `mise run test`, `mise run recovery-test`. |
+| Verified automatically (Linux-compatible, synthetic) | Preflight, launcher, plist generation, launchd dry-run/apply logic with an injected runner, health states and recovery, secret non-disclosure, backup and failed-migration recovery. `mise run test`, `mise run recovery-test`. `mise run sign-in-limit-test` starts the packaged server through `launch.sh` and `start.sh` with the LaunchAgent environment and requires repeated failed sign-ins to be throttled (also with a leaked `NODE_ENV=development`, and with `NODE_ENV` unset when bypassing `start.sh`); an explicit development server is the negative control. |
 | Verified locally on one Apple-silicon Mac, by hand, with synthetic data | The preflight and health scripts against the real production build started through the real launcher (not through launchd); `plutil -lint` of the generated plist; crash of that process reported as `NOT_LISTENING`. |
 | Verified on the actual household Mac, phone or display | **None recorded.** |
 | Not yet verified | `launchctl` load/restart, login and reboot behaviour, sleep/wake, Tailscale Serve and ACLs, secure cookies over the real origin, iPhone Safari and standalone, display hardware, host-specific restore and encrypted off-host backup. |
