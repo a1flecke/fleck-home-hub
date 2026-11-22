@@ -19,6 +19,7 @@ export type WeekChore = {
   childName: string;
   seriesId: string | null;
   scheduledDate: string | null;
+  updatedAt: string;
   isRecurring: boolean;
 };
 
@@ -69,7 +70,7 @@ export function loadChoreWeek(db: Database.Database, audience: ChoreAudience, fi
   const visible = choreVisibility(audience);
   const rows = db.prepare(`SELECT c.id, c.title, c.description, c.due_date AS dueDate, c.reward_cents AS rewardCents,
     c.status, c.rework_reason AS reworkReason, c.assignee_id AS assigneeId, u.name AS childName,
-    o.series_id AS seriesId, o.scheduled_date AS scheduledDate
+    o.series_id AS seriesId, o.scheduled_date AS scheduledDate, c.updated_at AS updatedAt
     FROM chore c
     JOIN user u ON u.id = c.assignee_id
     LEFT JOIN recurring_occurrence o ON o.chore_id = c.id
