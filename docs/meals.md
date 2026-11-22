@@ -11,7 +11,7 @@ A parent can:
 - choose **Move meal** and pick another date without changing the rest of the meal;
 - choose **Remove meal…**, review the permanent-removal explanation, and confirm with **Remove this meal**.
 
-Planning, editing, moving and removal are parent-only at the server boundary. Children see only explicitly shared meals in the same weekly view, without private notes, and never receive meal controls. A rejected save, move or removal keeps the submitted draft, the affected day open and the selected week visible. All navigation, forms and removal confirmation use native HTML and work without JavaScript. See the [mobile planner](screenshots/meal-week-mobile.png) and [desktop planner](screenshots/meal-week-desktop.png).
+Planning, editing, moving and removal are parent-only at the server boundary. Children see only explicitly shared meals in the same weekly view, without private notes, and never receive meal controls. A parent can choose **Shop the week** to select ingredient lines across the same week; see [groceries](groceries.md) for the reviewed multi-meal handoff. A rejected save, move or removal keeps the submitted draft, the affected day open and the selected week visible. All navigation, forms and removal confirmation use native HTML and work without JavaScript. See the [mobile planner](screenshots/meal-week-mobile.png) and [desktop planner](screenshots/meal-week-desktop.png).
 
 ## Plan it again
 

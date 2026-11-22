@@ -33,7 +33,7 @@
   {#if form?.message && !form?.ingredientReview}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">{form.message}</p>{/if}
   {#if form?.ingredientReview}<IngredientReview review={form.ingredientReview} date={data.date} message={form.message} />{/if}
   {#if data.role === 'parent'}
-    <p class="mt-4"><a href={resolve('/meals/again')} class="rounded-xl border border-teal-700 px-4 py-3 inline-block text-teal-700">Plan it again from a recent meal</a></p>
+    <p class="mt-4 flex flex-wrap gap-2"><a href={resolve('/meals/again')} class="rounded-xl border border-teal-700 px-4 py-3 inline-block text-teal-700">Plan it again from a recent meal</a><a href={resolve(`/meals/shop?week=${data.weekStart}`)} class="rounded-xl border border-teal-700 px-4 py-3 inline-block text-teal-700">Shop the week</a></p>
     <div id="add-meal">
       <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={data.plan || !!newMeal}><summary class="cursor-pointer text-xl font-bold">Add a meal</summary><MealForm label="Add meal" viewDate={data.date} initial={newMeal ?? { date: data.date, submissionKey: data.submissionKey }} /></Disclosure>
     </div>
