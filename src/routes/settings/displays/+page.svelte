@@ -5,7 +5,7 @@
 </script>
 <svelte:head><title>Household displays · Fleck Home Hub</title></svelte:head>
 <main class="mx-auto max-w-3xl px-5 py-8">
-  <a href={resolve('/display/settings')} class="text-teal-700">Choose what to share</a>
+  <a href={resolve(`/display/settings?household=${encodeURIComponent(data.householdId)}`)} class="text-teal-700">Choose what to share</a>
   <h1 class="mt-5 text-3xl font-bold">Household displays</h1>
   <p class="mt-2">A paired display shows only what you choose to share and cannot sign in, edit or open any other page. Revoke a display at any time; it stops receiving information on its next request.</p>
   {#if data.households.length > 1}

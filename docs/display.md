@@ -17,6 +17,8 @@ With JavaScript, the page refreshes its data every 60 seconds; automatic updates
 2. On the display, make sure no personal account is signed in (pairing refuses a device with a normal session and offers sign-out), open `/display/pair` and type the code. Enter it through a private channel; do not put it in chat, tickets or screenshots, and it never belongs in a URL.
 3. The code works once and expires after 10 minutes. The display receives a credential valid for 90 days and opens the read-only view. There is no automatic renewal: after expiry, or after any revocation, a parent pairs again.
 
+A parent of more than one household chooses the household on both the management page and the sharing page; codes, revocations and sharing choices apply to the household shown, and a household the parent does not administer is refused. Other pages, including the display itself for a signed-in member, still use the parent's first household.
+
 The management page lists each display's name, status (active, expired or revoked), when it was paired and when it was last seen (updated at most every five minutes, and skipped rather than delaying the display while another write holds the database), and lets any parent in the household revoke it or cancel an unused code. Raw credentials are never displayed. Revocation applies on the display's next server request; with the 60-second refresh the display shows **Pairing required** within about a minute, and a reload cannot restore it.
 
 ### What a paired display can and cannot show

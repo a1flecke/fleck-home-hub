@@ -86,6 +86,9 @@ db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?
 const displayMulti = await auth.api.signUpEmail({ body: { name: 'Display Multi Parent', email: 'display-multi@example.test', password: 'synthetic-display-multi-password' } });
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?), (?, ?)').run('synthetic-display-first', 'A display home', 'synthetic-display-second', 'B display home');
 for (const id of ['synthetic-display-first', 'synthetic-display-second']) db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(displayMulti.user.id, id, 'parent');
+// The second household's own parent, whose primary household it is, creates its records.
+const displaySecondParent = await auth.api.signUpEmail({ body: { name: 'Display Second Parent', email: 'display-second@example.test', password: 'synthetic-display-second-password' } });
+db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(displaySecondParent.user.id, 'synthetic-display-second', 'parent');
 // Dashboard calendar journeys: an isolated household in a non-host time zone.
 const calendarParent = await auth.api.signUpEmail({ body: { name: 'Calendar Parent', email: 'calendar-parent@example.test', password: 'synthetic-calendar-parent-password' } });
 const calendarKid = await auth.api.signUpEmail({ body: { name: 'Calendar Kid', email: 'calendar-kid@example.test', password: 'synthetic-calendar-kid-password' } });
