@@ -77,3 +77,6 @@ test-results/
 *.sqlite3-*
 *.db
 *.db-*
+
+# Temporary app copies made by tests/sign-in-limit.integration.ts; a killed run can leave one behind.
+.synthetic-sign-in-limit-*/
