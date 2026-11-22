@@ -7,7 +7,8 @@ import { generateOccurrences, activeSeriesCount, setHouseholdTimezone } from '..
 import { recordPayout, reversePayout, setPayday } from '../../lib/server/payouts';
 import { nextPayday } from '../../lib/earnings/payday';
 import { randomUUID } from 'node:crypto';
-import { listMeals } from '../../lib/server/meals';
+import { listMealWeek } from '../../lib/server/meals';
+import { mealDayLabel } from '../../lib/meals/week';
 import { dashboardChoreSections, childEarningSummaries, pendingRewardTotal } from '../../lib/server/my-day';
 import { requestAccess } from '../../lib/server/request-access';
 import { onboardingStep } from '../../lib/server/onboarding';
@@ -28,7 +29,17 @@ export const load: PageServerLoad = async ({ request, url }) => {
   const timezone = settings?.timezone ?? 'America/Chicago';
   const today = localDate(new Date(), timezone);
   const upcomingEvents = listUpcomingEvents(db, userId, householdId, today, addCalendarDays(today, 6));
-  const meals = role === 'parent' ? listMeals(db, userId, householdId, today).map(({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }) => ({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails })) : [];
+  const dinnerEnd = addCalendarDays(today, 6);
+  const dinnerMeals = listMealWeek(db, userId, householdId, today, dinnerEnd);
+  const dinnerDates = [0, 1, 2, 3, 4, 5, 6].map(offset => addCalendarDays(today, offset));
+  const dinnerDays = dinnerDates.map(date => ({
+    date,
+    label: mealDayLabel(date),
+    isToday: date === today,
+    meals: dinnerMeals.filter(meal => meal.date === date).map(({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }) => ({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }))
+  }));
+  const meals = role === 'parent' ? (dinnerDays.find(day => day.isToday)?.meals ?? []) : [];
+  const missingDinnerDays = dinnerDays.filter(day => !day.meals.length);
   const end = new Date(`${today}T00:00:00Z`); end.setUTCDate(end.getUTCDate() + 7);
   generateOccurrences(db, userId, householdId, today, end.toISOString().slice(0, 10));
   const audience = { householdId, role, actorId: userId, today };
@@ -41,7 +52,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
   return {
     onboardingPending: Boolean(onboarding && onboarding !== 'complete'),
     showWelcome: onboarding === 'complete' && url.searchParams.get('welcome') === '1',
-    name, householdId, role, counts, sections, children, balances, pendingRewards: pendingRewardTotal(db, audience), today, timezone, payday, meals, upcomingEvents, activeSeries: role === 'parent' ? activeSeriesCount(db, householdId) : 0
+    name, householdId, role, counts, sections, children, balances, pendingRewards: pendingRewardTotal(db, audience), today, timezone, payday, meals, dinnerDays, missingDinnerDays, dinnerEnd, upcomingEvents, activeSeries: role === 'parent' ? activeSeriesCount(db, householdId) : 0
   };
 };
 
