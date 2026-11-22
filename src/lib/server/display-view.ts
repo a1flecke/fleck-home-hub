@@ -53,8 +53,8 @@ export async function resolveDisplayView(request: Request, dependencies: Display
     const { events, chores, meals } = displayDataForDevice(services.db, device, today, end);
     return { mode: 'device', today, timezone, events, chores, meals, canManage: false, weather: await weatherPromise };
   }
-  const { choices, events, chores, meals } = displayData(services.db, actor!, householdId, today, end);
-  return { mode: 'member', today, timezone, events, chores, meals, canManage: choices !== null, weather: await weatherPromise };
+  const { events, chores, meals, canManage } = displayData(services.db, actor!, householdId, today, end);
+  return { mode: 'member', today, timezone, events, chores, meals, canManage, weather: await weatherPromise };
 }
 
 /** For callers that cannot render a pairing-required state: an invalid display credential is a 401. */

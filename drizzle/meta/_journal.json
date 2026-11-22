@@ -20,6 +20,7 @@
     { "idx": 15, "version": "6", "when": 1794531600000, "tag": "0015_chore_recovery", "breakpoints": true },
     { "idx": 16, "version": "6", "when": 1794618000000, "tag": "0016_family_onboarding", "breakpoints": true },
     { "idx": 17, "version": "6", "when": 1794704400000, "tag": "0017_my_day_indexes", "breakpoints": true },
-    { "idx": 18, "version": "6", "when": 1794790800000, "tag": "0018_grocery_week_confirmation", "breakpoints": true }
+    { "idx": 18, "version": "6", "when": 1794790800000, "tag": "0018_grocery_week_confirmation", "breakpoints": true },
+    { "idx": 19, "version": "6", "when": 1794877200000, "tag": "0019_display_choice_indexes", "breakpoints": true }
   ]
 }
