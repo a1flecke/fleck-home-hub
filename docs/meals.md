@@ -1,5 +1,18 @@
 # Meals
 
+## Weekly planner
+
+The Meals page shows one household-local week at a time, Sunday through Saturday. **Previous week**, **This week** and **Next week** are ordinary links, and **Jump to a date** selects the week containing that date. Every planned meal is grouped under its day, and a day can hold more than one meal. The server reads only the requested seven-day range and does not load meal history outside it.
+
+A parent can:
+
+- choose **Plan a meal** on an empty day, or **Add another meal** on a day that already has one;
+- edit any meal with the existing meal form, including recipe attribution, recipe link, quantities, notes and sharing;
+- choose **Move meal** and pick another date without changing the rest of the meal;
+- choose **Remove meal…**, review the permanent-removal explanation, and confirm with **Remove this meal**.
+
+Planning, editing, moving and removal are parent-only at the server boundary. Children see only explicitly shared meals in the same weekly view, without private notes, and never receive meal controls. A rejected save, move or removal keeps the submitted draft, the affected day open and the selected week visible. All navigation, forms and removal confirmation use native HTML and work without JavaScript. See the [mobile planner](screenshots/meal-week-mobile.png) and [desktop planner](screenshots/meal-week-desktop.png).
+
 Parents can add and edit meals for a household-local date, including a serving time, servings, a family-entered ingredient list with quantities, private notes, source attribution and an optional HTTPS recipe link. Ingredients are stored as text, one per line. The grocery handoff suggests a structured name, quantity and unit for parent review, but it never rewrites the meal. A link and source are optional. The application fetches a recipe page only when a parent explicitly chooses **Preview recipe details** for a recognized eMeals link. It never collects eMeals credentials or synchronizes accounts.
 
 ## Add dinner from a recipe link

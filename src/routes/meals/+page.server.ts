@@ -2,9 +2,10 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import { randomUUID } from 'node:crypto';
 import type { Actions, PageServerLoad } from './$types';
 import { localDate, occurrenceDates } from '../../lib/chores/recurrence';
+import { mealDayLabel, mealWeekLabel, shiftWeek, weekDates, weekStart } from '../../lib/meals/week';
 import { parseRecipeDetailsJson, type RecipeDetails } from '../../lib/meals/recipe-details';
 import { parseRecipeLink } from '../../lib/meals/recipe-link';
-import { createMeal, listMeals, updateMeal, type MealInput } from '../../lib/server/meals';
+import { createMeal, listMealWeek, moveMeal, removeMeal, updateMeal, type MealInput } from '../../lib/server/meals';
 import { confirmMealIngredients, IngredientConflictError, IngredientValidationError, reviewMealIngredients, StaleIngredientSelectionError } from '../../lib/server/groceries';
 import { ingredientActions, type IngredientAction, type IngredientDecision, type IngredientReviewOverrides } from '../../lib/grocery/handoff';
 import { mealAccess } from '../../lib/server/meal-access';
@@ -21,8 +22,32 @@ function draftFrom(raw: DraftInput, recipeDetails: RecipeDetails | null) {
 export const load: PageServerLoad = async ({ request, url }) => {
   const { db, actor, householdId, role } = await principal(request);
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(householdId) as { timezone: string } | undefined;
-  const date = url.searchParams.get('date') || localDate(new Date(), settings?.timezone ?? 'America/Chicago');
-  try { return { date, role, meals: listMeals(db, actor, householdId, date), submissionKey: randomUUID() }; } catch { error(400, 'Invalid meal date'); }
+  const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
+  const requestedDate = url.searchParams.get('date');
+  const requestedWeek = url.searchParams.get('week');
+  try {
+    if (requestedDate) occurrenceDates(requestedDate, requestedDate, [0]);
+    if (requestedWeek) occurrenceDates(requestedWeek, requestedWeek, [0]);
+    const start = requestedWeek ? weekStart(requestedWeek) : weekStart(requestedDate ?? today);
+    const days = weekDates(start);
+    const focus = requestedDate && requestedDate >= days[0] && requestedDate <= days[6] ? requestedDate : (today >= days[0] && today <= days[6] ? today : days[0]);
+    const meals = listMealWeek(db, actor, householdId, days[0], days[6]);
+    const weekDays = days.map(date => ({ date, label: mealDayLabel(date), isToday: date === today, meals: meals.filter(meal => meal.date === date) }));
+    return {
+      date: focus,
+      today,
+      role,
+      weekStart: start,
+      weekLabel: mealWeekLabel(start),
+      previousWeek: shiftWeek(start, -1),
+      nextWeek: shiftWeek(start, 1),
+      currentWeek: weekStart(today),
+      weekDays,
+      meals: weekDays.find(day => day.date === focus)?.meals ?? [],
+      plan: url.searchParams.get('plan') === '1',
+      submissionKey: randomUUID()
+    };
+  } catch { error(400, 'Invalid meal date'); }
 };
 
 export const actions = {
@@ -58,6 +83,24 @@ export const actions = {
     try { if (raw.id) updateMeal(db, actor, householdId, raw.id, input); else createMeal(db, actor, householdId, input); }
     catch { return fail(400, { message: 'Unable to save meal. Check its details and use an HTTPS recipe link.', mealError: raw }); }
     redirect(303, `/meals?date=${encodeURIComponent(raw.date)}`);
+  },
+  move: async ({ request }) => {
+    const { db, actor, householdId, origin, role } = await principal(request);
+    if (request.headers.get('origin') !== origin || role !== 'parent') return fail(403, { message: 'Request not authorized.' });
+    const form = await request.formData(), id = String(form.get('id') ?? ''), date = String(form.get('date') ?? '').trim();
+    try { moveMeal(db, actor, householdId, id, date); }
+    catch { return fail(400, { message: 'Unable to move this meal. Choose a valid date and try again.', moveError: { id, date } }); }
+    redirect(303, `/meals?date=${encodeURIComponent(date)}`);
+  },
+  remove: async ({ request }) => {
+    const { db, actor, householdId, origin, role } = await principal(request);
+    if (request.headers.get('origin') !== origin || role !== 'parent') return fail(403, { message: 'Request not authorized.' });
+    const form = await request.formData(), id = String(form.get('id') ?? ''), returnDate = String(form.get('returnDate') ?? '').trim();
+    try { removeMeal(db, actor, householdId, id); }
+    catch { return fail(400, { message: 'Unable to remove this meal. Refresh the week and try again.', removeError: id }); }
+    let destination = '/meals';
+    try { occurrenceDates(returnDate, returnDate, [0]); destination = `/meals?date=${encodeURIComponent(returnDate)}`; } catch { /* keep the default week */ }
+    redirect(303, destination);
   },
   ingredients: async ({ request }) => {
     const { db, actor, householdId, origin, role } = await principal(request);

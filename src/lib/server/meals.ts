@@ -56,7 +56,33 @@ export function updateMeal(db: Database.Database, actor: string, household: stri
 }
 
 export function listMeals(db: Database.Database, actor: string, household: string, date: string): Meal[] {
-  return mealsForRole(db, household, date, authorize(db, actor, household));
+  return mealsForRole(db, household, date, date, authorize(db, actor, household));
+}
+
+/**
+ * Reads at most one seven-day week. The caller cannot request an unbounded history or a
+ * different household, and children receive only explicitly shared meals without notes.
+ */
+export function listMealWeek(db: Database.Database, actor: string, household: string, start: string, end: string): Meal[] {
+  const role = authorize(db, actor, household);
+  if (occurrenceDates(start, end, [0, 1, 2, 3, 4, 5, 6]).length !== 7) throw new Error('Invalid meal week');
+  return mealsForRole(db, household, start, end, role);
+}
+
+/** Moves one meal to another validated date without changing its recipe, notes or sharing. */
+export function moveMeal(db: Database.Database, actor: string, household: string, id: string, date: string): void {
+  db.transaction(() => {
+    authorize(db, actor, household, true);
+    occurrenceDates(date, date, [0]);
+    if (!db.prepare('UPDATE meal SET meal_date = ?, updated_at = ? WHERE id = ? AND household_id = ?').run(date, new Date().toISOString(), id, household).changes) throw new Error('Meal not found');
+  }).immediate();
+}
+
+export function removeMeal(db: Database.Database, actor: string, household: string, id: string): void {
+  db.transaction(() => {
+    authorize(db, actor, household, true);
+    if (!db.prepare('DELETE FROM meal WHERE id = ? AND household_id = ?').run(id, household).changes) throw new Error('Meal not found');
+  }).immediate();
 }
 
 /**
@@ -64,12 +90,12 @@ export function listMeals(db: Database.Database, actor: string, household: strin
  * come from a verified member session or display credential. Only display.ts and listMeals may call it.
  */
 export function householdSharedMeals(db: Database.Database, household: string, date: string): Meal[] {
-  return mealsForRole(db, household, date, 'kid');
+  return mealsForRole(db, household, date, date, 'kid');
 }
 
-function mealsForRole(db: Database.Database, household: string, date: string, role: string): Meal[] {
-  occurrenceDates(date, date, [0]);
-  const rows = db.prepare('SELECT id, title, meal_date AS date, meal_time AS time, servings, ingredients, notes, source, recipe_url AS recipeUrl, recipe_details AS recipeDetailsJson, shared FROM meal WHERE household_id = ? AND meal_date = ? ORDER BY meal_time, title, id').all(household, date) as (Omit<Meal, 'shared' | 'recipeDetails'> & { shared: number; recipeDetailsJson: string | null })[];
+function mealsForRole(db: Database.Database, household: string, start: string, end: string, role: string): Meal[] {
+  occurrenceDates(start, end, [0, 1, 2, 3, 4, 5, 6]);
+  const rows = db.prepare('SELECT id, title, meal_date AS date, meal_time AS time, servings, ingredients, notes, source, recipe_url AS recipeUrl, recipe_details AS recipeDetailsJson, shared FROM meal WHERE household_id = ? AND meal_date BETWEEN ? AND ? ORDER BY meal_date, meal_time, title, id').all(household, start, end) as (Omit<Meal, 'shared' | 'recipeDetails'> & { shared: number; recipeDetailsJson: string | null })[];
   return rows.filter(row => role === 'parent' || row.shared).map(row => {
     const { recipeDetailsJson, ...meal } = row;
     return { ...meal, recipeDetails: recipeDetailsForMeal(parseRecipeDetailsJson(recipeDetailsJson), row.recipeUrl), notes: role === 'parent' ? row.notes : null, shared: !!row.shared };

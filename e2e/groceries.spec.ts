@@ -394,14 +394,14 @@ test('meal ingredient selections survive delayed hydration and submit the select
     const delayed = await context.newPage();
     await delayed.route('**/src/routes/meals/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/meals?date=2099-07-01', { waitUntil: 'commit' }); await blocked;
-    await delayed.getByLabel('Choose a date').fill('2099-07-02');
+    await delayed.getByLabel('Jump to a date').fill('2099-07-02');
     const meal = delayed.getByRole('article').filter({ hasText: 'Synthetic early ingredient meal' });
     await meal.getByText('Add ingredients to groceries', { exact: true }).click();
     const ingredients = meal.getByRole('form', { name: 'Add ingredients for Synthetic early ingredient meal' });
     await ingredients.getByLabel('2 cups synthetic early rice').check();
     release(); await delayed.waitForLoadState('networkidle');
-    await expect(delayed.getByLabel('Choose a date')).toHaveValue('2099-07-02');
-    expect(await delayed.getByLabel('Choose a date').evaluate(element => new FormData((element as HTMLInputElement).form!).get('date'))).toBe('2099-07-02');
+    await expect(delayed.getByLabel('Jump to a date')).toHaveValue('2099-07-02');
+    expect(await delayed.getByLabel('Jump to a date').evaluate(element => new FormData((element as HTMLInputElement).form!).get('date'))).toBe('2099-07-02');
     await expect(ingredients).toBeVisible();
     expect(await ingredients.evaluate(element => new FormData(element as HTMLFormElement).getAll('ingredient'))).toEqual(['family:0']);
     await ingredients.getByRole('button', { name: 'Review selected ingredients' }).click();
