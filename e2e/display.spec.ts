@@ -307,3 +307,48 @@ test('manual display refresh works without JavaScript', async ({ page, browser }
     await expect(display.getByRole('heading', { name: 'Family display' })).toBeVisible();
   } finally { await context.close(); }
 });
+
+test('sharing choices stay within the display window while older selections remain removable', async ({ page }, testInfo) => {
+  const stamp = `${Date.now()}-${testInfo.repeatEachIndex}`;
+  const moved = `Synthetic moved shared event ${stamp}`;
+  const old = `Synthetic old unshared event ${stamp}`;
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+  const origin = 'http://127.0.0.1:4173';
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill('parent@example.test');
+  await page.getByLabel('Password').fill('synthetic-parent-password');
+  await page.getByRole('button', { name: 'Sign in' }).click();
+  await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
+  for (const [title, date] of [[moved, today], [old, '2020-01-15']]) {
+    const created = await page.request.post('/calendar?/saveEvent', { form: { title, date, allDay: 'on' }, headers: { origin } });
+    expect(await created.json()).toMatchObject({ type: 'success', status: 200 });
+  }
+  await page.goto('/display/settings');
+  const sharing = page.getByRole('region', { name: 'Choose what to share' });
+  const outside = page.getByRole('region', { name: 'Shared outside this window' });
+  await expect(sharing.getByRole('heading', { name: 'Events' })).toBeVisible();
+  await expect(page.locator('body')).not.toContainText(old);
+  const current = sharing.getByRole('article').filter({ hasText: moved });
+  const id = await current.locator('input[name="id"]').inputValue();
+  await current.getByRole('button', { name: 'Show on display' }).click();
+  await expect(current.getByRole('button', { name: 'Remove from display' })).toBeVisible();
+  await expect(outside.getByRole('article').filter({ hasText: moved })).toHaveCount(0);
+
+  // The shared event leaves the window; the selection moves to the removable list.
+  const change = await page.request.post('/calendar?/saveEvent', { form: { id, title: moved, date: '2020-01-16', allDay: 'on' }, headers: { origin } });
+  expect(await change.json()).toMatchObject({ type: 'success', status: 200 });
+  await page.goto('/display/settings');
+  await expect(sharing.getByRole('article').filter({ hasText: moved })).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText(old);
+  const past = outside.getByRole('article').filter({ hasText: moved });
+  await expect(past.getByText('2020-01-16')).toBeVisible();
+  expect(await past.locator('form').getAttribute('action')).toMatch(/^\?\/share&household=[^&]+&sharedPage=1$/);
+  await page.setViewportSize({ width: 375, height: 812 });
+  await page.screenshot({ path: testInfo.outputPath('display-settings-bounded-mobile.png'), fullPage: true });
+  await past.getByRole('button', { name: 'Remove from display' }).click();
+  await expect(page.getByRole('status')).toHaveText('Display updated.');
+  await expect(outside.getByRole('article').filter({ hasText: moved })).toHaveCount(0);
+  await expect(sharing.getByRole('article').filter({ hasText: moved })).toHaveCount(0);
+  const data = await page.request.get('/display/data');
+  expect(await data.text()).not.toContain(moved);
+});
