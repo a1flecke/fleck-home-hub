@@ -161,7 +161,7 @@
                         {#if chore.status === 'needs_rework' && chore.reworkReason}<p class="mt-1">{chore.reworkReason}</p>{/if}
                         <div class="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm">
                           {#if chore.status === 'pending_verification'}<a href={resolve('/verify')} class="font-semibold text-teal-700 underline">Review this chore</a>{/if}
-                          {#if chore.isRecurring}<a href={resolve('/chores/series')} class="font-semibold text-teal-700 underline">Manage repeating schedule</a>{/if}
+                          {#if chore.isRecurring && chore.seriesId}<a href={resolve(`/chores/series?focus=${encodeURIComponent(chore.seriesId)}#series-${chore.seriesId}`)} class="font-semibold text-teal-700 underline">Manage repeating schedule</a>{/if}
                           <a href={resolve(`/chores/history?scope=${historyScope(chore)}&child=${encodeURIComponent(chore.assigneeId)}`)} class="text-teal-700 underline">View in history</a>
                         </div>
                         {#if chore.status === 'todo' && !chore.isRecurring}

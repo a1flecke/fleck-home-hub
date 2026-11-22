@@ -239,10 +239,14 @@ test('schedule changes on a later page stay on that page', async ({ page }) => {
   await expect(schedule).toContainText('paused');
   await expect(schedule.getByRole('button', { name: 'Resume' })).toBeVisible();
 
-  await schedule.getByText('Edit future chores').click();
-  await schedule.getByLabel('Recurring chore title').fill('Paged schedule 01 renamed');
-  await schedule.getByRole('button', { name: 'Save changes' }).click();
-  await expect(page.getByRole('status')).toHaveText('Recurring chore saved.');
+  await schedule.getByText('Change schedule', { exact: true }).click();
+  const edit = schedule.getByRole('form', { name: 'Change schedule for Paged schedule 01' });
+  await edit.getByRole('textbox', { name: 'Recurring chore title' }).fill('Paged schedule 01 renamed');
+  await edit.getByRole('button', { name: 'Preview schedule change' }).click();
+  const preview = page.getByRole('region', { name: 'Proposed schedule change' });
+  await expect(preview).toContainText('This series is paused.');
+  await preview.getByRole('button', { name: 'Save schedule change' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Schedule updated' })).toBeVisible();
   expect(new URL(page.url()).searchParams.get('page')).toBe('2');
   await expect(page.getByRole('heading', { name: 'Paged schedule 01 renamed', exact: true })).toBeVisible();
 });

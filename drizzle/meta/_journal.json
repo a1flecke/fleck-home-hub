@@ -22,6 +22,7 @@
     { "idx": 17, "version": "6", "when": 1794704400000, "tag": "0017_my_day_indexes", "breakpoints": true },
     { "idx": 18, "version": "6", "when": 1794790800000, "tag": "0018_grocery_week_confirmation", "breakpoints": true },
     { "idx": 19, "version": "6", "when": 1794877200000, "tag": "0019_display_choice_indexes", "breakpoints": true },
-    { "idx": 20, "version": "6", "when": 1794963600000, "tag": "0020_chore_edit_cancel", "breakpoints": true }
+    { "idx": 20, "version": "6", "when": 1794963600000, "tag": "0020_chore_edit_cancel", "breakpoints": true },
+    { "idx": 21, "version": "6", "when": 1795050000000, "tag": "0021_recurring_schedule_revision", "breakpoints": true }
   ]
 }

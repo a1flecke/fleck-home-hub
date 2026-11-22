@@ -231,6 +231,33 @@ db.prepare(`INSERT INTO recurring_series (id, household_id, creator_id, assignee
   VALUES ('week-series', 'synthetic-chore-week-household', ?, ?, 'Week repeating chore', NULL, 175, '2099-03-09', '[1]', 'active', ?, ?)`).run(weekParent.user.id, weekKid.user.id, seededAt, seededAt);
 weekChore.run('week-repeating', weekKid.user.id, 'Week repeating chore', '2099-03-09', 175, 'todo', null, seededAt, seededAt);
 db.prepare("INSERT INTO recurring_occurrence (series_id, household_id, scheduled_date, chore_id) VALUES ('week-series', 'synthetic-chore-week-household', '2099-03-09', 'week-repeating')").run();
+// Recurring schedule revision journeys: a dedicated household so preview, confirmation and
+// stale-parent scenarios cannot disturb the weekly-board fixtures.
+const scheduleParent = await auth.api.signUpEmail({ body: { name: 'Schedule Parent', email: 'schedule-parent@example.test', password: 'synthetic-schedule-parent-password' } });
+const scheduleParentTwo = await auth.api.signUpEmail({ body: { name: 'Schedule Parent Two', email: 'schedule-parent-two@example.test', password: 'synthetic-schedule-parent-two-password' } });
+const scheduleKid = await auth.api.signUpEmail({ body: { name: 'Schedule Kid', email: 'schedule-kid@example.test', password: 'synthetic-schedule-kid-password' } });
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-schedule-household', 'Schedule household');
+for (const [userId, role] of [[scheduleParent.user.id, 'parent'], [scheduleParentTwo.user.id, 'parent'], [scheduleKid.user.id, 'kid']] as const) {
+  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(userId, 'synthetic-schedule-household', role);
+}
+const scheduleSeries = db.prepare(`INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, description, reward_cents, start_date, weekdays, state, created_at, updated_at)
+  VALUES (?, 'synthetic-schedule-household', ?, ?, ?, ?, 175, ?, ?, ?, ?, ?)`);
+scheduleSeries.run('sched-series', scheduleParent.user.id, scheduleKid.user.id, 'Schedule trash', 'Kitchen and curb', '2099-03-01', '[1,3]', 'active', seededAt, seededAt);
+scheduleSeries.run('sched-recovery', scheduleParent.user.id, scheduleKid.user.id, 'Schedule recovery', 'Keep schedule description', '2099-04-01', '[1]', 'active', seededAt, seededAt);
+scheduleSeries.run('sched-stale', scheduleParent.user.id, scheduleKid.user.id, 'Schedule stale base', null, '2099-05-01', '[1]', 'active', seededAt, seededAt);
+scheduleSeries.run('sched-native', scheduleParent.user.id, scheduleKid.user.id, 'Schedule native', null, '2099-06-01', '[1]', 'active', seededAt, seededAt);
+scheduleSeries.run('sched-hydration', scheduleParent.user.id, scheduleKid.user.id, 'Schedule hydration', 'Hydration description', '2099-07-06', '[1]', 'active', seededAt, seededAt);
+scheduleSeries.run('sched-paused', scheduleParent.user.id, scheduleKid.user.id, 'Schedule paused', null, '2099-08-01', '[1]', 'paused', seededAt, seededAt);
+scheduleSeries.run('sched-ended', scheduleParent.user.id, scheduleKid.user.id, 'Schedule ended', null, '2099-09-01', '[1]', 'ended', seededAt, seededAt);
+const scheduleChore = db.prepare(`INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at)
+  VALUES (?, 'synthetic-schedule-household', ?, ?, ?, ?, ?, ?, ?)`);
+const scheduleOccurrence = db.prepare("INSERT INTO recurring_occurrence (series_id, household_id, scheduled_date, chore_id) VALUES ('sched-series', 'synthetic-schedule-household', ?, ?)");
+scheduleChore.run('sched-old-mon', scheduleKid.user.id, 'Schedule trash', '2099-03-02', 175, 'todo', seededAt, seededAt);
+scheduleOccurrence.run('2099-03-02', 'sched-old-mon');
+scheduleChore.run('sched-old-wed', scheduleKid.user.id, 'Schedule trash', '2099-03-04', 175, 'pending_verification', seededAt, seededAt);
+scheduleOccurrence.run('2099-03-04', 'sched-old-wed');
+scheduleChore.run('sched-verified', scheduleKid.user.id, 'Schedule completed', '2099-02-25', 300, 'verified', seededAt, seededAt);
+db.prepare("INSERT INTO earning (id, chore_id, household_id, child_id, amount_cents, created_at) VALUES ('sched-verified-earning', 'sched-verified', 'synthetic-schedule-household', ?, 300, ?)").run(scheduleKid.user.id, seededAt);
 db.close();
 const mockRecipeFetch = fileURLToPath(new URL('./mock-recipe-fetch.cjs', import.meta.url));
 const nodeOptions = [process.env.NODE_OPTIONS, '--require', mockRecipeFetch].filter(Boolean).join(' ');
