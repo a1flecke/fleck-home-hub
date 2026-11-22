@@ -74,6 +74,7 @@ export function addDays(date: string, days: number): string {
 export function choreVisibility(audience: ChoreAudience) {
   const clauses = ['c.household_id = ?'];
   const parameters: unknown[] = [audience.householdId];
+  clauses.push('c.cancelled_at IS NULL');
   if (audience.role === 'kid') {
     clauses.push('c.assignee_id = ?');
     parameters.push(audience.actorId);
