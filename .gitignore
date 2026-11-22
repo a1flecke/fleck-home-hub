@@ -80,3 +80,7 @@ test-results/
 
 # Temporary app copies made by tests/sign-in-limit.integration.ts; a killed run can leave one behind.
 .synthetic-sign-in-limit-*/
+
+# Private service configuration and encrypted household backups.
+hub.conf
+*.age
