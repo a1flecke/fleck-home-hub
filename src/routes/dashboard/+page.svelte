@@ -101,7 +101,30 @@
         {@const attribution = recipeAttribution(meal.source, meal.recipeUrl)}
         <article class="mt-4"><h3 class="font-bold">{meal.title}</h3>{#if meal.time}<p>{meal.time}</p>{/if}{#if meal.servings}<p>Serves {meal.servings}</p>{/if}<RecipeCredit source={meal.source} recipeUrl={meal.recipeUrl} /><RecipeDetails details={meal.recipeDetails} />{#if meal.ingredients}{#if attribution?.verifiedSource}<p class="mt-2 text-sm font-semibold">Family-entered ingredients</p>{/if}<p class="mt-1 whitespace-pre-line">{meal.ingredients}</p>{/if}</article>
       {:else}<p class="mt-2">No meals planned for today.</p>{/each}
-      <a href={resolve('/meals')} class="mt-3 inline-block py-2 text-teal-700">Plan meals</a>
+      <div class="mt-3 flex flex-wrap gap-x-4">
+        <a href={resolve(`/meals?date=${data.today}`)} class="inline-block py-2 text-teal-700">Open today in the planner</a>
+        <a href={resolve(`/meals/shop?week=${data.today}`)} class="inline-block py-2 text-teal-700">Shop this week</a>
+      </div>
+    </section>
+    <section aria-label="Next seven dinners" class="mt-6 rounded-2xl bg-white p-5 shadow-sm">
+      <h2 class="text-xl font-bold">Next seven dinners</h2>
+      <p class="mt-1 text-sm text-slate-700">Today through {data.dinnerEnd}. {data.missingDinnerDays.length ? `${data.missingDinnerDays.length} ${data.missingDinnerDays.length === 1 ? 'night still needs' : 'nights still need'} a plan.` : 'Every night has a plan.'}</p>
+      {#each data.dinnerDays as day (day.date)}
+        <div class="mt-4 border-t border-slate-200 pt-3 first:border-0 first:pt-0">
+          <h3 class="font-bold">{day.label} · {day.date}{#if day.isToday} · Today{/if}</h3>
+          {#if day.meals.length}
+            <ul class="mt-1">{#each day.meals as meal (meal.id)}<li>{meal.title}{#if meal.time} · {meal.time}{/if}</li>{/each}</ul>
+            <a href={resolve(`/meals?date=${day.date}`)} aria-label={`Open meals for ${day.date}`} class="mt-1 inline-block py-2 text-teal-700 underline">Open day</a>
+          {:else}
+            <p class="mt-1 text-slate-700">No dinner planned.</p>
+            <a href={resolve(`/meals?date=${day.date}&plan=1#add-meal`)} aria-label={`Plan dinner for ${day.date}`} class="mt-1 inline-block py-2 text-teal-700 underline">Plan dinner</a>
+          {/if}
+        </div>
+      {/each}
+      <div class="mt-4 flex flex-wrap gap-x-4">
+        <a href={resolve('/meals')} class="inline-block py-2 text-teal-700">Open the weekly planner</a>
+        <a href={resolve('/meals/again')} class="inline-block py-2 text-teal-700">Plan a favorite again</a>
+      </div>
     </section>
   {/if}
   {#if pendingTotal}

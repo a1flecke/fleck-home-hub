@@ -1,7 +1,7 @@
 import { expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
-import { createMeal, listMealWeek, listMeals, moveMeal, removeMeal, updateMeal } from '../src/lib/server/meals';
+import { createMeal, listMealWeek, listMeals, mealCopySource, moveMeal, recentMeals, removeMeal, updateMeal } from '../src/lib/server/meals';
 import { displayData } from '../src/lib/server/display';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate as migrateDrizzle } from 'drizzle-orm/better-sqlite3/migrator';
@@ -189,6 +189,44 @@ it('moves and removes meals only for a parent in the owning household', async ()
     removeMeal(db, 'parent', 'home', id);
     expect(listMeals(db, 'parent', 'home', '2026-11-18')).toEqual([]);
     expect(listMeals(db, 'outsider', 'other', '2026-11-16')).toHaveLength(1);
+  } finally { db.close(); }
+});
+
+it('lists a bounded, searchable set of recent household meals for parents only', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    for (const id of ['parent', 'kid', 'outsider']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    for (const id of ['home', 'other']) db.prepare('INSERT INTO household VALUES (?, ?)').run(id, id);
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('outsider', 'other', 'parent');
+    const base = { time: '18:00', servings: 4, ingredients: '1 onion', notes: 'Private repeat note', source: 'Family cookbook', recipeUrl: 'https://example.test/recipe', shared: false };
+    createMeal(db, 'parent', 'home', { ...base, title: 'Synthetic chicken pasta', date: '2026-10-01' });
+    createMeal(db, 'parent', 'home', { ...base, title: 'Synthetic taco night', date: '2026-10-05', ingredients: '2 cups synthetic chicken' });
+    createMeal(db, 'parent', 'home', { ...base, title: 'Synthetic soup', date: '2026-10-09' });
+    for (let index = 0; index < 45; index += 1) {
+      createMeal(db, 'parent', 'home', { ...base, title: `Filler dinner ${index}`, date: `2025-01-${String((index % 28) + 1).padStart(2, '0')}` });
+    }
+    createMeal(db, 'outsider', 'other', { ...base, title: 'Synthetic chicken elsewhere', date: '2026-10-10' });
+
+    const recent = recentMeals(db, 'parent', 'home');
+    expect(recent).toHaveLength(40);
+    expect(recent[0]).toMatchObject({ title: 'Synthetic soup', date: '2026-10-09' });
+    expect(JSON.stringify(recent)).not.toContain('Private repeat note');
+    expect(recent.some(meal => meal.title === 'Synthetic chicken elsewhere')).toBe(false);
+    expect(recentMeals(db, 'parent', 'home', 'chicken').map(meal => meal.title)).toEqual(['Synthetic chicken pasta']);
+    expect(recentMeals(db, 'parent', 'home', '  TACO  ').map(meal => meal.title)).toEqual(['Synthetic taco night']);
+    expect(recentMeals(db, 'parent', 'home', 'x'.repeat(80))).toEqual([]);
+    expect(() => recentMeals(db, 'parent', 'home', 'x'.repeat(81))).toThrow();
+    expect(() => recentMeals(db, 'kid', 'home')).toThrow();
+    expect(() => recentMeals(db, 'outsider', 'home')).toThrow();
+
+    const source = mealCopySource(db, 'parent', 'home', recent[0].id);
+    expect(source).toMatchObject({ title: 'Synthetic soup', ingredients: '1 onion', recipeUrl: 'https://example.test/recipe', time: '18:00', servings: 4, source: 'Family cookbook', shared: false });
+    expect('notes' in source).toBe(false);
+    expect(() => mealCopySource(db, 'kid', 'home', recent[0].id)).toThrow();
+    expect(() => mealCopySource(db, 'parent', 'home', 'missing')).toThrow();
   } finally { db.close(); }
 });
 
