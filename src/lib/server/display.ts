@@ -47,9 +47,43 @@ export function displayDataForDevice(db: Database.Database, display: VerifiedDis
 export function displayData(db: Database.Database, actor: string, household: string, today: string, end: string) {
   const role = membership(db, actor, household);
   const { events, chores, meals } = sharedProjection(db, household, today, end);
-  const choices = role === 'parent' ? {
-    events: db.prepare('SELECT e.id, e.title, EXISTS(SELECT 1 FROM display_event d WHERE d.event_id = e.id AND d.household_id = e.household_id) AS shared FROM calendar_event e WHERE e.household_id = ? AND (e.cancelled = 0 OR EXISTS(SELECT 1 FROM display_event d WHERE d.event_id = e.id AND d.household_id = e.household_id)) ORDER BY e.start_date, e.title').all(household) as { id: string; title: string; shared: number }[],
-    chores: db.prepare('SELECT c.id, c.title, EXISTS(SELECT 1 FROM display_chore d WHERE d.chore_id = c.id AND d.household_id = c.household_id) AS shared FROM chore c WHERE c.household_id = ? AND (c.due_date = ? OR EXISTS(SELECT 1 FROM display_chore d WHERE d.chore_id = c.id AND d.household_id = c.household_id)) ORDER BY c.due_date, c.title').all(household, today) as { id: string; title: string; shared: number }[]
-  } : null;
-  return { events, chores, meals, choices };
+  return { events, chores, meals, canManage: role === 'parent' };
+}
+
+export const DISPLAY_SHARED_PAGE_SIZE = 20;
+
+/**
+ * An event series belongs to the sharing window when it is active and can occur between `today`
+ * and `end`; a one-off event must start in the window. Takes `end`, `today`, `today`.
+ */
+const windowEvent = `e.cancelled = 0 AND e.start_date <= ? AND (e.end_date IS NULL OR e.end_date >= ?) AND (e.weekdays IS NOT NULL OR e.start_date >= ?)`;
+
+/**
+ * Chores due in the sharing window that the display could show on their day: skipped and
+ * paused unstarted recurring occurrences are excluded as in the projection. Takes household,
+ * `today`, `end`, `today`.
+ */
+const windowChores = `SELECT c.id, c.title, c.due_date AS date FROM chore c LEFT JOIN recurring_occurrence o ON o.chore_id = c.id LEFT JOIN recurring_series r ON r.id = o.series_id WHERE c.household_id = ? AND c.due_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) AND NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= ?)`;
+
+/**
+ * Bounded sharing choices for a parent (ADR 0007). `window` lists what can be shared for the
+ * display window, with each record's current state. `shared` pages through every other current
+ * selection, so one that has left the window (past, far future, cancelled or skipped) can still be
+ * removed. Neither list depends on unshared history outside the window.
+ */
+export function displayChoices(db: Database.Database, actor: string, household: string, today: string, end: string, page: number) {
+  if (membership(db, actor, household) !== 'parent') throw new Error('Not authorized');
+  const events = db.prepare(`SELECT e.id, e.title, e.start_date AS date, e.weekdays IS NOT NULL AS repeats, EXISTS(SELECT 1 FROM display_event d WHERE d.event_id = e.id AND d.household_id = e.household_id) AS shared FROM calendar_event e WHERE e.household_id = ? AND ${windowEvent} ORDER BY e.start_date, e.title, e.id`)
+    .all(household, end, today, today) as { id: string; title: string; date: string; repeats: number; shared: number }[];
+  const chores = db.prepare(`SELECT w.id, w.title, w.date, EXISTS(SELECT 1 FROM display_chore d WHERE d.chore_id = w.id AND d.household_id = ?) AS shared FROM (${windowChores}) w ORDER BY w.date, w.title, w.id`)
+    .all(household, household, today, end, today) as { id: string; title: string; date: string; shared: number }[];
+  const outside = `SELECT 'event' AS kind, e.id, e.title, e.start_date AS date, e.weekdays IS NOT NULL AS repeats, e.cancelled FROM display_event d JOIN calendar_event e ON e.id = d.event_id AND e.household_id = d.household_id WHERE d.household_id = ? AND NOT (${windowEvent})
+    UNION ALL SELECT 'chore' AS kind, c.id, c.title, c.due_date AS date, 0 AS repeats, 0 AS cancelled FROM display_chore d JOIN chore c ON c.id = d.chore_id AND c.household_id = d.household_id WHERE d.household_id = ? AND c.id NOT IN (SELECT id FROM (${windowChores}))`;
+  const params = [household, end, today, today, household, household, today, end, today];
+  const total = (db.prepare(`SELECT COUNT(*) AS total FROM (${outside})`).get(...params) as { total: number }).total;
+  const pageCount = Math.max(1, Math.ceil(total / DISPLAY_SHARED_PAGE_SIZE));
+  const current = Math.min(Math.max(1, Math.floor(page) || 1), pageCount);
+  const items = db.prepare(`SELECT * FROM (${outside}) ORDER BY date DESC, kind, title, id LIMIT ? OFFSET ?`)
+    .all(...params, DISPLAY_SHARED_PAGE_SIZE, (current - 1) * DISPLAY_SHARED_PAGE_SIZE) as { kind: Kind; id: string; title: string; date: string; repeats: number; cancelled: number }[];
+  return { window: { events, chores }, shared: { items, page: current, pageCount, total } };
 }

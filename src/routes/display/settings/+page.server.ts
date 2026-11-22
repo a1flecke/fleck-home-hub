@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { localDate } from '../../../lib/chores/recurrence';
-import { displayData, setDisplayVisibility } from '../../../lib/server/display';
+import { displayChoices, setDisplayVisibility } from '../../../lib/server/display';
 import { getIdentityServices } from '../../../lib/server/runtime';
 
 /**
@@ -27,7 +27,10 @@ export const load: PageServerLoad = async ({ request, url }) => {
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
   const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
   const last = new Date(`${today}T00:00:00Z`); last.setUTCDate(last.getUTCDate() + 7);
-  return { households, householdId: household, choices: displayData(db, actor, household, today, last.toISOString().slice(0, 10)).choices };
+  const end = last.toISOString().slice(0, 10);
+  const raw = url.searchParams.get('sharedPage') ?? '1';
+  const page = /^\d{1,6}$/.test(raw) ? Number(raw) : 1;
+  return { households, householdId: household, today, end, choices: displayChoices(db, actor, household, today, end, page) };
 };
 
 export const actions = {
