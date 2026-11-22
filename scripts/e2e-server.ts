@@ -198,6 +198,30 @@ dayChore.run('day-sibling-secret', daySibling.user.id, 'Day sibling secret chore
 dayEarning.run('day-sibling-earning', 'day-sibling-secret', 'synthetic-day-household', daySibling.user.id, 999, seededAt);
 db.prepare('INSERT INTO payout (id, household_id, child_id, actor_id, amount_cents, paid_date, note, request_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
   .run('day-sibling-payout', 'synthetic-day-household', daySibling.user.id, dayParent.user.id, 500, dayOffset(-1), 'Day sibling secret payment', 'day-sibling-request', seededAt);
+// Weekly chore board journeys: a populated household for display/filters and a separate
+// empty household so the first-chore empty state stays meaningful.
+const weekParent = await auth.api.signUpEmail({ body: { name: 'Week Parent', email: 'week-parent@example.test', password: 'synthetic-week-parent-password' } });
+const weekKid = await auth.api.signUpEmail({ body: { name: 'Week Kid', email: 'week-kid@example.test', password: 'synthetic-week-kid-password' } });
+const weekSibling = await auth.api.signUpEmail({ body: { name: 'Week Sibling', email: 'week-sibling@example.test', password: 'synthetic-week-sibling-password' } });
+const weekEmptyParent = await auth.api.signUpEmail({ body: { name: 'Week Empty Parent', email: 'week-empty-parent@example.test', password: 'synthetic-week-empty-parent-password' } });
+const weekEmptyKid = await auth.api.signUpEmail({ body: { name: 'Week Empty Kid', email: 'week-empty-kid@example.test', password: 'synthetic-week-empty-kid-password' } });
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?), (?, ?)').run('synthetic-chore-week-household', 'Chore week household', 'synthetic-chore-week-empty-household', 'Empty chore week household');
+for (const [userId, householdId, role] of [
+  [weekParent.user.id, 'synthetic-chore-week-household', 'parent'],
+  [weekKid.user.id, 'synthetic-chore-week-household', 'kid'],
+  [weekSibling.user.id, 'synthetic-chore-week-household', 'kid'],
+  [weekEmptyParent.user.id, 'synthetic-chore-week-empty-household', 'parent'],
+  [weekEmptyKid.user.id, 'synthetic-chore-week-empty-household', 'kid']
+] as const) {
+  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(userId, householdId, role);
+}
+const weekChore = db.prepare(`INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, rework_reason, created_at, updated_at)
+  VALUES (?, 'synthetic-chore-week-household', ?, ?, ?, ?, ?, ?, ?, ?)`);
+weekChore.run('week-pending', weekKid.user.id, 'Week pending chore', '2099-03-02', 100, 'pending_verification', null, seededAt, seededAt);
+weekChore.run('week-rework', weekKid.user.id, 'Week rework chore', '2099-03-02', 150, 'needs_rework', 'Please put the games away', seededAt, seededAt);
+weekChore.run('week-verified', weekSibling.user.id, 'Week verified chore', '2099-03-03', 200, 'verified', null, seededAt, seededAt);
+db.prepare('INSERT INTO earning (id, chore_id, household_id, child_id, amount_cents, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+  .run('week-verified-earning', 'week-verified', 'synthetic-chore-week-household', weekSibling.user.id, 200, seededAt);
 db.close();
 const mockRecipeFetch = fileURLToPath(new URL('./mock-recipe-fetch.cjs', import.meta.url));
 const nodeOptions = [process.env.NODE_OPTIONS, '--require', mockRecipeFetch].filter(Boolean).join(' ');

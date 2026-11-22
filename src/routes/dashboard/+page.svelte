@@ -54,6 +54,7 @@
     {#if data.role === 'parent'}
       <a href={resolve('/expenses')} class="text-teal-700">Expenses</a>
       <a href={resolve('/verify')} class="text-teal-700">Review chores{pendingTotal ? ` (${pendingTotal})` : ''}</a>
+      <a href={resolve('/chores/week')} class="text-teal-700">Chore week</a>
       <a href={resolve('/chores/series')} class="text-teal-700">Recurring chores{data.activeSeries ? ` (${data.activeSeries})` : ''}</a>
     {/if}
     <a href={resolve('/chores/history?scope=verified')} class="text-teal-700">{data.role === 'parent' ? 'Chore history' : 'My chore history'}</a>
