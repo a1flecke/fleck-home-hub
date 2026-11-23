@@ -1,6 +1,6 @@
 # Fleck Home Hub
 
-A self-hosted household hub built with SvelteKit, SQLite and Better Auth. Families can manage chores, groceries, dinner plans, calendars, and a paired family display. Payment records do not transfer money.
+A self-hosted household hub built with SvelteKit, SQLite and Better Auth. Families can manage chores, groceries, dinner plans, calendars, [family lists](docs/family-lists.md), and a paired family display. Payment records do not transfer money.
 
 **Not production-ready yet.** Read [security](docs/security.md) and [deployment](docs/deployment.md) before using real data. Remote Tailscale access, iOS installation, reboot and sleep behavior require the documented manual validation.
 

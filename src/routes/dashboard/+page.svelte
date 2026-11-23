@@ -49,6 +49,7 @@
   <nav aria-label="Household areas" class="flex flex-wrap gap-x-4 gap-y-2">
     <a href={resolve('/display')} class="text-teal-700">Family display</a>
     <a href={resolve('/calendar')} class="text-teal-700">Family calendar</a>
+    <a href={resolve('/lists')} class="text-teal-700">Family lists</a>
     <a href={resolve('/meals')} class="text-teal-700">Meals</a>
     <a href={resolve('/groceries')} class="text-teal-700">Groceries</a>
     {#if data.role === 'parent'}
