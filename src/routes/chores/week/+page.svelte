@@ -82,6 +82,7 @@
   </form>
 
   {#if data.notice === 'created'}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">Chore added. It appears on its scheduled day below.</p>{/if}
+  {#if data.notice === 'reused'}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">{data.reusedCount} {data.reusedCount === 1 ? 'chore was' : 'chores were'} assigned. Each child has a separate to-do chore.</p>{/if}
   {#if data.notice === 'updated'}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">Chore updated. The week shows the corrected assignment.</p>{/if}
   {#if data.notice === 'cancelled'}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4">Chore cancelled. It no longer appears in the week.</p>{/if}
   {#if form?.message}<p role="alert" class="mt-4 rounded-xl bg-rose-50 p-4">{form.message}</p>{/if}
@@ -103,6 +104,7 @@
   {/if}
 
   <div id="add-chore">
+    <p class="mt-6 flex flex-wrap gap-3"><a href={resolve(`/chores/week/again?date=${data.focusDate}`)} class="rounded-xl border border-teal-700 px-4 py-3 font-semibold text-teal-800">Assign a recent chore again</a></p>
     <Disclosure class="mt-6 rounded-2xl bg-white p-5 shadow-sm" expanded={data.addOpen || !!createError}>
       <summary class="cursor-pointer text-xl font-bold">Add a chore for this week</summary>
       {#if data.children.length}
@@ -127,6 +129,7 @@
         <h2 class="text-xl font-bold">No chores planned for this week</h2>
         <p class="mt-2">Give everyone a clear start by adding the first chore to a day.</p>
         <a href={resolve(`/chores/week?${weekQuery({ add: true })}`)} class="mt-3 inline-block rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Add the first chore</a>
+        <a href={resolve(`/chores/week/again?date=${data.focusDate}`)} class="mt-3 ml-3 inline-block py-3 font-semibold text-teal-700 underline">Assign a recent chore instead</a>
       {:else}
         <h2 class="text-xl font-bold">No chores match these filters</h2>
         <p class="mt-2">There are {totalInWeek} {totalInWeek === 1 ? 'chore' : 'chores'} in this week.</p>

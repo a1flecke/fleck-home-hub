@@ -58,6 +58,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
     ? requestedDate
     : today >= board.start && today <= board.end ? today : board.start;
   const children = board.children;
+  const reusedCount = /^\d{1,2}$/.test(url.searchParams.get('count') ?? '') ? Number(url.searchParams.get('count')) : 0;
   return {
     ...board,
     timezone,
@@ -71,6 +72,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
     focusDate,
     addOpen: url.searchParams.get('add') === '1',
     notice: url.searchParams.get('notice'),
+    reusedCount,
     children
   };
 };
