@@ -33,7 +33,7 @@ function sharedProjection(db: Database.Database, household: string, today: strin
   const sharedEvents = new Set((db.prepare('SELECT event_id FROM display_event WHERE household_id = ?').all(household) as { event_id: string }[]).map(row => row.event_id));
   const events = householdEventOccurrences(db, household, today, end)
     .filter(event => sharedEvents.has(event.id)).map(({ id, title, date, startTime, endTime, allDay }) => ({ id, title, date, startTime, endTime, allDay }));
-  const visibleChores = `FROM chore c LEFT JOIN recurring_occurrence o ON o.chore_id = c.id LEFT JOIN recurring_series r ON r.id = o.series_id WHERE c.household_id = ? AND c.due_date = ? AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) AND NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= ?)`;
+  const visibleChores = `FROM chore c LEFT JOIN recurring_occurrence o ON o.chore_id = c.id LEFT JOIN recurring_series r ON r.id = o.series_id WHERE c.household_id = ? AND c.due_date = ? AND c.cancelled_at IS NULL AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) AND NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= ?)`;
   const chores = db.prepare(`SELECT c.id, c.title, c.status ${visibleChores} AND EXISTS (SELECT 1 FROM display_chore d WHERE d.chore_id = c.id AND d.household_id = c.household_id) ORDER BY c.title`).all(household, today, today) as { id: string; title: string; status: string }[];
   const meals = householdSharedMeals(db, household, today).filter(meal => meal.shared).map(({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }) => ({ id, title, time, servings, ingredients, source, recipeUrl, recipeDetails }));
   return { events, chores, meals };
@@ -63,7 +63,7 @@ const windowEvent = `e.cancelled = 0 AND e.start_date <= ? AND (e.end_date IS NU
  * paused unstarted recurring occurrences are excluded as in the projection. Takes household,
  * `today`, `end`, `today`.
  */
-const windowChores = `SELECT c.id, c.title, c.due_date AS date FROM chore c LEFT JOIN recurring_occurrence o ON o.chore_id = c.id LEFT JOIN recurring_series r ON r.id = o.series_id WHERE c.household_id = ? AND c.due_date BETWEEN ? AND ? AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) AND NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= ?)`;
+const windowChores = `SELECT c.id, c.title, c.due_date AS date FROM chore c LEFT JOIN recurring_occurrence o ON o.chore_id = c.id LEFT JOIN recurring_series r ON r.id = o.series_id WHERE c.household_id = ? AND c.due_date BETWEEN ? AND ? AND c.cancelled_at IS NULL AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) AND NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= ?)`;
 
 /**
  * Bounded sharing choices for a parent (ADR 0007). `window` lists what can be shared for the
@@ -78,7 +78,7 @@ export function displayChoices(db: Database.Database, actor: string, household: 
   const chores = db.prepare(`SELECT w.id, w.title, w.date, EXISTS(SELECT 1 FROM display_chore d WHERE d.chore_id = w.id AND d.household_id = ?) AS shared FROM (${windowChores}) w ORDER BY w.date, w.title, w.id`)
     .all(household, household, today, end, today) as { id: string; title: string; date: string; shared: number }[];
   const outside = `SELECT 'event' AS kind, e.id, e.title, e.start_date AS date, e.weekdays IS NOT NULL AS repeats, e.cancelled FROM display_event d JOIN calendar_event e ON e.id = d.event_id AND e.household_id = d.household_id WHERE d.household_id = ? AND NOT (${windowEvent})
-    UNION ALL SELECT 'chore' AS kind, c.id, c.title, c.due_date AS date, 0 AS repeats, 0 AS cancelled FROM display_chore d JOIN chore c ON c.id = d.chore_id AND c.household_id = d.household_id WHERE d.household_id = ? AND c.id NOT IN (SELECT id FROM (${windowChores}))`;
+    UNION ALL SELECT 'chore' AS kind, c.id, c.title, c.due_date AS date, 0 AS repeats, c.cancelled_at IS NOT NULL AS cancelled FROM display_chore d JOIN chore c ON c.id = d.chore_id AND c.household_id = d.household_id WHERE d.household_id = ? AND c.id NOT IN (SELECT id FROM (${windowChores}))`;
   const params = [household, end, today, today, household, household, today, end, today];
   const total = (db.prepare(`SELECT COUNT(*) AS total FROM (${outside})`).get(...params) as { total: number }).total;
   const pageCount = Math.max(1, Math.ceil(total / DISPLAY_SHARED_PAGE_SIZE));
