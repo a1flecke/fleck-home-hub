@@ -80,15 +80,21 @@ for (const javaScriptEnabled of [true, false]) test(`a recurring chore can be co
     await section.getByRole('button', { name: 'Add recurring chore' }).click();
     const series = dashboard.getByRole('article').filter({ hasText: title });
     await expect(series).toBeVisible();
-    await series.getByText('Edit future chores').click();
-    await series.getByRole('textbox', { name: 'Recurring chore title', exact: true }).fill('   ');
-    await series.getByRole('textbox', { name: 'Description (optional)', exact: true }).fill('Keep edited details');
-    await series.getByRole('button', { name: 'Save changes' }).click();
-    await expect(dashboard.getByRole('status')).toContainText('Unable to save recurring chore');
+    await series.getByText('Change schedule', { exact: true }).click();
+    let edit = series.getByRole('form', { name: `Change schedule for ${title}` });
+    await edit.getByRole('textbox', { name: 'Recurring chore title', exact: true }).fill('   ');
+    await edit.getByRole('textbox', { name: 'Description (optional)', exact: true }).fill('Keep edited details');
+    await edit.getByRole('button', { name: 'Preview schedule change' }).click();
+    await expect(dashboard.getByRole('alert')).toContainText('Unable to use this schedule');
     await expect(series.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Keep edited details');
     const revised = `${title} revised`;
-    await series.getByRole('textbox', { name: 'Recurring chore title', exact: true }).fill(revised);
-    await series.getByRole('button', { name: 'Save changes' }).click();
+    edit = series.getByRole('form', { name: `Change schedule for ${title}` });
+    await edit.getByRole('textbox', { name: 'Recurring chore title', exact: true }).fill(revised);
+    await edit.getByRole('button', { name: 'Preview schedule change' }).click();
+    const preview = dashboard.getByRole('region', { name: 'Proposed schedule change' });
+    await expect(preview).toContainText('New pattern');
+    await preview.getByRole('button', { name: 'Save schedule change' }).click();
+    await expect(dashboard.getByRole('status').filter({ hasText: 'Schedule updated' })).toBeVisible();
     await expect(dashboard.getByRole('article').filter({ hasText: revised })).toBeVisible();
   } finally { await context.close(); }
 });
