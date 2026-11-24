@@ -23,8 +23,15 @@ function day(page: Page, date: string) {
   return page.getByRole('region', { name: `Meals for ${date}`, exact: true });
 }
 
+async function waitForHydration(page: Page) {
+  // Let module loading settle before editing bound textareas so Svelte hydration
+  // cannot reset the field between Playwright's select and insert steps.
+  await page.waitForLoadState('networkidle');
+}
+
 async function addMeal(page: Page, date: string, title: string, ingredients: string, options: { recipeUrl?: string; note?: string; shared?: boolean } = {}) {
   await page.goto(`/meals?date=${date}&plan=1`);
+  await waitForHydration(page);
   const form = page.getByRole('form', { name: 'Add meal', exact: true });
   await form.getByLabel('Meal name').fill(title);
   await form.getByLabel('Ingredients').fill(ingredients);
@@ -122,6 +129,8 @@ test('anonymous users are redirected and a parent completes plan, repeat, shop a
   await page.goto(`/meals/again?q=${encodeURIComponent(firstTitle)}`);
   await page.getByRole('link', { name: `Plan again: ${firstTitle}` }).click();
   const adjust = page.getByRole('form', { name: 'Preview a meal plan' });
+  await expect(adjust).toBeVisible();
+  await waitForHydration(page);
   await adjust.getByLabel('Meal name').fill(copyTitle);
   await adjust.getByLabel('New date').fill(copyDate);
   await adjust.getByLabel('Ingredients').fill('3 journey carrots');
