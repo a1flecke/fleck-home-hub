@@ -42,7 +42,7 @@ describe('Antigravity PreToolUse hook', () => {
     }
   });
 
-  it('denies destructive commands, privilege escalation, and PR self-merge or approval', () => {
+  it('denies destructive commands, privilege escalation, and PR self-approval', () => {
     for (const command of [
       'git reset --hard',
       'git clean -fd',
@@ -57,7 +57,6 @@ describe('Antigravity PreToolUse hook', () => {
       'git push --delete origin feature/old',
       'git push --tags',
       'git push --mirror',
-      'gh pr merge 123',
       'gh pr review 123 --approve',
       'gh pr review -a 123',
       'gh pr review 123 -ab "looks good"',
@@ -113,8 +112,9 @@ describe('Antigravity PreToolUse hook', () => {
     }
   });
 
-  it('forces review before feature-branch rewrites and sensitive commands', () => {
+  it('forces review before PR merges, feature-branch rewrites, and sensitive commands', () => {
     for (const command of [
+      'gh pr merge 123 --rebase',
       'git push --force-with-lease=refs/heads/feature/test:abc origin HEAD:refs/heads/feature/test',
       'tailscale serve reset',
       'cat .env',

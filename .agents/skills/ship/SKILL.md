@@ -13,4 +13,4 @@ Read `AGENTS.md` before proceeding.
 2. Run required verification (`mise run agent-policy`, `mise run lint`, `mise run typecheck`, `mise run test`, and `mise run verify` as appropriate).
 3. Commit intended changes cleanly without bypassing Git hooks.
 4. Publish the feature branch (`git push`, or `scripts/push-branch.sh` after a user-requested rebase) and open or update the pull request.
-5. Report all checks and limitations. Never merge or approve the PR.
+5. Report all checks and limitations. Never approve the PR, and never merge it without explicit user authorization after required checks pass.

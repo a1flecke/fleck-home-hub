@@ -34,7 +34,7 @@ try {
   }
   if (!claude.includes('AGENTS.md')) problems.push('CLAUDE.md must reference shared policy');
   if (!gemini.includes('AGENTS.md')) problems.push('GEMINI.md must reference shared policy');
-  if (!/never merge or approve/i.test(shared) || !/force-push a protected branch/i.test(shared) || !/--force-with-lease=<full-ref>:<reviewed-remote-commit>/.test(shared)) problems.push('Missing shared merge or feature-branch lease policy');
+  if (!/never approve your own pr/i.test(shared) || !/never merge a pr without explicit user authorization/i.test(shared) || !/force-push a protected branch/i.test(shared) || !/--force-with-lease=<full-ref>:<reviewed-remote-commit>/.test(shared)) problems.push('Missing shared merge or feature-branch lease policy');
   if (!/^pnpm@\d+\.\d+\.\d+$/.test(pkg.packageManager)) problems.push('packageManager must pin pnpm');
   const enabledHooks = Object.values(antigravityHooks && typeof antigravityHooks === 'object' ? antigravityHooks : {}).filter(entry => entry && typeof entry === 'object' && entry.enabled !== false);
   const preToolUseGroups = enabledHooks.flatMap(entry => (Array.isArray(entry.PreToolUse) ? entry.PreToolUse : []));

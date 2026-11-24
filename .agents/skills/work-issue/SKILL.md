@@ -13,4 +13,4 @@ Read `AGENTS.md` and inspect the target GitHub issue (`gh issue view <number>`).
 2. Write focused failing tests first, confirm they fail for the intended reason, implement the smallest correct change, and keep tests green.
 3. Run required verification (`mise run lint`, `mise run typecheck`, focused tests, and `mise run verify` as appropriate).
 4. Review the complete diff, commit intended changes without bypassing Git hooks, push the feature branch, and open a pull request.
-5. Report all checks run, checks not run, and any limitations. Never merge or approve the PR.
+5. Report all checks run, checks not run, and any limitations. Never approve the PR, and never merge it without explicit user authorization after required checks pass.
