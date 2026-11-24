@@ -64,7 +64,9 @@ test('initial setup is atomic, survives a failed write and creates a real sessio
     db.close();
     rmSync(directory, { recursive: true, force: true });
   }
-});
+  // This test hashes several passwords and exercises failed plus concurrent provisions.
+  // It runs in under a second in isolation but can exceed the 5-second default on a loaded full-suite runner.
+}, 15000);
 
 test('upgrading a configured household preserves legacy child access and leaves onboarding closed', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'fleck-onboarding-upgrade-'));

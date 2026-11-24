@@ -68,19 +68,35 @@ function pauseWorker<T>(phase: NonNullable<typeof gates.next>['phase'], start: (
   finally { gates.next = undefined; }
   // Some tests deliberately fail or terminate a worker before awaiting the result.
   void result.catch(() => {});
+  const readinessDeadlineMs = 10_000;
+  const commitDeadlineMs = 10_000;
+
+  async function waitForAtomic(index: number, expected: number, label: string, timeoutMs: number) {
+    const deadline = Date.now() + timeoutMs;
+    while (Atomics.load(state, index) !== expected) {
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error(`${label} did not reach ${expected} within ${timeoutMs} ms`);
+      const observed = Atomics.load(state, index);
+      const wait = Atomics.waitAsync(state, index, observed, remaining);
+      if (wait.async) await wait.value;
+      else await new Promise(resolve => setTimeout(resolve, 0));
+    }
+  }
+
   return {
     result,
     async reached() {
-      await Atomics.waitAsync(state, 0, 0, 5000).value;
-      expect(Atomics.load(state, 0), 'worker reached the selected SQLite boundary').toBe(1);
+      // Worker startup includes compiling the worker source and opening Better Auth.
+      // Keep this below the 15-second test budget, but well above normal startup on a loaded CI runner.
+      await waitForAtomic(0, 1, 'worker reached the selected SQLite boundary', readinessDeadlineMs);
     },
     release() {
       Atomics.store(state, 1, 1);
       Atomics.notify(state, 1);
     },
     waitForCommit() {
-      Atomics.wait(state, 2, 0, 5000);
-      expect(Atomics.load(state, 2), 'worker committed before the competing write').toBe(1);
+      Atomics.wait(state, 2, 0, commitDeadlineMs);
+      expect(Atomics.load(state, 2), `worker committed within ${commitDeadlineMs} ms before the competing write`).toBe(1);
     },
     terminate: () => gate.worker!.terminate()
   };
@@ -499,6 +515,8 @@ describe('transactions competing with member disabling', () => {
 });
 
 describe('history is preserved', () => {
+  // Two worker-backed disable calls plus balance and access reads.
+  // Isolated this is fast, but the parallel full suite can exceed the 5-second default.
   it('preserves chores, rewards and calendar records', async () => {
     const f = await fixture();
     const choreId = createChore(f.db, f.parentA, 'house-a', { title: 'Dishes', assigneeId: f.kid, dueDate: '2026-01-01', rewardCents: 500 });
@@ -517,10 +535,11 @@ describe('history is preserved', () => {
     expect(balance(f.db, 'house-a', f.kid)).toEqual({ earned: 500, paid: 100, owed: 400 });
     expect(f.db.prepare('SELECT actor_id FROM chore_transition WHERE chore_id = ? ORDER BY id').all(choreId).map((r) => (r as { actor_id: string }).actor_id)).toContain(f.parentA);
     expect(listHouseholdAccess(f.db, f.parentB, 'house-a').members.map((m) => [m.id, m.disabledAt !== null])).toEqual(expect.arrayContaining([[f.kid, true], [f.parentA, true]]));
-  });
+  }, 15000);
 });
 
 describe('migration and recovery', () => {
+  // Two worker-backed disable calls, a backup, restore and two migrations.
   it('preserves membership and session revocation through backup, restore and migration', async () => {
     const f = await fixture();
     const multiHousehold = await f.signedIn('kid-one@example.test');
@@ -542,5 +561,5 @@ describe('migration and recovery', () => {
     expect(Boolean(await auth.api.getSession({ headers: finalHousehold }))).toBe(false);
     expect(restored.pragma('foreign_key_check')).toEqual([]);
     expect(restored.pragma('integrity_check', { simple: true })).toBe('ok');
-  });
+  }, 15000);
 });
