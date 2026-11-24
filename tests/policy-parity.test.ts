@@ -9,14 +9,49 @@ it('detects policy drift and nonexistent commands', () => {
   const run = () => spawnSync(process.execPath, [resolve('scripts/check-agent-policy-parity.mjs'), root], { encoding: 'utf8' });
   try {
     mkdirSync(join(root, '.opencode/commands'), { recursive: true });
+    mkdirSync(join(root, '.agents/hooks'), { recursive: true });
+    mkdirSync(join(root, '.agents/skills/work-issue'), { recursive: true });
     const shared = 'Use mise run test. Never merge or approve your own PR. Never force-push a protected branch. Use --force-with-lease=<full-ref>:<reviewed-remote-commit> for feature branches.';
     writeFileSync(join(root, 'AGENTS.md'), shared);
     writeFileSync(join(root, 'CLAUDE.md'), 'Follow AGENTS.md.');
+    writeFileSync(join(root, 'GEMINI.md'), 'Follow AGENTS.md.');
     writeFileSync(join(root, 'mise.toml'), '[tasks.test]\nrun = "pnpm test"\n');
     writeFileSync(join(root, 'package.json'), JSON.stringify({ packageManager: 'pnpm@12.16.1' }));
     writeFileSync(join(root, '.opencode/commands/work.md'), 'Read AGENTS.md.');
+    writeFileSync(join(root, '.agents/skills/work-issue/SKILL.md'), '---\nname: work-issue\ndescription: Implement an issue with tests.\n---\n\nRead `AGENTS.md`.\n');
+    writeFileSync(join(root, '.agents/hooks/guard.mjs'), 'export {};\n');
+    const antigravityHooks = {
+      'fleck-home-hub-guard': {
+        PreToolUse: [
+          {
+            matcher: 'run_command|read_file|view_file|edit_file|write_file|write_to_file|replace_file_content|multi_replace_file_content',
+            hooks: [{ type: 'command', command: 'mise exec -- node ./hooks/guard.mjs', timeout: 10 }],
+          },
+        ],
+      },
+    };
+    writeFileSync(join(root, '.agents/hooks.json'), JSON.stringify(antigravityHooks));
     const policy = { share: 'disabled', permissions: [{ action: 'shell', resource: '*', effect: 'ask' }], policies: ['shell:gh pr merge *', 'shell:git push --force *', 'shell:git commit *--no-ver*', 'shell:git push *--no-ver*'].map(resource => ({ action: 'tool.use', resource, effect: 'deny' })), agents: { build: { permissions: ['gh pr merge *', 'git push --force *', 'git reset --hard *', 'git clean *', 'git commit *--no-ver*', 'git push *--no-ver*'].map(resource => ({ action: 'shell', resource, effect: 'deny' })) } } };
     writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
+    expect(run().status).toBe(0);
+    // Antigravity configuration invariants: GEMINI.md, skills frontmatter/policy, and PreToolUse hook.
+    writeFileSync(join(root, 'GEMINI.md'), 'Standalone guidance without shared policy.');
+    expect(run().status, 'GEMINI.md missing AGENTS.md').not.toBe(0);
+    writeFileSync(join(root, 'GEMINI.md'), 'Follow AGENTS.md. Run mise run imaginary.');
+    expect(run().status, 'GEMINI.md imaginary task').not.toBe(0);
+    writeFileSync(join(root, 'GEMINI.md'), 'Follow AGENTS.md.');
+    writeFileSync(join(root, '.agents/skills/work-issue/SKILL.md'), '---\nname: wrong-name\ndescription: Implement an issue.\n---\n\nRead `AGENTS.md`.\n');
+    expect(run().status, 'skill name mismatch').not.toBe(0);
+    writeFileSync(join(root, '.agents/skills/work-issue/SKILL.md'), '---\nname: work-issue\ndescription: Implement an issue.\n---\n\nNo shared policy reference.\n');
+    expect(run().status, 'skill missing AGENTS.md').not.toBe(0);
+    writeFileSync(join(root, '.agents/skills/work-issue/SKILL.md'), '---\nname: work-issue\ndescription: Implement an issue with tests.\n---\n\nRead `AGENTS.md`.\n');
+    writeFileSync(join(root, '.agents/hooks.json'), JSON.stringify({ 'fleck-home-hub-guard': { ...antigravityHooks['fleck-home-hub-guard'], enabled: false } }));
+    expect(run().status, 'disabled antigravity hook').not.toBe(0);
+    writeFileSync(join(root, '.agents/hooks.json'), JSON.stringify({ 'fleck-home-hub-guard': { PreToolUse: [{ matcher: 'read_file', hooks: [{ type: 'command', command: 'mise exec -- node ./hooks/guard.mjs' }] }] } }));
+    expect(run().status, 'antigravity hook missing run_command').not.toBe(0);
+    writeFileSync(join(root, '.agents/hooks.json'), JSON.stringify({ 'fleck-home-hub-guard': { PreToolUse: [{ matcher: 'run_command|read_file|write_file', hooks: [{ type: 'command', command: 'mise exec -- node ./hooks/missing.mjs' }] }] } }));
+    expect(run().status, 'antigravity hook missing script').not.toBe(0);
+    writeFileSync(join(root, '.agents/hooks.json'), JSON.stringify(antigravityHooks));
     expect(run().status).toBe(0);
     // Hook bypasses must stay denied both as a final build-agent rule and as a hard policy.
     for (const resource of ['git commit *--no-ver*', 'git push *--no-ver*']) {
