@@ -43,12 +43,14 @@ function skipsGitHooks(words) {
   return false;
 }
 
-function mergesOrApprovesPr(words) {
+function mergesPr(words) {
   const at = words.indexOf('gh');
-  if (at < 0 || words[at + 1] !== 'pr') return false;
-  const action = words[at + 2];
-  if (action === 'merge') return true;
-  if (action !== 'review') return false;
+  return at >= 0 && words[at + 1] === 'pr' && words[at + 2] === 'merge';
+}
+
+function approvesPr(words) {
+  const at = words.indexOf('gh');
+  if (at < 0 || words[at + 1] !== 'pr' || words[at + 2] !== 'review') return false;
   const reviewValueLong = /^--(?:body|body-file|repo)$/;
   const reviewValueShort = new Set(['b', 'F', 'R']);
   for (let next = at + 3; next < words.length; next++) {
@@ -107,9 +109,12 @@ try {
     if (typeof command !== 'string') deny('Invalid Antigravity run_command payload');
     const parsedCommands = commands(command);
     if (parsedCommands.some(skipsGitHooks)) deny('Do not bypass Git verification hooks');
-    if (parsedCommands.some(mergesOrApprovesPr)) deny('Agents must never merge or approve pull requests');
+    if (parsedCommands.some(approvesPr)) deny('Agents must never approve pull requests');
     if (/\b(?:pkill|killall|sudo)\b|\bgh\s+repo\s+delete\b|\bgit\s+reset\s+[^\n]*--hard\b|\bgit\s+clean\b|\bgit\s+push\s+[^\n]*(?:--force(?!-with-lease)|--delete|--tags|--mirror|\s\+|\s:)|\brm\s+-[a-zA-Z]*[rf][a-zA-Z]*/.test(command)) {
       deny('Blocked dangerous operation; use a reviewed safe workflow');
+    }
+    if (parsedCommands.some(mergesPr)) {
+      forceAsk('Merging a pull request requires explicit user authorization and green required checks');
     }
     if (/\bgit\s+push\b[^\n]*--force-with-lease\b/.test(command)) {
       forceAsk('Feature-branch rewrites require human review and an explicit expected commit');

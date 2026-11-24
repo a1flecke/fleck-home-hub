@@ -11,7 +11,7 @@ it('detects policy drift and nonexistent commands', () => {
     mkdirSync(join(root, '.opencode/commands'), { recursive: true });
     mkdirSync(join(root, '.agents/hooks'), { recursive: true });
     mkdirSync(join(root, '.agents/skills/work-issue'), { recursive: true });
-    const shared = 'Use mise run test. Never merge or approve your own PR. Never force-push a protected branch. Use --force-with-lease=<full-ref>:<reviewed-remote-commit> for feature branches.';
+    const shared = 'Use mise run test. Never approve your own PR. Never merge a PR without explicit user authorization and green required checks. Never force-push a protected branch. Use --force-with-lease=<full-ref>:<reviewed-remote-commit> for feature branches.';
     writeFileSync(join(root, 'AGENTS.md'), shared);
     writeFileSync(join(root, 'CLAUDE.md'), 'Follow AGENTS.md.');
     writeFileSync(join(root, 'GEMINI.md'), 'Follow AGENTS.md.');
@@ -63,8 +63,10 @@ it('detects policy drift and nonexistent commands', () => {
       expect(run().status, `shell:${resource}`).not.toBe(0);
     }
     writeFileSync(join(root, '.opencode/opencode.jsonc'), JSON.stringify(policy));
-    writeFileSync(join(root, 'AGENTS.md'), 'Use mise run test. Never merge or approve your own PR. Never force-push.');
+    writeFileSync(join(root, 'AGENTS.md'), 'Use mise run test. Never approve your own PR. Never force-push.');
     expect(run().status).not.toBe(0);
+    writeFileSync(join(root, 'AGENTS.md'), 'Use mise run test. Never approve your own PR. Never force-push a protected branch. Use --force-with-lease=<full-ref>:<reviewed-remote-commit> for feature branches.');
+    expect(run().status, 'missing merge authorization policy').not.toBe(0);
     writeFileSync(join(root, 'AGENTS.md'), shared);
     writeFileSync(join(root, 'CLAUDE.md'), 'Follow AGENTS.md. Run mise run imaginary.');
     expect(run().status).not.toBe(0);
