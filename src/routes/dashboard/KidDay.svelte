@@ -21,6 +21,7 @@
 <main class="mx-auto max-w-3xl px-4 py-6 text-stone-900 sm:px-6">
   <nav aria-label="My areas" class="flex flex-wrap gap-x-4 gap-y-2 text-sm font-semibold">
     <a href={resolve('/calendar')} class="py-2 text-teal-800 underline">Family calendar</a>
+    <a href={resolve('/lists')} class="py-2 text-teal-800 underline">Family lists</a>
     <a href={resolve('/meals')} class="py-2 text-teal-800 underline">Meals</a>
     <a href={resolve('/groceries')} class="py-2 text-teal-800 underline">Groceries</a>
     <a href={resolve('/chores/history?scope=verified')} class="py-2 text-teal-800 underline">My chore history</a>
