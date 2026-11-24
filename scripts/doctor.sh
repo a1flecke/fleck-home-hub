@@ -11,8 +11,9 @@ branch=$(git symbolic-ref --short -q HEAD 2>/dev/null || printf 'detached')
 printf 'Branch: %s\n' "$branch"
 hooks=$(git config --worktree --get core.hooksPath 2>/dev/null || true)
 [ "$hooks" = .githooks ] || { echo 'Required: Git hooks not configured for this worktree' >&2; failed=1; }
-[ -f .claude/settings.json ] && [ -f AGENTS.md ] && [ -f .opencode/opencode.jsonc ] || { echo 'Required: agent configuration missing' >&2; failed=1; }
+[ -f .claude/settings.json ] && [ -f AGENTS.md ] && [ -f GEMINI.md ] && [ -f .agents/hooks.json ] && [ -f .opencode/opencode.jsonc ] || { echo 'Required: agent configuration missing' >&2; failed=1; }
 if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then echo 'GitHub CLI: available and authenticated'; else echo 'Optional: GitHub CLI unavailable or not authenticated'; fi
+if command -v agy >/dev/null 2>&1; then echo 'Antigravity CLI: available'; else echo 'Optional: Antigravity CLI not found'; fi
 if command -v opencode >/dev/null 2>&1; then echo 'OpenCode: available; review plugin setup manually'; else echo 'Optional: OpenCode not found'; fi
 if command -v tailscale >/dev/null 2>&1; then echo 'Tailscale: CLI available; connectivity not checked'; else echo 'Optional: Tailscale not found'; fi
 exit "$failed"

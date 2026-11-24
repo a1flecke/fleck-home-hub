@@ -1,10 +1,12 @@
 # Ownership requests review; GitHub rules must require code-owner approval to enforce it.
 /.github/ @a1flecke
+/.agents/ @a1flecke
 /.opencode/ @a1flecke
 /.claude/ @a1flecke
 /.githooks/ @a1flecke
 /AGENTS.md @a1flecke
 /CLAUDE.md @a1flecke
+/GEMINI.md @a1flecke
 /src/lib/server/ @a1flecke
 /drizzle/ @a1flecke
 /scripts/ @a1flecke
