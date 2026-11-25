@@ -237,8 +237,8 @@ test('calendar routes reject anonymous, child, disabled and cross-origin request
   const disabledContext = await browser.newContext();
   try {
     const login = await disabledContext.request.post('http://127.0.0.1:4173/api/auth/sign-in/email', { headers, data: { email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' } });
-    expect(login.status()).toBe(200);
-    expect((await disabledContext.request.get('http://127.0.0.1:4173/calendar', { maxRedirects: 0 })).status()).toBe(403);
+    expect(login.status()).toBe(401);
+    expect((await disabledContext.request.get('http://127.0.0.1:4173/calendar', { maxRedirects: 0 })).status()).toBe(303);
   } finally { await disabledContext.close(); }
 });
 

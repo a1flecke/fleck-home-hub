@@ -48,6 +48,11 @@ test('disabling the final membership signs out the child in their existing brows
     expect(await submit.json()).toMatchObject(signedOut);
     await kid.page.goto('/dashboard');
     await expect(kid.page).toHaveURL('/sign-in');
+    const reSignIn = await kid.page.request.post('/api/auth/sign-in/email', {
+      headers: { origin: base },
+      data: { email: 'revoke-kid@example.test', password: 'synthetic-revoke-kid-password' }
+    });
+    expect(reSignIn.status()).toBe(401);
     await page.goto('/groceries');
     await expect(page.getByText('Forbidden item')).toHaveCount(0);
   } finally { await kid.context.close(); }

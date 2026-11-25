@@ -146,7 +146,7 @@ test('expense loads and actions stay within active parent households', async ({ 
       clients.push(client);
       if (account === 'anonymous') continue;
       const login = await client.post('/api/auth/sign-in/email', { headers: { origin }, data: { email: account + '@example.test', password: 'synthetic-' + account + '-password' } });
-      expect(login.status()).toBe(200);
+      expect(login.status()).toBe(account === 'disabled-expense' ? 401 : 200);
       if (account !== 'disabled-expense') expect((await client.get('/dashboard', { maxRedirects: 0 })).status()).toBe(200);
     }
     const [anonymous, parent, child, other, disabled] = clients;
@@ -178,15 +178,17 @@ test('expense loads and actions stay within active parent households', async ({ 
     expect((await pairedDisplay.get('/expenses', { maxRedirects: 0 })).status()).toBe(303);
     expect(await (await pairedDisplay.post('/expenses?/save', { headers, form })).json()).toMatchObject({ type: 'redirect', status: 303, location: '/sign-in' });
     expect(await (await pairedDisplay.get('/display/data')).text()).not.toContain(form.notes);
-    for (const client of [child, disabled]) {
-      const denied = await client.get('/expenses', { maxRedirects: 0 });
-      expect(denied.status()).toBe(403);
-      expect(denied.headers()['cache-control']).toBe('no-store');
-      expect(await denied.text()).not.toContain(form.title);
-      const action = await client.post('/expenses?/save', { headers, form });
-      expect(action.status()).toBe(403);
-      expect(await action.json()).toMatchObject({ type: 'error' });
-    }
+    const childDenied = await child.get('/expenses', { maxRedirects: 0 });
+    expect(childDenied.status()).toBe(403);
+    expect(childDenied.headers()['cache-control']).toBe('no-store');
+    expect(await childDenied.text()).not.toContain(form.title);
+    const childAction = await child.post('/expenses?/save', { headers, form });
+    expect(childAction.status()).toBe(403);
+    expect(await childAction.json()).toMatchObject({ type: 'error' });
+    const disabledDenied = await disabled.get('/expenses', { maxRedirects: 0 });
+    expect(disabledDenied.status()).toBe(303);
+    expect(disabledDenied.headers()['location']).toBe('/sign-in');
+    expect(await (await disabled.post('/expenses?/save', { headers, form })).json()).toMatchObject({ type: 'redirect', status: 303, location: '/sign-in' });
     const otherView = await other.get('/expenses?household=foreign');
     expect(otherView.status()).toBe(200);
     expect(await otherView.text()).not.toContain(form.notes);
