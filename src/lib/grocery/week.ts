@@ -1,4 +1,4 @@
-import { probableGroceryMatch } from './domain';
+import { matchesActiveGrocery, probableGroceryMatch } from './domain';
 import { parseIngredientLine, type ParsedIngredient } from './ingredient-parser';
 import type { GroceryMatchSummary, IngredientAction, IngredientReviewOverrides, IngredientSource } from './handoff';
 
@@ -65,7 +65,7 @@ export function buildWeekIngredientReview(
     const name = override.name ?? value.name;
     const quantity = override.quantity ?? value.quantity;
     const unit = override.unit ?? value.unit;
-    const existing = active.find(item => probableGroceryMatch(value.name, item.name) || probableGroceryMatch(ref.line, item.name)) ?? null;
+    const existing = active.find(item => matchesActiveGrocery(name, ref.line, item.name, override.name !== undefined)) ?? null;
     const duplicateOfSelection = seen.some(previous => sameIngredient(value, previous));
     seen.push(value);
     const requiredBy = parsed

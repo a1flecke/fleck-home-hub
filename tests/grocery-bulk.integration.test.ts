@@ -127,14 +127,28 @@ it('validates every submitted field before writing', async () => {
       [decision(0, '2 cups rice', 'rice', '1'.repeat(61), 'cups')],
       [decision(0, '2 cups rice', 'rice', '2', 'x'.repeat(61))],
       [decision(0, '2 cups rice', 'rice', '2', 'cups'), decision(0, '3 apples', 'apples', '3')],
-      [{ ...decision(0, '2 cups rice', 'rice', '2', 'cups'), action: 'forged' as 'add' }],
-      [decision(0, '2 cups rice', 'rice', '2', 'cups'), decision(1, 'Salt to taste', '', '', '', 'skip')]
+      [{ ...decision(0, '2 cups rice', 'rice', '2', 'cups'), action: 'forged' as 'add' }]
     ];
     for (const batch of invalid) expect(() => addBulkGroceries(db, 'parent', 'home', batch)).toThrow(BulkValidationError);
 
     expect(() => addBulkGroceries(db, 'parent', 'home', Array.from({ length: MAX_BULK_LINES + 1 }, (_, index) => decision(index, `synthetic ${index}`, `synthetic ${index}`)))).toThrow(BulkValidationError);
     expect(() => addBulkGroceries(db, 'parent', 'home', [decision(0, 'x'.repeat(6001), 'rice')])).toThrow(BulkValidationError);
     expect(listGroceries(db, 'parent', 'home')).toEqual([]);
+  } finally { db.close(); }
+});
+
+it('allows renaming a pasted active item to a different product and ignores validation on skipped rows', async () => {
+  const db = await setup();
+  try {
+    addGrocery(db, 'parent', 'home', { name: 'milk', quantity: '1', unit: 'gallon' });
+    const longNote = 'x'.repeat(250);
+    const result = addBulkGroceries(db, 'parent', 'home', [
+      decision(0, 'milk', 'almond milk', '1', 'carton', 'add'),
+      decision(1, longNote, longNote, '', '', 'skip'),
+      decision(2, 'Salt to taste', '', '', '', 'skip')
+    ]);
+    expect(result).toEqual({ added: 1, skipped: 2 });
+    expect(listGroceries(db, 'parent', 'home').map(item => item.name).sort()).toEqual(['almond milk', 'milk']);
   } finally { db.close(); }
 });
 

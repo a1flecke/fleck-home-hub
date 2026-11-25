@@ -139,4 +139,23 @@ describe('buildBulkReview', () => {
     });
     expect(review.items[0]).toMatchObject({ name: '   ', quantity: '4', unit: 'bags', existing: null, action: 'add' });
   });
+
+  it('clears an existing match when a bare line is renamed to a different product', () => {
+    const active = [{ id: 'milk-id', name: 'milk', quantity: '1', unit: 'gallon' }];
+    const edited = buildBulkReview(['milk'], active, {
+      [bulkItemKey(0)]: { name: 'almond milk', quantity: '1', unit: 'carton' }
+    });
+    expect(edited.items[0]).toMatchObject({ name: 'almond milk', existing: null, action: 'add' });
+  });
+
+  it('does not flag later rows as batch duplicates when an earlier matching row is skipped', () => {
+    const review = buildBulkReview(['2 apples', '3 apples', 'apple'], noActive, {
+      [bulkItemKey(0)]: { action: 'skip' }
+    });
+    expect(review.items.map(item => ({ action: item.action, duplicateOfBatch: item.duplicateOfBatch }))).toEqual([
+      { action: 'skip', duplicateOfBatch: false },
+      { action: 'add', duplicateOfBatch: false },
+      { action: 'skip', duplicateOfBatch: true }
+    ]);
+  });
 });

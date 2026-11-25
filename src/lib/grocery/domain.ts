@@ -56,6 +56,15 @@ export function probableGroceryMatch(candidateName: string, existingName: string
   return sameNameKey(candidateName, legacy.name);
 }
 
+/**
+ * Matches a reviewed grocery candidate against an active grocery row. When the user has
+ * edited the proposed name, only the edited name is compared so renaming clears stale matches
+ * and narrowing an ambiguous line detects active conflicts.
+ */
+export function matchesActiveGrocery(candidateName: string, originalLine: string, existingName: string, nameEdited: boolean): boolean {
+  return probableGroceryMatch(candidateName, existingName) || (!nameEdited && probableGroceryMatch(originalLine, existingName));
+}
+
 export function ingredientLines(ingredients: string): string[] {
   return ingredients.split(/\r?\n/).map(line => line.trim()).filter(Boolean);
 }

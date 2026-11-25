@@ -1,4 +1,4 @@
-import { probableGroceryMatch } from './domain';
+import { matchesActiveGrocery, probableGroceryMatch } from './domain';
 import { parseIngredientLine, type ParsedIngredient } from './ingredient-parser';
 
 /** One pasted list may contain at most this many nonempty lines. */
@@ -59,10 +59,6 @@ function isBulkAction(value: unknown): value is BulkAction {
   return typeof value === 'string' && bulkActions.includes(value as BulkAction);
 }
 
-function matchesExisting(name: string, line: string, item: { name: string }): boolean {
-  return probableGroceryMatch(name, item.name) || probableGroceryMatch(line, item.name);
-}
-
 /**
  * Builds the editable review for a pasted list. Parsing is deliberately conservative:
  * an ambiguous line stays whole and is marked for review, and an existing or
@@ -82,12 +78,12 @@ export function buildBulkReview(
     const quantity = override.quantity ?? parsed.quantity;
     const unit = override.unit ?? parsed.unit;
 
-    const existing = active.find(item => matchesExisting(name, line, item)) ?? null;
+    const existing = active.find(item => matchesActiveGrocery(name, line, item.name, override.name !== undefined)) ?? null;
     const duplicateOfBatch = name.trim() !== '' && seenNames.some(previous => probableGroceryMatch(name, previous));
-    seenNames.push(name);
 
     const requested = override.action;
     const action: BulkAction = isBulkAction(requested) ? requested : existing || duplicateOfBatch ? 'skip' : 'add';
+    if (action === 'add' && name.trim() !== '') seenNames.push(name);
 
     return {
       ...parsed,

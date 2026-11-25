@@ -13,7 +13,7 @@
   <div class="flex items-start justify-between gap-3">
     <div class="min-w-0">
       <h3 class="break-words font-semibold">{item.name}</h3>
-      {#if item.completedAt}
+      {#if item.completed && item.completedAt}
         <p class="mt-1 text-xs text-slate-600">
           {item.completedByName ?? 'Family member'} · <time datetime={item.completedAt}>{item.completedAt.slice(0, 16).replace('T', ' ')} UTC</time>
         </p>

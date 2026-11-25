@@ -64,7 +64,19 @@ export function getChecklist(db: Database.Database, actor: string, household: st
     const role = member(db, actor, household);
     const list = readList(db, household, id, role);
     const items = db.prepare('SELECT i.id, i.name, i.completed, i.completed_by AS completedBy, u.name AS completedByName, i.completed_at AS completedAt, i.version FROM family_checklist_item i LEFT JOIN user u ON u.id = i.completed_by WHERE i.checklist_id = ? ORDER BY i.position, i.id').all(id) as (Omit<Item, 'completed'> & { completed: number })[];
-    return { ...list, items: items.map(item => ({ ...item, completed: !!item.completed })) };
+    return {
+      ...list,
+      items: items.map(item => {
+        const completed = !!item.completed;
+        return {
+          ...item,
+          completed,
+          completedBy: completed ? item.completedBy : null,
+          completedByName: completed ? item.completedByName : null,
+          completedAt: completed ? item.completedAt : null
+        };
+      })
+    };
   })();
 }
 
@@ -89,7 +101,9 @@ export function setItemCompletion(db: Database.Database, actor: string, househol
   db.transaction(() => {
     const role = member(db, actor, household), list = readList(db, household, listId, role);
     if (list.archived) throw new Error('Checklist archived');
-    const result = db.prepare('UPDATE family_checklist_item SET completed = ?, completed_by = ?, completed_at = ?, version = version + 1 WHERE id = ? AND checklist_id = ? AND version = ?').run(Number(completed), actor, new Date().toISOString(), itemId, listId, version);
+    const completedBy = completed ? actor : null;
+    const completedAt = completed ? new Date().toISOString() : null;
+    const result = db.prepare('UPDATE family_checklist_item SET completed = ?, completed_by = ?, completed_at = ?, version = version + 1 WHERE id = ? AND checklist_id = ? AND version = ?').run(Number(completed), completedBy, completedAt, itemId, listId, version);
     if (!result.changes) throw new ChecklistConflict('Item changed');
   }).immediate();
 }
