@@ -112,4 +112,21 @@ describe('recurring schedule preview', () => {
     expect(preview.addDates).toHaveLength(5);
     expect(preview.counts.add).toBe(90);
   });
+
+  it('evaluates materialized occurrences more than 366 days after the effective date', () => {
+    const preview = previewScheduleChange({
+      ...base,
+      newWeekdays: [2, 4],
+      newEndDate: '2028-11-28',
+      horizonDays: 90,
+      occurrences: [
+        { date: '2028-11-27', status: 'todo', cancelled: false }, // Mon (removed weekday)
+        { date: '2028-11-28', status: 'todo', cancelled: false }, // Tue (matches on end date)
+        { date: '2028-11-30', status: 'todo', cancelled: false }  // Thu (after end date)
+      ]
+    });
+    expect(preview.keepDates).toEqual(['2028-11-28']);
+    expect(preview.cancelDates).toEqual(['2028-11-27', '2028-11-30']);
+    expect(preview.counts).toMatchObject({ keep: 1, cancel: 2, preserved: 0 });
+  });
 });

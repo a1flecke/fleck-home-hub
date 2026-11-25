@@ -68,29 +68,43 @@ export function loadChoreWeek(db: Database.Database, audience: ChoreAudience, fi
   if (childId && !children.some(child => child.id === childId)) throw new Error('Invalid child');
 
   const visible = choreVisibility(audience);
-  const rows = db.prepare(`SELECT c.id, c.title, c.description, c.due_date AS dueDate, c.reward_cents AS rewardCents,
-    c.status, c.rework_reason AS reworkReason, c.assignee_id AS assigneeId, u.name AS childName,
-    o.series_id AS seriesId, o.scheduled_date AS scheduledDate, c.updated_at AS updatedAt
-    FROM chore c
+  const weekFrom = `FROM chore c
     JOIN user u ON u.id = c.assignee_id
     LEFT JOIN recurring_occurrence o ON o.chore_id = c.id
     LEFT JOIN recurring_series r ON r.id = o.series_id
-    WHERE ${visible.sql} AND c.due_date >= ? AND c.due_date <= ?
-    ORDER BY c.due_date ASC, u.name COLLATE NOCASE, c.created_at ASC, c.id ASC
-    LIMIT ?`).all(...visible.parameters, start, end, CHORE_WEEK_ROW_LIMIT + 1) as WeekRow[];
-  const truncated = rows.length > CHORE_WEEK_ROW_LIMIT;
-  const bounded = truncated ? rows.slice(0, CHORE_WEEK_ROW_LIMIT) : rows;
+    WHERE ${visible.sql} AND c.due_date >= ? AND c.due_date <= ?`;
 
   const counts: Record<ChoreState, number> = { todo: 0, pending_verification: 0, needs_rework: 0, verified: 0 };
-  const childTotals = new Map(children.map(child => [child.id, 0]));
-  for (const row of bounded) {
-    counts[row.status] += 1;
-    childTotals.set(row.assigneeId, (childTotals.get(row.assigneeId) ?? 0) + 1);
-  }
+  const statusRows = db.prepare(`SELECT c.status, COUNT(*) AS count ${weekFrom} GROUP BY c.status`)
+    .all(...visible.parameters, start, end) as { status: ChoreState; count: number }[];
+  for (const row of statusRows) counts[row.status] = row.count;
 
-  const filtered = bounded
-    .filter(row => (!childId || row.assigneeId === childId) && (status === 'all' || row.status === status))
-    .map(row => ({ ...row, isRecurring: row.seriesId !== null }) as WeekChore);
+  const childTotals = new Map(children.map(child => [child.id, 0]));
+  const childRows = db.prepare(`SELECT c.assignee_id AS assigneeId, COUNT(*) AS count ${weekFrom} GROUP BY c.assignee_id`)
+    .all(...visible.parameters, start, end) as { assigneeId: string; count: number }[];
+  for (const row of childRows) childTotals.set(row.assigneeId, row.count);
+
+  const filterClauses: string[] = [];
+  const filterParameters: unknown[] = [];
+  if (childId) {
+    filterClauses.push('c.assignee_id = ?');
+    filterParameters.push(childId);
+  }
+  if (status !== 'all') {
+    filterClauses.push('c.status = ?');
+    filterParameters.push(status);
+  }
+  const extraWhere = filterClauses.length ? ` AND ${filterClauses.join(' AND ')}` : '';
+
+  const rows = db.prepare(`SELECT c.id, c.title, c.description, c.due_date AS dueDate, c.reward_cents AS rewardCents,
+    c.status, c.rework_reason AS reworkReason, c.assignee_id AS assigneeId, u.name AS childName,
+    o.series_id AS seriesId, o.scheduled_date AS scheduledDate, c.updated_at AS updatedAt
+    ${weekFrom}${extraWhere}
+    ORDER BY c.due_date ASC, u.name COLLATE NOCASE, c.created_at ASC, c.id ASC
+    LIMIT ?`).all(...visible.parameters, start, end, ...filterParameters, CHORE_WEEK_ROW_LIMIT + 1) as WeekRow[];
+  const truncated = rows.length > CHORE_WEEK_ROW_LIMIT;
+  const bounded = truncated ? rows.slice(0, CHORE_WEEK_ROW_LIMIT) : rows;
+  const filtered: WeekChore[] = bounded.map(row => ({ ...row, isRecurring: row.seriesId !== null }));
   const byDay = new Map(dates.map(date => [date, [] as WeekChore[]]));
   for (const row of filtered) byDay.get(row.dueDate)?.push(row);
 

@@ -347,3 +347,56 @@ it('resumes a paused series before a future effective date using the prior versi
     { scheduled_date: '2026-05-25', title: 'Restored Mon/Wed' }
   ]);
 });
+
+it('cancels and previews materialized occurrences more than 366 days after the effective date', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-22T18:00:00Z'));
+  const db = await fixture();
+  const id = createSeries(db, 'parent', 'home', seriesInput);
+  // Materialize a far-future week (> 2 years out, as /chores/week allows up to 520 weeks).
+  generateOccurrences(db, 'parent', 'home', '2028-11-26', '2028-12-02');
+  // 2028-11-27 is Monday, 2028-11-29 is Wednesday.
+  expect(occurrence(db, id, '2028-11-27')).toMatchObject({ title: 'Take out trash', status: 'todo', cancelledAt: null });
+  expect(occurrence(db, id, '2028-11-29')).toMatchObject({ title: 'Take out trash', status: 'todo', cancelledAt: null });
+
+  // 1) Revise weekdays from Mon/Wed to Wed/Fri with a new title: far-future Mon must be cancelled (not overwritten), far-future Wed kept and updated.
+  const firstBefore = series(db, id);
+  const firstPreview = previewSeriesSchedule(db, 'parent', 'home', id, firstBefore.updated_at, {
+    ...seriesInput,
+    title: 'Updated trash',
+    effectiveDate,
+    weekdays: [3, 5]
+  });
+  expect(firstPreview.cancelDates).toContain('2028-11-27');
+  expect(firstPreview.keepDates).toContain('2028-11-29');
+
+  reviseSeriesSchedule(db, 'parent', 'home', id, firstBefore.updated_at, {
+    ...seriesInput,
+    title: 'Updated trash',
+    effectiveDate,
+    weekdays: [3, 5]
+  });
+  expect(occurrence(db, id, '2028-11-27')).toMatchObject({ title: 'Take out trash', cancelledAt: expect.any(String) });
+  expect(occurrence(db, id, '2028-11-29')).toMatchObject({ title: 'Updated trash', cancelledAt: null });
+
+  // 2) Shorten endDate to 2026-12-31: the remaining far-future Wed 2028-11-29 must also be cancelled and not overwritten.
+  const secondBefore = series(db, id);
+  const secondPreview = previewSeriesSchedule(db, 'parent', 'home', id, secondBefore.updated_at, {
+    ...seriesInput,
+    title: 'Shortened trash',
+    effectiveDate,
+    endDate: '2026-12-31',
+    weekdays: [3, 5]
+  });
+  expect(secondPreview.cancelDates).toContain('2028-11-29');
+
+  reviseSeriesSchedule(db, 'parent', 'home', id, secondBefore.updated_at, {
+    ...seriesInput,
+    title: 'Shortened trash',
+    effectiveDate,
+    endDate: '2026-12-31',
+    weekdays: [3, 5]
+  });
+  expect(occurrence(db, id, '2028-11-29')).toMatchObject({ title: 'Updated trash', cancelledAt: expect.any(String) });
+  expect(db.prepare('SELECT archived_at FROM recurring_occurrence WHERE series_id = ? AND scheduled_date = ?').get(id, '2028-11-29')).toMatchObject({ archived_at: expect.any(String) });
+});

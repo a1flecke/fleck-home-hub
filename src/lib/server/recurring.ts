@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { addCalendarDays } from '../calendar/dates';
 import { localDate, occurrenceDates } from '../chores/recurrence';
-import { previewScheduleChange, schedulePatternLabel, scheduleSegments, scheduleVersionForDate, validateEffectiveDate, type ScheduleOccurrence, type SchedulePreview, type ScheduleVersion } from '../chores/schedule';
+import { dateMatchesSchedule, previewScheduleChange, schedulePatternLabel, scheduleSegments, scheduleVersionForDate, validateEffectiveDate, type ScheduleOccurrence, type SchedulePreview, type ScheduleVersion } from '../chores/schedule';
 import { createChore } from './chores';
 
 type SeriesInput = { title: string; description?: string; assigneeId: string; startDate: string; endDate?: string; weekdays: number[]; rewardCents?: number | null };
@@ -254,11 +254,11 @@ function scheduleSeries(db: Database.Database, id: string, household: string): S
   return db.prepare('SELECT * FROM recurring_series WHERE id = ? AND household_id = ?').get(id, household) as Series | undefined;
 }
 
-function scheduleOccurrences(db: Database.Database, id: string, from: string, through: string) {
+function scheduleOccurrences(db: Database.Database, id: string, from: string) {
   return db.prepare(`SELECT o.chore_id AS choreId, o.scheduled_date AS date, c.status, c.cancelled_at AS cancelledAt
     FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id
-    WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ? AND o.scheduled_date <= ?
-    ORDER BY o.scheduled_date, c.id LIMIT 500`).all(id, from, through) as { choreId: string; date: string; status: ScheduleOccurrence['status']; cancelledAt: string | null }[];
+    WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ?
+    ORDER BY o.scheduled_date, c.id`).all(id, from) as { choreId: string; date: string; status: ScheduleOccurrence['status']; cancelledAt: string | null }[];
 }
 
 function scheduleSkips(db: Database.Database, id: string, from: string, through: string) {
@@ -284,8 +284,8 @@ export function previewSeriesSchedule(db: Database.Database, actor: string, hous
   const oldWeekdays = [...oldVersion.weekdays];
   const newWeekdays = JSON.parse(normalized.weekdays) as number[];
   const end = input.endDate || null;
-  const scanThrough = addCalendarDays(input.effectiveDate, 366);
-  const occurrences = scheduleOccurrences(db, id, input.effectiveDate, scanThrough).map(row => ({ date: row.date, status: row.status, cancelled: row.cancelledAt !== null }));
+  const skipThrough = addCalendarDays(input.effectiveDate, 366);
+  const occurrences = scheduleOccurrences(db, id, input.effectiveDate).map(row => ({ date: row.date, status: row.status, cancelled: row.cancelledAt !== null }));
   const preview = previewScheduleChange({
     today,
     effectiveDate: input.effectiveDate,
@@ -294,7 +294,7 @@ export function previewSeriesSchedule(db: Database.Database, actor: string, hous
     newWeekdays,
     newEndDate: end,
     occurrences,
-    skips: scheduleSkips(db, id, input.effectiveDate, scanThrough)
+    skips: scheduleSkips(db, id, input.effectiveDate, skipThrough)
   });
   return {
     ...preview,
@@ -341,12 +341,9 @@ export function reviseSeriesSchedule(db: Database.Database, actor: string, house
     const newWeekdays = JSON.parse(normalized.weekdays) as number[];
     const end = input.endDate || null;
     const now = nextTimestamp(series.updated_at);
-    const scanThrough = addCalendarDays(input.effectiveDate, 366);
-    const recurrenceEnd = end && end < scanThrough ? end : scanThrough;
-    const newDates = new Set(occurrenceDates(input.effectiveDate, recurrenceEnd, newWeekdays));
     const cancelledDates: string[] = [];
-    for (const occurrence of scheduleOccurrences(db, id, input.effectiveDate, scanThrough)) {
-      if (occurrence.status !== 'todo' || occurrence.cancelledAt || newDates.has(occurrence.date)) continue;
+    for (const occurrence of scheduleOccurrences(db, id, input.effectiveDate)) {
+      if (occurrence.status !== 'todo' || occurrence.cancelledAt || dateMatchesSchedule(occurrence.date, input.effectiveDate, end, newWeekdays)) continue;
       const changed = db.prepare('UPDATE chore SET cancelled_at = ?, cancelled_by = ?, updated_at = ? WHERE id = ? AND cancelled_at IS NULL')
         .run(now, actor, now, occurrence.choreId);
       if (!changed.changes) continue;
@@ -370,8 +367,9 @@ export function reviseSeriesSchedule(db: Database.Database, actor: string, house
     db.prepare(`UPDATE chore SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, updated_at = ?
       WHERE household_id = ? AND status = 'todo' AND cancelled_at IS NULL AND id IN (
         SELECT o.chore_id FROM recurring_occurrence o WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ?
+        AND (? IS NULL OR o.scheduled_date <= ?)
         AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date)
-      )`).run(input.assigneeId, normalized.title, normalized.description, input.rewardCents ?? null, now, household, id, input.effectiveDate);
+      )`).run(input.assigneeId, normalized.title, normalized.description, input.rewardCents ?? null, now, household, id, input.effectiveDate, end, end);
     let createdDates: string[] = [];
     if (series.state === 'active') {
       const generateEnd = end && end < addCalendarDays(input.effectiveDate, 60) ? end : addCalendarDays(input.effectiveDate, 60);

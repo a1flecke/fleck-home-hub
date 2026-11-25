@@ -111,9 +111,39 @@ it('creates independent to-do chores once for a retried batch and copies no hist
   expect(JSON.parse(batch.assigneeIds)).toEqual(['kid', 'sibling']);
   expect(JSON.parse(batch.choreIds)).toEqual(first.choreIds);
 
-  const retry = createReuseBatch(db, 'parent', 'home', { ...input, title: 'Changed retry title' });
+  const retry = createReuseBatch(db, 'parent', 'home', input);
   expect(retry).toEqual({ created: false, choreIds: first.choreIds });
   expect(db.prepare('SELECT count(*) AS count FROM chore').get()).toEqual({ count: (before as { count: number }).count + 2 });
+  expect(db.prepare('SELECT count(*) AS count FROM chore_reuse_batch').get()).toEqual({ count: 1 });
+
+  // An identical retry remains idempotent even if the source chore is later modified.
+  db.prepare('UPDATE chore SET updated_at = ? WHERE id = ?').run('2099-01-01T00:00:00.000Z', id);
+  expect(createReuseBatch(db, 'parent', 'home', input)).toEqual({ created: false, choreIds: first.choreIds });
+});
+
+it('rejects reusing an idempotency key with changed fields or invalid input instead of returning cached success', async () => {
+  const db = await fixture();
+  const id = sourceChore(db);
+  const otherSource = sourceChore(db, 'Water plants');
+  const token = source(db, id).updatedAt;
+  const input = { key: 'reuse-batch-key-0003', sourceId: id, sourceUpdatedAt: token, title: 'Clean bedroom again', description: 'Hallway too', dueDate: '2026-12-01', rewardCents: 250, assigneeIds: ['kid', 'sibling'] };
+
+  const first = createReuseBatch(db, 'parent', 'home', input);
+  expect(first.created).toBe(true);
+  const afterFirst = db.prepare('SELECT count(*) AS count FROM chore').get();
+
+  expect(code(() => createReuseBatch(db, 'parent', 'home', { ...input, title: 'Changed retry title' }))).toBe('key-conflict');
+  expect(code(() => createReuseBatch(db, 'parent', 'home', { ...input, description: 'Different description' }))).toBe('key-conflict');
+  expect(code(() => createReuseBatch(db, 'parent', 'home', { ...input, dueDate: '2026-12-02' }))).toBe('key-conflict');
+  expect(code(() => createReuseBatch(db, 'parent', 'home', { ...input, rewardCents: 500 }))).toBe('key-conflict');
+  expect(code(() => createReuseBatch(db, 'parent', 'home', { ...input, assigneeIds: ['kid'] }))).toBe('key-conflict');
+  expect(code(() => createReuseBatch(db, 'parent', 'home', { ...input, sourceId: otherSource }))).toBe('key-conflict');
+  expect(code(() => createReuseBatch(db, 'parent-two', 'home', input))).toBe('key-conflict');
+  expect(code(() => createReuseBatch(db, 'parent', 'home', { ...input, dueDate: 'not-a-date' }))).toBe('invalid');
+  expect(code(() => createReuseBatch(db, 'parent', 'home', { ...input, title: '   ' }))).toBe('invalid');
+  expect(code(() => createReuseBatch(db, 'parent', 'home', { ...input, assigneeIds: [] }))).toBe('invalid');
+
+  expect(db.prepare('SELECT count(*) AS count FROM chore').get()).toEqual(afterFirst);
   expect(db.prepare('SELECT count(*) AS count FROM chore_reuse_batch').get()).toEqual({ count: 1 });
 });
 

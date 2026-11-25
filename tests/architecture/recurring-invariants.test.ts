@@ -64,9 +64,33 @@ export function reviewSummaryChildEnumerationFindings(source: string): string[] 
     : ['reviewChildSummaries must enumerate active children from active_membership so zero-pending children remain in verified owed totals'];
 }
 
+export function scheduleOccurrenceScanFindings(source: string): string[] {
+  const findings: string[] = [];
+  const occurrencesBody = extractFunction(source, 'scheduleOccurrences');
+  if (!occurrencesBody) {
+    findings.push('scheduleOccurrences function not found');
+  } else {
+    if (/\bscheduled_date\s*<=/i.test(occurrencesBody) || /\bLIMIT\b/i.test(occurrencesBody)) {
+      findings.push('scheduleOccurrences must not cap existing occurrences with scheduled_date <= or LIMIT');
+    }
+  }
+  const reviseBody = extractFunction(source, 'reviseSeriesSchedule');
+  if (!reviseBody) {
+    findings.push('reviseSeriesSchedule function not found');
+  } else if (!/\bdateMatchesSchedule\s*\(/.test(reviseBody)) {
+    findings.push('reviseSeriesSchedule must evaluate every materialized future occurrence with dateMatchesSchedule instead of a bounded date set');
+  }
+  return findings;
+}
+
 it('reviseSeriesSchedule preserves recurring_series.start_date', () => {
   const recurring = readFileSync('src/lib/server/recurring.ts', 'utf8');
   expect(revisionStartDateFindings(recurring)).toEqual([]);
+});
+
+it('scheduleOccurrences and reviseSeriesSchedule evaluate all materialized future occurrences without a 366-day or LIMIT cap', () => {
+  const recurring = readFileSync('src/lib/server/recurring.ts', 'utf8');
+  expect(scheduleOccurrenceScanFindings(recurring)).toEqual([]);
 });
 
 it('recurring_occurrence lookups by series_id filter archived_at IS NULL', () => {
@@ -82,12 +106,25 @@ it('reviewChildSummaries enumerates active children from active_membership', () 
   expect(reviewSummaryChildEnumerationFindings(verification)).toEqual([]);
 });
 
-it('detects recurring revision, archived-occurrence and summary-enumeration regressions (negative fixtures)', () => {
+it('detects recurring revision, archived-occurrence, scan-cap and summary-enumeration regressions (negative fixtures)', () => {
   expect(revisionStartDateFindings(`
     export function reviseSeriesSchedule(db: any) {
       db.prepare('UPDATE recurring_series SET title = ?, start_date = ? WHERE id = ?').run();
     }
   `)).toEqual(['reviseSeriesSchedule must not overwrite recurring_series.start_date']);
+
+  expect(scheduleOccurrenceScanFindings(`
+    function scheduleOccurrences(db: any, id: string, from: string, through: string) {
+      return db.prepare('SELECT o.scheduled_date FROM recurring_occurrence o WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ? AND o.scheduled_date <= ? LIMIT 500').all(id, from, through);
+    }
+    export function reviseSeriesSchedule(db: any) {
+      const newDates = new Set<string>();
+      return newDates;
+    }
+  `)).toEqual([
+    'scheduleOccurrences must not cap existing occurrences with scheduled_date <= or LIMIT',
+    'reviseSeriesSchedule must evaluate every materialized future occurrence with dateMatchesSchedule instead of a bounded date set'
+  ]);
 
   expect(unarchivedOccurrenceQueryFindings({
     'src/lib/server/bad.ts': "db.prepare('SELECT 1 FROM recurring_occurrence WHERE series_id = ? AND scheduled_date = ?').get()",

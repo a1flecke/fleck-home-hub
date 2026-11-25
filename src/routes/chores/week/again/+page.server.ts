@@ -48,6 +48,7 @@ function reuseInput(fields: ReuseFields) {
 
 function reuseFailure(cause: unknown, fields: ReuseFields) {
   if (cause instanceof ReuseError && cause.code === 'stale-source') return fail(409, { message: 'The source chore changed. Choose it again and review the assignments.', reuseError: fields });
+  if (cause instanceof ReuseError && cause.code === 'key-conflict') return fail(409, { message: 'This submission was already used for another assignment batch. Review the assignments again to create a new batch.', reuseError: { ...fields, submissionKey: randomUUID() } });
   if (cause instanceof ReuseError && cause.code === 'not-authorized') return fail(403, { message: 'Request not authorized.', reuseError: fields });
   return fail(400, { message: 'Unable to create this assignment batch. Check the children, date and details and try again.', reuseError: fields });
 }

@@ -4,7 +4,7 @@ import { createChore } from './chores';
 
 export const REUSE_PAGE_SIZE = 20;
 
-export type ReuseErrorCode = 'not-authorized' | 'invalid' | 'invalid-key' | 'stale-source';
+export type ReuseErrorCode = 'not-authorized' | 'invalid' | 'invalid-key' | 'stale-source' | 'key-conflict';
 export class ReuseError extends Error {
   constructor(readonly code: ReuseErrorCode) { super(code); }
 }
@@ -101,16 +101,46 @@ export function previewReuseBatch(db: Database.Database, actor: string, househol
   return { sourceId: input.sourceId, sourceUpdatedAt: source.updated_at, rows: reusePreviewRows(fields, children) };
 }
 
+type StoredBatch = {
+  actorId: string;
+  sourceId: string;
+  title: string;
+  description: string | null;
+  rewardCents: number | null;
+  dueDate: string;
+  assigneeIds: string;
+  choreIds: string;
+};
+
 /**
  * Create one independent to-do chore per reviewed child in a single immediate transaction.
- * The reviewed batch key makes retries and double-clicks return the original result.
+ * The reviewed batch key makes identical retries return the original result, while reusing
+ * a key with changed parameters is rejected with key-conflict.
  */
 export function createReuseBatch(db: Database.Database, actor: string, household: string, input: ReuseInput & { key: string }): { created: boolean; choreIds: string[] } {
   return db.transaction(() => {
     parent(db, actor, household);
     if (!isValidReuseKey(input.key)) throw new ReuseError('invalid-key');
-    const existing = db.prepare('SELECT chore_ids AS choreIds FROM chore_reuse_batch WHERE id = ? AND household_id = ?').get(input.key, household) as { choreIds: string } | undefined;
-    if (existing) return { created: false, choreIds: JSON.parse(existing.choreIds) as string[] };
+    let normalizedFields;
+    let normalizedAssignees;
+    try {
+      normalizedFields = normalizeReuseFields(input);
+      normalizedAssignees = uniqueAssigneeIds(input.assigneeIds);
+    } catch { throw new ReuseError('invalid'); }
+    const existing = db.prepare(`SELECT actor_id AS actorId, source_chore_id AS sourceId, title, description,
+      reward_cents AS rewardCents, due_date AS dueDate, assignee_ids AS assigneeIds, chore_ids AS choreIds
+      FROM chore_reuse_batch WHERE id = ? AND household_id = ?`).get(input.key, household) as StoredBatch | undefined;
+    if (existing) {
+      const matches = existing.actorId === actor
+        && existing.sourceId === input.sourceId
+        && existing.title === normalizedFields.title
+        && existing.description === normalizedFields.description
+        && existing.rewardCents === normalizedFields.rewardCents
+        && existing.dueDate === normalizedFields.dueDate
+        && existing.assigneeIds === JSON.stringify(normalizedAssignees);
+      if (!matches) throw new ReuseError('key-conflict');
+      return { created: false, choreIds: JSON.parse(existing.choreIds) as string[] };
+    }
     const { fields, source, children } = validate(db, actor, household, input);
     const choreIds: string[] = [];
     for (const child of children) {

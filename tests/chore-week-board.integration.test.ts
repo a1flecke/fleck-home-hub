@@ -123,3 +123,40 @@ it('bounds a busy week and reports truncation instead of reading unbounded histo
   expect(board.truncated).toBe(true);
   expect(board.total).toBe(500);
 });
+
+it('applies child and status filters before the 500-row cap while reporting exact whole-week counts', async () => {
+  const db = await fixture();
+  const insert = db.prepare('INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?)');
+  const many = db.transaction(() => {
+    for (let index = 0; index < 505; index++) {
+      insert.run(`busy-kid-${index}`, 'home', 'kid', `Busy ${index}`, '2026-11-15', 'todo', '2026-11-01', '2026-11-01');
+    }
+    insert.run('sibling-verified-1', 'home', 'sibling', 'Sibling verified 1', '2026-11-16', 'verified', '2026-11-01', '2026-11-01');
+    insert.run('sibling-verified-2', 'home', 'sibling', 'Sibling verified 2', '2026-11-16', 'verified', '2026-11-01', '2026-11-01');
+  });
+  many();
+
+  const unfiltered = loadChoreWeek(db, audience, week);
+  expect(unfiltered.truncated).toBe(true);
+  expect(unfiltered.total).toBe(500);
+  expect(unfiltered.counts).toEqual({ todo: 505, pending_verification: 0, needs_rework: 0, verified: 2 });
+  expect(unfiltered.children).toEqual([
+    { id: 'kid', name: 'Kid', total: 505 },
+    { id: 'sibling', name: 'Sibling', total: 2 }
+  ]);
+
+  const byChild = loadChoreWeek(db, audience, { ...week, childId: 'sibling' });
+  expect(byChild.truncated).toBe(false);
+  expect(byChild.total).toBe(2);
+  expect(byChild.days[1].children[0].chores.map(chore => chore.id)).toEqual(['sibling-verified-1', 'sibling-verified-2']);
+  expect(byChild.counts).toEqual({ todo: 505, pending_verification: 0, needs_rework: 0, verified: 2 });
+  expect(byChild.children).toEqual([
+    { id: 'kid', name: 'Kid', total: 505 },
+    { id: 'sibling', name: 'Sibling', total: 2 }
+  ]);
+
+  const byStatus = loadChoreWeek(db, audience, { ...week, status: 'verified' });
+  expect(byStatus.truncated).toBe(false);
+  expect(byStatus.total).toBe(2);
+  expect(byStatus.days[1].children[0].chores.map(chore => chore.id)).toEqual(['sibling-verified-1', 'sibling-verified-2']);
+});
