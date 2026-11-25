@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { addCalendarDays } from '../calendar/dates';
-import { localDate, occurrenceDates } from '../chores/recurrence';
+import { hasRecurrenceOccurrence, localDate, occurrenceDates } from '../chores/recurrence';
 import { dateMatchesSchedule, previewScheduleChange, schedulePatternLabel, scheduleSegments, scheduleVersionForDate, validateEffectiveDate, type ScheduleOccurrence, type SchedulePreview, type ScheduleVersion } from '../chores/schedule';
 import { createChore } from './chores';
 
@@ -53,7 +53,7 @@ function validateSeries(db: Database.Database, actor: string, household: string,
   const description = input.description?.trim() || null;
   occurrenceDates(input.startDate, input.startDate, input.weekdays);
   if (input.endDate) occurrenceDates(input.endDate, input.endDate, input.weekdays);
-  if (!title || title.length > 120 || (description && description.length > 1000) || (input.endDate && input.endDate < input.startDate) || (input.rewardCents != null && (!Number.isSafeInteger(input.rewardCents) || input.rewardCents < 0 || input.rewardCents > 100000000))) throw new Error('Invalid series');
+  if (!title || title.length > 120 || (description && description.length > 1000) || (input.endDate && input.endDate < input.startDate) || !hasRecurrenceOccurrence(input.startDate, input.endDate, input.weekdays) || (input.rewardCents != null && (!Number.isSafeInteger(input.rewardCents) || input.rewardCents < 0 || input.rewardCents > 100000000))) throw new Error('Invalid series');
   return { title, description, weekdays: JSON.stringify([...new Set(input.weekdays)].sort()) };
 }
 

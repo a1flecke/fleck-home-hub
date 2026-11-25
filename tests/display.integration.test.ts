@@ -157,3 +157,16 @@ it('indexes the sharing reads by household', async () => {
     expect(db.prepare(`SELECT name FROM sqlite_master WHERE type = 'index' AND name IN (${names.map(() => '?').join(', ')}) ORDER BY name`).all(...names)).toEqual(names.map(name => ({ name })));
   } finally { db.close(); }
 });
+
+it('excludes a legacy excepted one-off event from active sharing choices while keeping it removable if shared', async () => {
+  const db = await household();
+  try {
+    const phantom = createEvent(db, 'parent', 'home', { title: 'Legacy excepted one-off', date: '2026-11-02', allDay: true });
+    setDisplayVisibility(db, 'parent', 'home', 'event', phantom, true);
+    db.prepare('INSERT INTO calendar_exception (event_id, occurrence_date) VALUES (?, ?)').run(phantom, '2026-11-02');
+
+    const choices = displayChoices(db, 'parent', 'home', today, end, 1);
+    expect(choices.window.events.map(item => item.id)).not.toContain(phantom);
+    expect(choices.shared.items.map(item => item.id)).toContain(phantom);
+  } finally { db.close(); }
+});

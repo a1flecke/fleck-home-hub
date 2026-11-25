@@ -56,7 +56,7 @@ export const DISPLAY_SHARED_PAGE_SIZE = 20;
  * An event series belongs to the sharing window when it is active and can occur between `today`
  * and `end`; a one-off event must start in the window. Takes `end`, `today`, `today`.
  */
-const windowEvent = `e.cancelled = 0 AND e.start_date <= ? AND (e.end_date IS NULL OR e.end_date >= ?) AND (e.weekdays IS NOT NULL OR e.start_date >= ?)`;
+const windowEvent = `e.cancelled = 0 AND e.start_date <= ? AND (e.end_date IS NULL OR e.end_date >= ?) AND (e.weekdays IS NOT NULL OR (e.start_date >= ? AND NOT EXISTS (SELECT 1 FROM calendar_exception ex WHERE ex.event_id = e.id AND ex.occurrence_date = e.start_date)))`;
 
 /**
  * Chores due in the sharing window that the display could show on their day: skipped and
