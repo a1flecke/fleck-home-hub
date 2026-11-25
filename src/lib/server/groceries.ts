@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { MAX_BULK_INPUT_CHARS, MAX_BULK_LINES, bulkActions, type BulkDecision } from '../grocery/bulk';
-import { ingredientLines, probableGroceryMatch, sameGroceryName } from '../grocery/domain';
+import { ingredientLines, matchesActiveGrocery, probableGroceryMatch, sameGroceryName } from '../grocery/domain';
 import {
   familyIngredientKey,
   ingredientActions,
@@ -168,12 +168,13 @@ export function reviewMealIngredients(db: Database.Database, actor: string, hous
   const items: IngredientReviewItem[] = uniqueKeys.map(key => {
     const ref = byKey.get(key)!;
     const parsed = parseIngredientLine(ref.line);
-    const existing = active.find(item => probableGroceryMatch(parsed.name, item.name) || probableGroceryMatch(ref.line, item.name)) ?? null;
+    const override = overrides[key] ?? {};
+    const name = override.name ?? parsed.name;
+    const existing = active.find(item => matchesActiveGrocery(name, ref.line, item.name, override.name !== undefined)) ?? null;
     const lineKey = normalizedLine(ref.line);
     const duplicateOfSelection = seen.has(lineKey);
     seen.add(lineKey);
 
-    const override = overrides[key] ?? {};
     let action: IngredientAction = override.action ?? (existing || duplicateOfSelection ? 'skip' : 'add');
     if (!existing && action === 'duplicate') action = 'add';
     if (existing && action === 'add') action = 'skip';
@@ -187,7 +188,7 @@ export function reviewMealIngredients(db: Database.Database, actor: string, hous
       existing: existing ? { id: existing.id, name: existing.name, quantity: existing.quantity, unit: existing.unit } : null,
       duplicateOfSelection,
       action,
-      name: override.name ?? parsed.name,
+      name,
       quantity: override.quantity ?? parsed.quantity,
       unit: override.unit ?? parsed.unit
     };
@@ -346,7 +347,7 @@ export function addBulkGroceries(db: Database.Database, actor: string, household
     if (!Array.isArray(decisions) || !decisions.length || decisions.length > MAX_BULK_LINES) throw new BulkValidationError('Choose 1 to 30 items');
 
     const keys = new Set<string>();
-    const prepared: Array<{ key: string; line: string; action: 'add' | 'skip'; value: ItemInput }> = [];
+    const prepared: Array<{ key: string; action: 'add' | 'skip'; value: ItemInput | null }> = [];
     for (const decision of decisions) {
       if (!decision || typeof decision !== 'object' ||
           typeof decision.key !== 'string' || !decision.key || decision.key.length > 100 || keys.has(decision.key) ||
@@ -356,10 +357,13 @@ export function addBulkGroceries(db: Database.Database, actor: string, household
         throw new BulkValidationError('Invalid bulk item');
       }
       keys.add(decision.key);
+      if (decision.action === 'skip') {
+        prepared.push({ key: decision.key, action: 'skip', value: null });
+        continue;
+      }
       try {
         prepared.push({
           key: decision.key,
-          line: decision.line,
           action: decision.action,
           value: validate({ name: decision.name, quantity: decision.quantity, unit: decision.unit })
         });
@@ -373,9 +377,9 @@ export function addBulkGroceries(db: Database.Database, actor: string, household
     const accepted: ItemInput[] = [];
     const conflicts: string[] = [];
     for (const entry of prepared) {
-      if (entry.action === 'skip') continue;
-      if (active.some(item => probableGroceryMatch(entry.value.name, item.name) || probableGroceryMatch(entry.line, item.name)) ||
-          accepted.some(item => probableGroceryMatch(entry.value.name, item.name))) {
+      if (entry.action === 'skip' || !entry.value) continue;
+      if (active.some(item => probableGroceryMatch(entry.value!.name, item.name)) ||
+          accepted.some(item => probableGroceryMatch(entry.value!.name, item.name))) {
         conflicts.push(entry.key);
         continue;
       }

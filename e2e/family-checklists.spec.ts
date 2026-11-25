@@ -171,8 +171,11 @@ for (const javaScriptEnabled of [false, true]) {
       await item.getByRole('button', { name: 'Mark ready', exact: true }).click();
       await expect(parent.getByText('1 of 1 items ready')).toBeVisible();
       await parent.getByText('Done (1)', { exact: true }).click();
+      await expect(item.locator('time')).toBeVisible();
       await item.getByRole('button', { name: 'Mark not ready', exact: true }).click();
       await expect(parent.getByText('0 of 1 items ready')).toBeVisible();
+      await expect(item.locator('time')).toHaveCount(0);
+      await expect(item).not.toContainText('Sample Parent');
 
       const settings = parent.getByRole('form', { name: 'Edit list details' });
       await parent.getByText('List details', { exact: true }).click();

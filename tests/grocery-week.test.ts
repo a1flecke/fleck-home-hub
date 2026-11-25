@@ -55,4 +55,29 @@ describe('week grocery review', () => {
       { action: 'skip', quantity: '500', unit: 'g' }
     ]);
   });
+
+  it('matches active groceries against overridden names rather than only the original parsed line', () => {
+    const ambiguous: WeekIngredientRef[] = [
+      { key: 'meal-x:family:0', mealId: 'meal-x', mealTitle: 'Salad', mealDate: '2026-11-16', source: 'family', group: null, line: '1 bag baby spinach' },
+      { key: 'meal-x:family:1', mealId: 'meal-x', mealTitle: 'Salad', mealDate: '2026-11-16', source: 'family', group: null, line: '1 onion' }
+    ];
+    const current = [
+      { id: 'g-spinach', name: 'baby spinach', quantity: '1', unit: 'bag' },
+      { id: 'g-onion', name: 'onions', quantity: '3', unit: '' }
+    ];
+    const review = buildWeekIngredientReview(ambiguous, current, {
+      'meal-x:family:0': { name: 'baby spinach', quantity: '1', unit: 'bag', action: 'add' },
+      'meal-x:family:1': { name: 'red onions', quantity: '1', unit: '', action: 'add' }
+    });
+    expect(review.items[0]).toMatchObject({
+      name: 'baby spinach',
+      existing: { id: 'g-spinach', name: 'baby spinach' },
+      action: 'skip'
+    });
+    expect(review.items[1]).toMatchObject({
+      name: 'red onions',
+      existing: null,
+      action: 'add'
+    });
+  });
 });

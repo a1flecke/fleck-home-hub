@@ -30,6 +30,27 @@ it('keeps private lists hidden and allows a child to complete an explicitly shar
     expect(getChecklist(db, 'parent', 'home', sharedId).items[0]).toMatchObject({ completed: true, completedBy: 'kid', completedByName: 'kid', version: item.version + 1 });
     expect(() => setItemCompletion(db, 'parent', 'home', sharedId, item.id, item.version, false)).toThrow();
     expect(getChecklist(db, 'parent', 'home', sharedId).items[0].completed).toBe(true);
+    setItemCompletion(db, 'parent', 'home', sharedId, item.id, item.version + 1, false);
+    expect(getChecklist(db, 'parent', 'home', sharedId).items[0]).toMatchObject({
+      completed: false,
+      completedBy: null,
+      completedByName: null,
+      completedAt: null,
+      version: item.version + 2
+    });
+    expect(db.prepare('SELECT completed, completed_by, completed_at FROM family_checklist_item WHERE id = ?').get(item.id)).toEqual({
+      completed: 0,
+      completed_by: null,
+      completed_at: null
+    });
+    // Pre-existing rows with completed=0 and stale completion metadata must not surface completion attribution.
+    db.prepare("UPDATE family_checklist_item SET completed_by = 'parent', completed_at = '2026-01-01T00:00:00.000Z' WHERE id = ?").run(item.id);
+    expect(getChecklist(db, 'parent', 'home', sharedId).items[0]).toMatchObject({
+      completed: false,
+      completedBy: null,
+      completedByName: null,
+      completedAt: null
+    });
   } finally { db.close(); }
 });
 

@@ -153,9 +153,9 @@ it('rechecks matches at confirmation time and leaves no partial writes', async (
     expect(listGroceries(db, 'parent', 'home')).toMatchObject([{ name: 'beans', quantity: '3', unit: 'cups' }]);
 
     const refreshed = reviewMealIngredients(db, 'parent', 'home', meal, [familyIngredientKey(0), familyIngredientKey(1)], {
-      [familyIngredientKey(0)]: { action: 'skip', name: 'my beans', quantity: '4', unit: 'bags' }
+      [familyIngredientKey(0)]: { action: 'skip', name: 'beans', quantity: '4', unit: 'bags' }
     });
-    expect(refreshed.items[0]).toMatchObject({ name: 'my beans', quantity: '4', unit: 'bags', action: 'skip', existing: { name: 'beans' } });
+    expect(refreshed.items[0]).toMatchObject({ name: 'beans', quantity: '4', unit: 'bags', action: 'skip', existing: { name: 'beans' } });
     expect(refreshed.items.map(item => item.action)).toEqual(['skip', 'add']);
     expect(confirmMealIngredients(db, 'parent', 'home', meal, decisions(refreshed))).toEqual({ added: 1, skipped: 1 });
     const items = listGroceries(db, 'parent', 'home');
@@ -164,6 +164,49 @@ it('rechecks matches at confirmation time and leaves no partial writes', async (
       expect.objectContaining({ name: 'beans', quantity: '3', unit: 'cups' }),
       expect.objectContaining({ name: 'onion', quantity: '1', unit: '' })
     ]));
+  } finally { db.close(); }
+});
+
+it('matches overridden meal ingredient names against active groceries so conflicts can be resolved without a 409 loop', async () => {
+  const db = await setup();
+  try {
+    const spinachId = addGrocery(db, 'parent', 'home', { name: 'baby spinach', quantity: '1', unit: 'bag' });
+    addGrocery(db, 'parent', 'home', { name: 'beans', quantity: '2', unit: 'cans' });
+    const meal = createMeal(db, 'parent', 'home', {
+      title: 'Spinach dinner',
+      date: '2099-01-05',
+      ingredients: '1 bag baby spinach\n2 cups beans',
+      shared: false
+    });
+
+    const initial = reviewMealIngredients(db, 'parent', 'home', meal, [familyIngredientKey(0), familyIngredientKey(1)]);
+    expect(initial.items[0]).toMatchObject({ name: '1 bag baby spinach', existing: null, action: 'add' });
+
+    // Editing the ambiguous line to match active "baby spinach" conflicts on confirm, then re-review exposes existing so duplicate/skip works.
+    expect(() => confirmMealIngredients(db, 'parent', 'home', meal, [
+      { key: familyIngredientKey(0), line: '1 bag baby spinach', action: 'add', name: 'baby spinach', quantity: '1', unit: 'bag' },
+      { key: familyIngredientKey(1), line: '2 cups beans', action: 'add', name: 'pinto beans', quantity: '2', unit: 'cups' }
+    ])).toThrow(IngredientConflictError);
+
+    const afterConflict = reviewMealIngredients(db, 'parent', 'home', meal, [familyIngredientKey(0), familyIngredientKey(1)], {
+      [familyIngredientKey(0)]: { action: 'add', name: 'baby spinach', quantity: '1', unit: 'bag' },
+      [familyIngredientKey(1)]: { action: 'add', name: 'pinto beans', quantity: '2', unit: 'cups' }
+    });
+    expect(afterConflict.items[0]).toMatchObject({
+      name: 'baby spinach',
+      existing: { id: spinachId, name: 'baby spinach' },
+      action: 'skip'
+    });
+    expect(afterConflict.items[1]).toMatchObject({
+      name: 'pinto beans',
+      existing: null,
+      action: 'add'
+    });
+
+    expect(confirmMealIngredients(db, 'parent', 'home', meal, [
+      { key: familyIngredientKey(0), line: '1 bag baby spinach', action: 'duplicate', name: 'baby spinach', quantity: '1', unit: 'bag' },
+      { key: familyIngredientKey(1), line: '2 cups beans', action: 'add', name: 'pinto beans', quantity: '2', unit: 'cups' }
+    ])).toEqual({ added: 2, skipped: 0 });
   } finally { db.close(); }
 });
 
