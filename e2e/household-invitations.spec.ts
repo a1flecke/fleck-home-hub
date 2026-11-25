@@ -33,8 +33,9 @@ test('a parent invites another parent and that parent can manage household acces
   const linkInput = page.getByLabel('Invitation link');
   await expect(linkInput).toBeVisible();
   await expect(linkInput).toHaveAttribute('type', 'text');
+  await expect(linkInput).toHaveAttribute('readonly', '');
   const link = await linkInput.inputValue();
-  await linkInput.click();
+  await linkInput.selectText();
   expect(await linkInput.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
   await linkInput.evaluate((input: HTMLInputElement) => { input.value = ''; input.removeAttribute('value'); });
   expect(link.includes('/accept-invitation#')).toBe(true);
