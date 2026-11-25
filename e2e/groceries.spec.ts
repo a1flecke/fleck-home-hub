@@ -544,12 +544,12 @@ test('a disabled household member is denied grocery data instead of looking like
   const context = await browser.newContext();
   try {
     const login = await context.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' } });
-    expect(login.status()).toBe(200);
+    expect(login.status()).toBe(401);
     const response = await context.request.get(`${origin}/groceries/data`);
-    expect(response.status()).toBe(403);
+    expect(response.status()).toBe(401);
     expect(response.headers()['cache-control']).toContain('no-store');
-    expect(await response.json()).toEqual({ error: 'forbidden' });
-    expect((await context.request.get(`${origin}/groceries`)).status()).toBe(403);
+    expect(await response.json()).toEqual({ error: 'unauthenticated' });
+    expect((await context.request.get(`${origin}/groceries`, { maxRedirects: 0 })).status()).toBe(303);
   } finally { await context.close(); }
 });
 
@@ -1472,12 +1472,12 @@ test('a child sees no bulk clear and a direct child or disabled-member request i
       headers: { origin },
       data: { email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' }
     });
-    expect(login.status()).toBe(200);
+    expect(login.status()).toBe(401);
     const response = await disabledContext.request.post(`${origin}/groceries?/clearBought`, {
       form: { id: 'synthetic-forged', version: '1' },
-      headers: { origin }
+      headers: { origin, accept: 'application/json', 'x-sveltekit-action': 'true' }
     });
-    expect(response.status()).toBe(403);
+    expect(await response.json()).toMatchObject({ type: 'redirect', status: 303, location: '/sign-in' });
   } finally { await disabledContext.close(); }
 });
 

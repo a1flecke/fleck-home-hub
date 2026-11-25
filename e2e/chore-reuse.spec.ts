@@ -234,7 +234,7 @@ test('reuse rejects child, cross-household, disabled and cross-origin requests',
   const disabled = await browser.newContext();
   try {
     const login = await disabled.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'disabled-expense@example.test', password: 'synthetic-disabled-expense-password' } });
-    expect(login.status()).toBe(200);
-    expect((await disabled.request.get('/chores/week/again', { maxRedirects: 0 })).status()).toBe(403);
+    expect(login.status()).toBe(401);
+    expect((await disabled.request.get('/chores/week/again', { maxRedirects: 0 })).status()).toBe(303);
   } finally { await disabled.close(); }
 });

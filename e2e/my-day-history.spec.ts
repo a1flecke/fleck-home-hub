@@ -170,9 +170,9 @@ test('history routes reject anonymous and disabled sessions', async ({ page, bro
   const context = await browser.newContext();
   try {
     const login = await context.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' } });
-    expect(login.status()).toBe(200);
-    expect((await context.request.get('/chores/history', { maxRedirects: 0 })).status()).toBe(403);
-    expect((await context.request.get('/earnings/not-a-household-child', { maxRedirects: 0 })).status()).toBe(403);
+    expect(login.status()).toBe(401);
+    expect((await context.request.get('/chores/history', { maxRedirects: 0 })).status()).toBe(303);
+    expect((await context.request.get('/earnings/not-a-household-child', { maxRedirects: 0 })).status()).toBe(303);
   } finally { await context.close(); }
 });
 
