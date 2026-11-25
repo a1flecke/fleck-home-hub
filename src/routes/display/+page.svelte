@@ -12,10 +12,12 @@
   let generation = 0;
   onMount(() => {
     ready = true;
+    if (current.mode === 'unpaired') return;
     let inFlight = false;
     let controller: AbortController | undefined;
     let disposed = false;
     const timer = setInterval(() => {
+      if (current.mode === 'unpaired') return;
       if (updating && !inFlight) {
         inFlight = true;
         const requestGeneration = generation;
@@ -23,11 +25,14 @@
         controller = new AbortController();
         const timeout = setTimeout(() => controller?.abort(), 15_000);
         void fetch(resolve('/display/data'), { cache: 'no-store', signal: controller.signal }).then(async response => {
-          if (!active()) return;
+          if (!active() || current.mode === 'unpaired') return;
           if (current.mode === 'device') {
             // The credential was revoked or expired: reload to the pairing-required screen.
             if (response.status === 401 || response.status === 403 || response.redirected) { window.location.assign(resolve('/display')); return; }
-          } else if (response.redirected || response.status === 401 || response.status === 403) { window.location.assign(resolve('/sign-in')); return; }
+          } else if (current.mode === 'member' && (response.redirected || response.status === 401 || response.status === 403)) {
+            window.location.assign(resolve('/sign-in'));
+            return;
+          }
           if (!response.ok) throw new Error('Display refresh failed');
           const next = await response.json();
           if (active() && next.mode !== 'unpaired') { current = next; refreshError = false; }
@@ -39,14 +44,14 @@
 </script>
 <svelte:head><title>Family display · Fleck Home Hub</title></svelte:head>
 {#if current.mode === 'unpaired'}
-<main class="mx-auto max-w-2xl px-5 py-16 text-center">
+<main data-display-ready={ready ? 'true' : undefined} class="mx-auto max-w-2xl px-5 py-16 text-center">
   <h1 class="text-4xl font-bold">Pairing required</h1>
   <p class="mt-4 text-xl">This display is not connected to the household. A parent can pair it from <strong>Household displays</strong> in settings.</p>
   <a href={resolve('/display/pair')} class="mt-8 inline-block rounded-xl border border-teal-700 px-4 py-3">Enter a pairing code</a>
 </main>
 {:else}
 {@const view = current}
-<main class="mx-auto max-w-7xl px-5 py-8">
+<main data-display-ready={ready ? 'true' : undefined} class="mx-auto max-w-7xl px-5 py-8">
   {#if view.mode === 'member'}<a href={resolve('/dashboard')} class="text-teal-700">Back to My Day</a>{/if}
   <h1 class="mt-5 text-4xl font-bold">Family display</h1>
   <p class="mt-2 text-lg">{view.today} · {view.timezone}</p>

@@ -33,16 +33,17 @@ export const actions: Actions = {
     const seriesId = field('seriesId');
     const date = field('date');
     const reviewed = field('reviewed');
+    const assigneeId = field('assigneeId');
     const decision = field('decision');
     const reward = field('reward').trim();
-    const draft = { seriesId, date, reward, confirmed: field('confirmed') === 'yes' };
+    const draft = { seriesId, date, reviewed, assigneeId, decision, reward, confirmed: field('confirmed') === 'yes' };
     if (decision !== 'create' && decision !== 'skip') return fail(400, { message: 'Choose a valid decision.', draft });
     if (decision === 'create' && (!draft.confirmed || !/^\d{1,7}(?:\.\d{1,2})?$/.test(reward) || Number(reward) > 1000000)) return fail(400, { message: 'Enter a reward from $0 to $1,000,000 and confirm the late chore.', draft });
     try {
       if (decision === 'create') {
         const [whole, fraction = ''] = reward.split('.');
         const rewardCents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'));
-        resolveRecoveryGap(db, actor, household, { seriesId, date, reviewed, decision, assigneeId: field('assigneeId'), rewardCents });
+        resolveRecoveryGap(db, actor, household, { seriesId, date, reviewed, decision, assigneeId, rewardCents });
       } else resolveRecoveryGap(db, actor, household, { seriesId, date, reviewed, decision });
     } catch { return fail(409, { message: 'This date or chore changed. Refresh and review it before trying again.', draft }); }
     redirect(303, '/chores/recovery?page=' + pageOffset(url) + '&notice=' + (decision === 'create' ? 'created' : 'skipped'));

@@ -200,6 +200,17 @@ test('revoking a display sends it to the pairing-required screen and the credent
     await expect(display.page.getByText('Family display')).toHaveCount(0);
     await display.page.screenshot({ path: testInfo.outputPath('display-pairing-required-mobile.png'), fullPage: true });
 
+    // Once unpaired, the kiosk must stay on Pairing required and never poll /display/data or redirect to /sign-in.
+    await expect(display.page.locator('main[data-display-ready="true"]')).toBeVisible();
+    let unpairedPolls = 0;
+    display.page.on('request', request => {
+      if (new URL(request.url()).pathname === '/display/data') unpairedPolls++;
+    });
+    await display.page.clock.fastForward(120_000);
+    await expect(display.page).toHaveURL(`${origin}/display`);
+    await expect(display.page.getByRole('heading', { name: 'Pairing required' })).toBeVisible();
+    expect(unpairedPolls).toBe(0);
+
     // Reloading cannot restore access, and the old credential is refused even when presented by hand.
     await display.page.reload();
     await expect(display.page.getByRole('heading', { name: 'Pairing required' })).toBeVisible();

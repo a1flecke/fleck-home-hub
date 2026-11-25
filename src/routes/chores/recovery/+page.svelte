@@ -29,8 +29,8 @@
         <form method="POST" action={'?/decide&page=' + data.page} aria-label={'Create late chore for ' + gap.title + ' on ' + gap.date} class="mt-4 grid gap-3">
           <input type="hidden" name="seriesId" value={gap.seriesId} />
           <input type="hidden" name="date" value={gap.date} />
-          <input type="hidden" name="reviewed" value={gap.reviewed} />
-          <input type="hidden" name="assigneeId" value={gap.assigneeId} />
+          <input type="hidden" name="reviewed" value={draft?.reviewed ?? gap.reviewed} />
+          <input type="hidden" name="assigneeId" value={draft?.assigneeId || gap.assigneeId} />
           <label>Confirmed reward in dollars <span class="text-sm">(enter 0 for no reward)</span><input name="reward" type="text" inputmode="decimal" required defaultValue={draft?.reward ?? ''} class="mt-1 block w-full rounded-lg border border-stone-400 p-3" /></label>
           <label class="flex items-start gap-2"><input type="checkbox" name="confirmed" value="yes" required defaultChecked={draft?.confirmed ?? false} class="mt-1" />I confirm this late chore for {gap.childName} on {displayDate(gap.date)} and the reward above.</label>
           <button name="decision" value="create" class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Create late chore</button>
@@ -38,7 +38,7 @@
         <form method="POST" action={'?/decide&page=' + data.page} aria-label={'Skip ' + gap.title + ' on ' + gap.date} class="mt-3">
           <input type="hidden" name="seriesId" value={gap.seriesId} />
           <input type="hidden" name="date" value={gap.date} />
-          <input type="hidden" name="reviewed" value={gap.reviewed} />
+          <input type="hidden" name="reviewed" value={draft?.reviewed ?? gap.reviewed} />
           <button name="decision" value="skip" class="rounded-xl border border-teal-700 px-4 py-3 font-semibold text-teal-800">Skip this date</button>
         </form>
       </article>
