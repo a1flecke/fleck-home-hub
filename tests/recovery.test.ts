@@ -24,3 +24,21 @@ it('excludes an open pause and returns no dates for a future schedule', () => {
   expect(recoveryDates(base)).toEqual(['2026-02-27']);
   expect(recoveryDates({ ...base, startDate: '2026-03-03' })).toEqual([]);
 });
+
+it('evaluates historical gaps across effective-dated schedule revisions', () => {
+  const dates = recoveryDates({
+    today: '2026-06-05',
+    startDate: '2026-05-25',
+    endDate: null,
+    weekdays: [2, 4],
+    occurrences: ['2026-05-25', '2026-06-02'],
+    skips: [],
+    pauses: [],
+    versions: [
+      { effectiveDate: '2026-05-25', endDate: null, weekdays: [1, 3] },
+      { effectiveDate: '2026-06-01', endDate: null, weekdays: [2, 4] }
+    ]
+  });
+  // Before June 1: Mon 05-25 (present), Wed 05-27 (missing). From June 1: Tue 06-02 (present), Thu 06-04 (missing).
+  expect(dates).toEqual(['2026-05-27', '2026-06-04']);
+});

@@ -56,8 +56,25 @@ export function reviewChildSummaries(db: Database.Database, actor: string, house
   requireParent(db, actor, household);
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
   const visible = choreVisibility({ householdId: household, role: 'parent', actorId: actor, today: today ?? localDate(new Date(), settings?.timezone ?? 'America/Chicago') });
-  const rows = db.prepare(`SELECT c.assignee_id AS id, u.name, COUNT(*) AS pendingCount, COALESCE(SUM(c.reward_cents), 0) AS pendingCents
+  const pendingRows = db.prepare(`SELECT c.assignee_id AS id, u.name, COUNT(*) AS pendingCount, COALESCE(SUM(c.reward_cents), 0) AS pendingCents
     ${FROM} WHERE ${visible.sql} AND c.status = 'pending_verification'
-    GROUP BY c.assignee_id, u.name ORDER BY u.name COLLATE NOCASE, c.assignee_id`).all(...visible.parameters) as Omit<ReviewChildSummary, 'owed'>[];
-  return rows.map(row => ({ ...row, owed: balance(db, household, row.id).owed }));
+    GROUP BY c.assignee_id, u.name`).all(...visible.parameters) as Omit<ReviewChildSummary, 'owed'>[];
+  const pendingById = new Map(pendingRows.map(row => [row.id, row]));
+  const activeKids = db.prepare(`SELECT u.id, u.name FROM active_membership m JOIN user u ON u.id = m.user_id
+    WHERE m.household_id = ? AND m.role = 'kid'`).all(household) as { id: string; name: string }[];
+  const childrenById = new Map<string, { id: string; name: string }>();
+  for (const kid of activeKids) childrenById.set(kid.id, kid);
+  for (const row of pendingRows) if (!childrenById.has(row.id)) childrenById.set(row.id, { id: row.id, name: row.name });
+  return [...childrenById.values()]
+    .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }) || a.id.localeCompare(b.id))
+    .map(child => {
+      const pending = pendingById.get(child.id);
+      return {
+        id: child.id,
+        name: child.name,
+        pendingCount: pending?.pendingCount ?? 0,
+        pendingCents: pending?.pendingCents ?? 0,
+        owed: balance(db, household, child.id).owed
+      };
+    });
 }

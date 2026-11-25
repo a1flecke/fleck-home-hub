@@ -36,10 +36,28 @@ describe('recurring schedule preview', () => {
     expect(preview.firstAffectedDate).toBe('2026-11-23');
     expect(preview.cancelDates).toEqual(['2026-11-23', '2026-11-30']);
     expect(preview.preservedDates).toEqual(['2026-11-25', '2026-12-02']);
+    expect(preview.addDates).toContain('2026-11-24');
     expect(preview.addDates).toContain('2026-11-26');
     expect(preview.addDates).not.toContain('2026-11-23');
-    expect(preview.addDates).not.toContain('2026-11-24');
     expect(preview.counts).toMatchObject({ add: preview.addDates.length, cancel: 2, keep: 0, preserved: 2 });
+  });
+
+  it('re-adds previously cancelled dates while never duplicating active work or overriding explicit skips', () => {
+    const preview = previewScheduleChange({
+      ...base,
+      horizonDays: 14,
+      skips: ['2026-12-01'],
+      occurrences: [
+        { date: '2026-11-24', status: 'todo', cancelled: true },
+        { date: '2026-11-26', status: 'pending_verification', cancelled: false },
+        { date: '2026-12-01', status: 'todo', cancelled: true },
+        { date: '2026-12-03', status: 'todo', cancelled: false }
+      ]
+    });
+    expect(preview.addDates).toEqual(['2026-11-24']);
+    expect(preview.keepDates).toEqual(['2026-12-03']);
+    expect(preview.preservedDates).toEqual(['2026-11-26']);
+    expect(preview.cancelDates).toEqual([]);
   });
 
   it('keeps matching unstarted dates and respects skips', () => {

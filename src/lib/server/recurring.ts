@@ -2,11 +2,30 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { addCalendarDays } from '../calendar/dates';
 import { localDate, occurrenceDates } from '../chores/recurrence';
-import { previewScheduleChange, schedulePatternLabel, validateEffectiveDate, type ScheduleOccurrence, type SchedulePreview } from '../chores/schedule';
+import { previewScheduleChange, schedulePatternLabel, scheduleSegments, scheduleVersionForDate, validateEffectiveDate, type ScheduleOccurrence, type SchedulePreview, type ScheduleVersion } from '../chores/schedule';
 import { createChore } from './chores';
 
 type SeriesInput = { title: string; description?: string; assigneeId: string; startDate: string; endDate?: string; weekdays: number[]; rewardCents?: number | null };
 type Series = { id: string; creator_id: string; assignee_id: string; title: string; description: string | null; reward_cents: number | null; start_date: string; end_date: string | null; weekdays: string; state: string; updated_at: string };
+export type SeriesVersion = ScheduleVersion & { assigneeId: string; title: string; description: string | null; rewardCents: number | null };
+
+export function loadSeriesVersions(db: Database.Database, series: Pick<Series, 'id' | 'assignee_id' | 'title' | 'description' | 'reward_cents' | 'start_date' | 'end_date' | 'weekdays'>): SeriesVersion[] {
+  const rows = db.prepare(`SELECT effective_date AS effectiveDate, assignee_id AS assigneeId, title, description,
+    reward_cents AS rewardCents, end_date AS endDate, weekdays
+    FROM recurring_series_version WHERE series_id = ? ORDER BY effective_date ASC`).all(series.id) as {
+      effectiveDate: string; assigneeId: string; title: string; description: string | null; rewardCents: number | null; endDate: string | null; weekdays: string;
+    }[];
+  if (rows.length) return rows.map(row => ({ ...row, weekdays: JSON.parse(row.weekdays) as number[] }));
+  return [{
+    effectiveDate: series.start_date,
+    assigneeId: series.assignee_id,
+    title: series.title,
+    description: series.description,
+    rewardCents: series.reward_cents,
+    endDate: series.end_date,
+    weekdays: JSON.parse(series.weekdays) as number[]
+  }];
+}
 
 export type SeriesChangeCode = 'not-authorized' | 'not-found' | 'ended' | 'stale' | 'invalid';
 export class SeriesChangeError extends Error {
@@ -43,21 +62,27 @@ export function createSeries(db: Database.Database, actor: string, household: st
     const { title, description, weekdays } = validateSeries(db, actor, household, input);
     const id = randomUUID();
     const now = new Date().toISOString();
-    db.prepare('INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, description, reward_cents, start_date, end_date, weekdays, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, household, actor, input.assigneeId, title, description, input.rewardCents ?? null, input.startDate, input.endDate || null, weekdays, now, now);
+    const endDate = input.endDate || null;
+    db.prepare('INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, description, reward_cents, start_date, end_date, weekdays, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, household, actor, input.assigneeId, title, description, input.rewardCents ?? null, input.startDate, endDate, weekdays, now, now);
+    db.prepare('INSERT INTO recurring_series_version (series_id, household_id, effective_date, assignee_id, title, description, reward_cents, end_date, weekdays, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(id, household, input.startDate, input.assigneeId, title, description, input.rewardCents ?? null, endDate, weekdays, now);
     return id;
   }).immediate();
 }
 
-function generateOccurrencesForSeries(db: Database.Database, actor: string, household: string, item: Series, from: string, through: string): string[] {
-  const start = from > item.start_date ? from : item.start_date;
-  const end = item.end_date && item.end_date < through ? item.end_date : through;
-  if (start > end) return [];
+function generateOccurrencesForSeries(db: Database.Database, actor: string, household: string, item: Series, from: string, through: string, onlyAssigneeId?: string): string[] {
   const created: string[] = [];
-  for (const date of occurrenceDates(start, end, JSON.parse(item.weekdays))) {
-    if (db.prepare('SELECT 1 FROM recurring_occurrence WHERE series_id = ? AND scheduled_date = ?').get(item.id, date) || db.prepare('SELECT 1 FROM recurring_skip WHERE series_id = ? AND scheduled_date = ?').get(item.id, date)) continue;
-    const chore = createChore(db, actor, household, { title: item.title, description: item.description ?? undefined, assigneeId: item.assignee_id, dueDate: date, rewardCents: item.reward_cents });
-    db.prepare('INSERT INTO recurring_occurrence (series_id, household_id, scheduled_date, chore_id) VALUES (?, ?, ?, ?)').run(item.id, household, date, chore);
-    created.push(date);
+  for (const segment of scheduleSegments(loadSeriesVersions(db, item))) {
+    if (onlyAssigneeId && segment.version.assigneeId !== onlyAssigneeId) continue;
+    const start = from > segment.startDate ? from : segment.startDate;
+    const end = segment.endDate && segment.endDate < through ? segment.endDate : through;
+    if (start > end) continue;
+    if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'kid'").get(segment.version.assigneeId, household)) continue;
+    for (const date of occurrenceDates(start, end, segment.version.weekdays)) {
+      if (db.prepare('SELECT 1 FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date = ? AND o.archived_at IS NULL AND c.cancelled_at IS NULL').get(item.id, date) || db.prepare('SELECT 1 FROM recurring_skip WHERE series_id = ? AND scheduled_date = ?').get(item.id, date)) continue;
+      const chore = createChore(db, actor, household, { title: segment.version.title, description: segment.version.description ?? undefined, assigneeId: segment.version.assigneeId, dueDate: date, rewardCents: segment.version.rewardCents });
+      db.prepare('INSERT INTO recurring_occurrence (series_id, household_id, scheduled_date, chore_id) VALUES (?, ?, ?, ?)').run(item.id, household, date, chore);
+      created.push(date);
+    }
   }
   return created;
 }
@@ -69,9 +94,8 @@ export function generateOccurrences(db: Database.Database, actor: string, househ
     occurrenceDates(from, through, [0]);
     const series = db.prepare(`SELECT s.* FROM recurring_series s
       JOIN active_membership creator ON creator.household_id = s.household_id AND creator.user_id = s.creator_id AND creator.role = 'parent'
-      JOIN active_membership assignee ON assignee.household_id = s.household_id AND assignee.user_id = s.assignee_id AND assignee.role = 'kid'
-      WHERE s.household_id = ? AND s.state = 'active' AND (? = 'parent' OR s.assignee_id = ?)`).all(household, member.role, actor) as Series[];
-    for (const item of series) generateOccurrencesForSeries(db, item.creator_id, household, item, from, through);
+      WHERE s.household_id = ? AND s.state = 'active'`).all(household) as Series[];
+    for (const item of series) generateOccurrencesForSeries(db, item.creator_id, household, item, from, through, member.role === 'kid' ? actor : undefined);
   }).immediate();
 }
 
@@ -89,7 +113,7 @@ export function setSeriesState(db: Database.Database, actor: string, household: 
     const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
     const now = new Date().toISOString();
     if (existing.state === 'paused' && state === 'active' && existing.paused_on) {
-      db.prepare(`INSERT OR IGNORE INTO recurring_skip (series_id, scheduled_date) SELECT o.series_id, o.scheduled_date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date >= ? AND o.scheduled_date < ? AND c.status = 'todo' AND c.cancelled_at IS NULL`).run(id, existing.paused_on, today);
+      db.prepare(`INSERT OR IGNORE INTO recurring_skip (series_id, scheduled_date) SELECT o.series_id, o.scheduled_date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ? AND o.scheduled_date < ? AND c.status = 'todo' AND c.cancelled_at IS NULL`).run(id, existing.paused_on, today);
     }
     if (existing.state === 'active' && state === 'paused') {
       db.prepare('INSERT INTO recurring_pause_interval (series_id, started_on, actor_id, created_at) VALUES (?, ?, ?, ?)').run(id, today, actor, now);
@@ -100,10 +124,11 @@ export function setSeriesState(db: Database.Database, actor: string, household: 
     }
     if (state === 'ended') {
       const cutoff = existing.state === 'paused' && existing.paused_on && existing.paused_on < today ? existing.paused_on : today;
-      const toCancel = db.prepare(`SELECT o.chore_id AS choreId FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date >= ? AND c.status = 'todo' AND c.cancelled_at IS NULL`).all(id, cutoff) as { choreId: string }[];
+      const toCancel = db.prepare(`SELECT o.chore_id AS choreId FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ? AND c.status = 'todo' AND c.cancelled_at IS NULL`).all(id, cutoff) as { choreId: string }[];
       for (const row of toCancel) {
         const cancelled = db.prepare('UPDATE chore SET cancelled_at = ?, cancelled_by = ?, updated_at = ? WHERE id = ? AND cancelled_at IS NULL').run(now, actor, now, row.choreId);
         if (cancelled.changes) {
+          db.prepare('UPDATE recurring_occurrence SET archived_at = ? WHERE chore_id = ? AND archived_at IS NULL').run(now, row.choreId);
           db.prepare('INSERT INTO chore_revision (chore_id, actor_id, changed_at, changes) VALUES (?, ?, ?, ?)').run(row.choreId, actor, now, JSON.stringify({ cancelled: { from: null, to: now, reason: 'series_ended' } }));
         }
       }
@@ -118,9 +143,10 @@ export function skipOccurrence(db: Database.Database, actor: string, household: 
   occurrenceDates(date, date, [0]);
   db.transaction(() => {
     requireParent(db, actor, household, id);
-    const series = db.prepare('SELECT start_date, end_date, weekdays, state FROM recurring_series WHERE id = ? AND household_id = ?').get(id, household) as { start_date: string; end_date: string | null; weekdays: string; state: string };
-    if (series.state === 'ended' || date < series.start_date || (series.end_date && date > series.end_date) || !occurrenceDates(date, date, JSON.parse(series.weekdays)).length) throw new Error('Not a scheduled occurrence');
-    const existing = db.prepare('SELECT c.status, c.cancelled_at FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date = ?').get(id, date) as { status: string; cancelled_at: string | null } | undefined;
+    const series = scheduleSeries(db, id, household);
+    const activeVersion = series ? scheduleVersionForDate(loadSeriesVersions(db, series), date) : undefined;
+    if (!series || series.state === 'ended' || !activeVersion || !occurrenceDates(date, date, activeVersion.weekdays).length) throw new Error('Not a scheduled occurrence');
+    const existing = db.prepare('SELECT c.status, c.cancelled_at FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date = ? AND o.archived_at IS NULL').get(id, date) as { status: string; cancelled_at: string | null } | undefined;
     if (existing && existing.status !== 'todo' && !existing.cancelled_at) throw new Error('Occurrence already submitted');
     db.prepare('INSERT OR IGNORE INTO recurring_skip (series_id, scheduled_date) VALUES (?, ?)').run(id, date);
   }).immediate();
@@ -134,6 +160,7 @@ export type SeriesPageItem = {
   childName: string;
   rewardCents: number | null;
   startDate: string;
+  effectiveDate: string;
   endDate: string | null;
   weekdays: string;
   state: string;
@@ -165,13 +192,15 @@ export function listSeriesPage(db: Database.Database, actor: string, household: 
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
   const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
   const rows = db.prepare(`SELECT s.id, s.title, s.description, s.assignee_id AS assigneeId, u.name AS childName,
-    s.reward_cents AS rewardCents, s.start_date AS startDate, s.end_date AS endDate, s.weekdays, s.state, s.updated_at AS updatedAt
+    s.reward_cents AS rewardCents, s.start_date AS startDate,
+    COALESCE((SELECT MAX(v.effective_date) FROM recurring_series_version v WHERE v.series_id = s.id), s.start_date) AS effectiveDate,
+    s.end_date AS endDate, s.weekdays, s.state, s.updated_at AS updatedAt
     FROM recurring_series s JOIN user u ON u.id = s.assignee_id
     WHERE s.household_id = ? ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?`).all(household, size, (current - 1) * size) as Omit<SeriesPageItem, 'next' | 'skips' | 'skipCount'>[];
   const items = rows.map(item => {
     const next = item.state === 'active'
       ? (db.prepare(`SELECT o.scheduled_date AS date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id
-        WHERE o.series_id = ? AND o.scheduled_date >= ? AND c.status = 'todo' AND c.cancelled_at IS NULL
+        WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ? AND c.status = 'todo' AND c.cancelled_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date)
         ORDER BY o.scheduled_date LIMIT 1`).get(item.id, today) as { date: string } | undefined)?.date
       : undefined;
@@ -190,9 +219,11 @@ export function updateSeries(db: Database.Database, actor: string, household: st
     if (current.start_date !== input.startDate || current.end_date !== (input.endDate || null) || current.weekdays !== weekdays) throw new Error('Schedule cannot be changed');
     const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
     const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
-    const result = db.prepare("UPDATE recurring_series SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, start_date = ?, end_date = ?, weekdays = ?, updated_at = ? WHERE id = ? AND household_id = ? AND state != 'ended'").run(input.assigneeId, title, description, input.rewardCents ?? null, input.startDate, input.endDate || null, weekdays, new Date().toISOString(), id, household);
+    const now = new Date().toISOString();
+    const result = db.prepare("UPDATE recurring_series SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, start_date = ?, end_date = ?, weekdays = ?, updated_at = ? WHERE id = ? AND household_id = ? AND state != 'ended'").run(input.assigneeId, title, description, input.rewardCents ?? null, input.startDate, input.endDate || null, weekdays, now, id, household);
     if (!result.changes) throw new Error('Series ended');
-    db.prepare(`UPDATE chore SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, updated_at = ? WHERE household_id = ? AND status = 'todo' AND cancelled_at IS NULL AND id IN (SELECT o.chore_id FROM recurring_occurrence o WHERE o.series_id = ? AND o.scheduled_date > ? AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date))`).run(input.assigneeId, title, description, input.rewardCents ?? null, new Date().toISOString(), household, id, today);
+    db.prepare('UPDATE recurring_series_version SET assignee_id = ?, title = ?, description = ?, reward_cents = ? WHERE series_id = ?').run(input.assigneeId, title, description, input.rewardCents ?? null, id);
+    db.prepare(`UPDATE chore SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, updated_at = ? WHERE household_id = ? AND status = 'todo' AND cancelled_at IS NULL AND id IN (SELECT o.chore_id FROM recurring_occurrence o WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date > ? AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date))`).run(input.assigneeId, title, description, input.rewardCents ?? null, now, household, id, today);
   }).immediate();
 }
 
@@ -224,10 +255,10 @@ function scheduleSeries(db: Database.Database, id: string, household: string): S
 }
 
 function scheduleOccurrences(db: Database.Database, id: string, from: string, through: string) {
-  return db.prepare(`SELECT o.scheduled_date AS date, c.status, c.cancelled_at AS cancelledAt
+  return db.prepare(`SELECT o.chore_id AS choreId, o.scheduled_date AS date, c.status, c.cancelled_at AS cancelledAt
     FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id
-    WHERE o.series_id = ? AND o.scheduled_date >= ? AND o.scheduled_date <= ?
-    ORDER BY o.scheduled_date, c.id LIMIT 500`).all(id, from, through) as { date: string; status: ScheduleOccurrence['status']; cancelledAt: string | null }[];
+    WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ? AND o.scheduled_date <= ?
+    ORDER BY o.scheduled_date, c.id LIMIT 500`).all(id, from, through) as { choreId: string; date: string; status: ScheduleOccurrence['status']; cancelledAt: string | null }[];
 }
 
 function scheduleSkips(db: Database.Database, id: string, from: string, through: string) {
@@ -248,7 +279,9 @@ export function previewSeriesSchedule(db: Database.Database, actor: string, hous
     if (input.effectiveDate < series.start_date) throw new Error('Effective date cannot be before the current start');
     normalized = validateSeries(db, actor, household, { ...input, startDate: input.effectiveDate });
   } catch { throw new SeriesChangeError('invalid'); }
-  const oldWeekdays = JSON.parse(series.weekdays) as number[];
+  const versions = loadSeriesVersions(db, series);
+  const oldVersion = scheduleVersionForDate(versions, input.effectiveDate) ?? versions.at(-1)!;
+  const oldWeekdays = [...oldVersion.weekdays];
   const newWeekdays = JSON.parse(normalized.weekdays) as number[];
   const end = input.endDate || null;
   const scanThrough = addCalendarDays(input.effectiveDate, 366);
@@ -257,7 +290,7 @@ export function previewSeriesSchedule(db: Database.Database, actor: string, hous
     today,
     effectiveDate: input.effectiveDate,
     oldWeekdays,
-    oldEndDate: series.end_date,
+    oldEndDate: oldVersion.endDate,
     newWeekdays,
     newEndDate: end,
     occurrences,
@@ -271,21 +304,23 @@ export function previewSeriesSchedule(db: Database.Database, actor: string, hous
     updatedAt: series.updated_at,
     today,
     timezone: timezone(db, household),
-    oldStartDate: series.start_date,
-    oldEndDate: series.end_date,
+    oldStartDate: oldVersion.effectiveDate,
+    oldEndDate: oldVersion.endDate,
     oldWeekdays,
     newStartDate: input.effectiveDate,
     newEndDate: end,
     newWeekdays,
-    oldPattern: schedulePatternLabel(oldWeekdays, series.end_date),
+    oldPattern: schedulePatternLabel(oldWeekdays, oldVersion.endDate),
     newPattern: schedulePatternLabel(newWeekdays, end)
   };
 }
 
 /**
- * Apply a future schedule revision. Today and earlier occurrences keep their values. Future unstarted
- * occurrences that no longer match are archived with the cancellation marker, while submitted, rework
- * and verified work is preserved. New matching dates are generated once inside this transaction.
+ * Apply a future schedule revision. Today and earlier occurrences keep their values, and the
+ * series preserves its original start date and prior effective-dated schedule segments. Future
+ * unstarted occurrences that no longer match are archived with the cancellation marker, while
+ * submitted, rework and verified work is preserved. New matching dates are generated once inside
+ * this transaction.
  */
 export function reviseSeriesSchedule(db: Database.Database, actor: string, household: string, id: string, expectedUpdatedAt: string, input: ScheduleRevisionInput): void {
   db.transaction(() => {
@@ -301,6 +336,8 @@ export function reviseSeriesSchedule(db: Database.Database, actor: string, house
       if (input.effectiveDate < series.start_date) throw new Error('Effective date cannot be before the current start');
       normalized = validateSeries(db, actor, household, { ...input, startDate: input.effectiveDate });
     } catch { throw new SeriesChangeError('invalid'); }
+    const versions = loadSeriesVersions(db, series);
+    const oldVersion = scheduleVersionForDate(versions, input.effectiveDate) ?? versions.at(-1)!;
     const newWeekdays = JSON.parse(normalized.weekdays) as number[];
     const end = input.endDate || null;
     const now = nextTimestamp(series.updated_at);
@@ -310,21 +347,29 @@ export function reviseSeriesSchedule(db: Database.Database, actor: string, house
     const cancelledDates: string[] = [];
     for (const occurrence of scheduleOccurrences(db, id, input.effectiveDate, scanThrough)) {
       if (occurrence.status !== 'todo' || occurrence.cancelledAt || newDates.has(occurrence.date)) continue;
-      const changed = db.prepare('UPDATE chore SET cancelled_at = ?, cancelled_by = ?, updated_at = ? WHERE id = (SELECT chore_id FROM recurring_occurrence WHERE series_id = ? AND scheduled_date = ?) AND cancelled_at IS NULL')
-        .run(now, actor, now, id, occurrence.date);
+      const changed = db.prepare('UPDATE chore SET cancelled_at = ?, cancelled_by = ?, updated_at = ? WHERE id = ? AND cancelled_at IS NULL')
+        .run(now, actor, now, occurrence.choreId);
       if (!changed.changes) continue;
-      const chore = db.prepare('SELECT chore_id FROM recurring_occurrence WHERE series_id = ? AND scheduled_date = ?').get(id, occurrence.date) as { chore_id: string };
+      db.prepare('UPDATE recurring_occurrence SET archived_at = ? WHERE chore_id = ? AND archived_at IS NULL').run(now, occurrence.choreId);
       db.prepare('INSERT INTO chore_revision (chore_id, actor_id, changed_at, changes) VALUES (?, ?, ?, ?)')
-        .run(chore.chore_id, actor, now, JSON.stringify({ cancelled: { from: null, to: now, reason: 'schedule_revision' } }));
+        .run(occurrence.choreId, actor, now, JSON.stringify({ cancelled: { from: null, to: now, reason: 'schedule_revision' } }));
       cancelledDates.push(occurrence.date);
     }
-    const updated = db.prepare(`UPDATE recurring_series SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, start_date = ?, end_date = ?, weekdays = ?, updated_at = ?
+    const existingVersionCount = (db.prepare('SELECT COUNT(*) AS count FROM recurring_series_version WHERE series_id = ?').get(id) as { count: number }).count;
+    if (!existingVersionCount) {
+      db.prepare('INSERT INTO recurring_series_version (series_id, household_id, effective_date, assignee_id, title, description, reward_cents, end_date, weekdays, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(id, household, series.start_date, series.assignee_id, series.title, series.description, series.reward_cents, series.end_date, series.weekdays, series.updated_at);
+    }
+    db.prepare('DELETE FROM recurring_series_version WHERE series_id = ? AND effective_date >= ?').run(id, input.effectiveDate);
+    db.prepare('INSERT INTO recurring_series_version (series_id, household_id, effective_date, assignee_id, title, description, reward_cents, end_date, weekdays, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, household, input.effectiveDate, input.assigneeId, normalized.title, normalized.description, input.rewardCents ?? null, end, normalized.weekdays, now);
+    const updated = db.prepare(`UPDATE recurring_series SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, end_date = ?, weekdays = ?, updated_at = ?
       WHERE id = ? AND household_id = ? AND state != 'ended' AND updated_at = ?`)
-      .run(input.assigneeId, normalized.title, normalized.description, input.rewardCents ?? null, input.effectiveDate, end, normalized.weekdays, now, id, household, expectedUpdatedAt);
+      .run(input.assigneeId, normalized.title, normalized.description, input.rewardCents ?? null, end, normalized.weekdays, now, id, household, expectedUpdatedAt);
     if (!updated.changes) throw new SeriesChangeError('stale');
     db.prepare(`UPDATE chore SET assignee_id = ?, title = ?, description = ?, reward_cents = ?, updated_at = ?
       WHERE household_id = ? AND status = 'todo' AND cancelled_at IS NULL AND id IN (
-        SELECT o.chore_id FROM recurring_occurrence o WHERE o.series_id = ? AND o.scheduled_date >= ?
+        SELECT o.chore_id FROM recurring_occurrence o WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ?
         AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date)
       )`).run(input.assigneeId, normalized.title, normalized.description, input.rewardCents ?? null, now, household, id, input.effectiveDate);
     let createdDates: string[] = [];
@@ -336,7 +381,6 @@ export function reviseSeriesSchedule(db: Database.Database, actor: string, house
         title: normalized.title,
         description: normalized.description,
         reward_cents: input.rewardCents ?? null,
-        start_date: input.effectiveDate,
         end_date: end,
         weekdays: normalized.weekdays,
         updated_at: now
@@ -345,6 +389,6 @@ export function reviseSeriesSchedule(db: Database.Database, actor: string, house
     db.prepare(`INSERT INTO recurring_schedule_revision
       (id, series_id, household_id, actor_id, effective_date, old_start_date, old_end_date, old_weekdays, new_start_date, new_end_date, new_weekdays, cancelled_dates, created_dates, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(randomUUID(), id, household, actor, input.effectiveDate, series.start_date, series.end_date, series.weekdays, input.effectiveDate, end, normalized.weekdays, JSON.stringify(cancelledDates), JSON.stringify(createdDates), now);
+      .run(randomUUID(), id, household, actor, input.effectiveDate, oldVersion.effectiveDate, oldVersion.endDate, JSON.stringify(oldVersion.weekdays), input.effectiveDate, end, normalized.weekdays, JSON.stringify(cancelledDates), JSON.stringify(createdDates), now);
   }).immediate();
 }
