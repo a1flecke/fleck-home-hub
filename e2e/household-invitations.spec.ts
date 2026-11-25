@@ -27,17 +27,35 @@ test('a parent invites another parent and that parent can manage household acces
   await page.goto('/settings/household');
   await expect(page.getByRole('heading', { name: 'Household access' })).toBeVisible();
   await page.getByLabel('Invite as').selectOption('parent');
-  const submission = page.waitForRequest((request) => request.method() === 'POST');
-  await page.getByRole('button', { name: 'Create invitation' }).click();
-  expect((await submission).headers().origin).toBe('http://127.0.0.1:4173');
-  const linkInput = page.getByLabel('Invitation link');
-  await expect(linkInput).toBeVisible();
-  await expect(linkInput).toHaveAttribute('type', 'text');
-  await expect(linkInput).toHaveAttribute('readonly', '');
-  const link = await linkInput.inputValue();
-  await linkInput.selectText();
-  expect(await linkInput.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
-  await linkInput.evaluate((input: HTMLInputElement) => { input.value = ''; input.removeAttribute('value'); });
+  const gate = Promise.withResolvers<void>(), requested = Promise.withResolvers<void>();
+  const pageModule = '**/src/routes/settings/household/+page.svelte*';
+  await page.route(pageModule, async route => {
+    requested.resolve();
+    await gate.promise;
+    await route.continue();
+  });
+  let link!: string;
+  try {
+    const submission = page.waitForRequest((request) => request.method() === 'POST');
+    await page.getByRole('button', { name: 'Create invitation' }).click({ noWaitAfter: true });
+    expect((await submission).headers().origin).toBe('http://127.0.0.1:4173');
+    const linkInput = page.getByLabel('Invitation link');
+    await expect(linkInput).toBeVisible();
+    await requested.promise;
+    await expect(linkInput).toHaveAttribute('type', 'text');
+    await expect(linkInput).toHaveAttribute('readonly', '');
+    link = await linkInput.inputValue();
+    await linkInput.selectText();
+    expect(await linkInput.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
+    gate.resolve();
+    await page.waitForLoadState('networkidle');
+    // Hydration must not reset input.value and collapse an active selection before the user copies it.
+    expect(await linkInput.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
+    await linkInput.evaluate((input: HTMLInputElement) => { input.value = ''; input.removeAttribute('value'); });
+  } finally {
+    gate.resolve();
+    await page.unroute(pageModule);
+  }
   expect(link.includes('/accept-invitation#')).toBe(true);
   await expect(page.getByText('Parent invitation pending')).toBeVisible();
   const context = await browser.newContext({ viewport: { width: 375, height: 812 }, recordVideo: undefined });

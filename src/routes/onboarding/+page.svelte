@@ -19,7 +19,7 @@
       {#if form && 'invitationLink' in form && form.invitationLink}
         <section aria-label="Parent invitation ready" class="mt-5 rounded-xl bg-teal-50 p-4">
           <p role="status" class="font-semibold">Your invitation is ready to share.</p>
-          <label class="mt-3 grid gap-1 text-sm">Share this link<input readonly value={form.invitationLink} class="w-full rounded-lg border border-gray-400 bg-white p-2" /></label>
+          <label class="mt-3 grid gap-1 text-sm">Share this link<input type="text" readonly autocomplete="off" spellcheck="false" defaultValue={form.invitationLink} class="w-full rounded-lg border border-gray-400 bg-white p-2" onfocus={(event) => event.currentTarget.select()} onclick={(event) => event.currentTarget.select()} /></label>
           <p class="mt-2 text-sm">Select and copy the link. It expires in seven days.</p>
         </section>
       {/if}
