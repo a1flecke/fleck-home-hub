@@ -95,6 +95,12 @@ export function scheduleVersionForDate<T extends ScheduleVersion>(versions: read
   return scheduleSegments(versions).find(segment => date >= segment.startDate && (!segment.endDate || date <= segment.endDate))?.version;
 }
 
+export function dateMatchesSchedule(date: string, startDate: string, endDate: string | null, weekdays: readonly number[]): boolean {
+  if (date < startDate || (endDate && date > endDate)) return false;
+  const day = new Date(parse(date)).getUTCDay();
+  return weekdays.includes(day);
+}
+
 /**
  * Compare a proposed future recurrence pattern with existing occurrences. Only future unstarted,
  * uncancelled work is eligible to be archived; submitted, rework and verified work is preserved.
@@ -114,14 +120,6 @@ export function previewScheduleChange(input: SchedulePreviewInput): SchedulePrev
 
   const horizonEnd = addDays(input.effectiveDate, horizon - 1);
   const scheduleEnd = input.newEndDate && input.newEndDate < horizonEnd ? input.newEndDate : horizonEnd;
-  const latestOccurrence = input.occurrences.reduce((latest, item) => item.date > latest ? item.date : latest, input.effectiveDate);
-  const cappedOccurrence = latestOccurrence > addDays(input.effectiveDate, 366) ? addDays(input.effectiveDate, 366) : latestOccurrence;
-  const scanEnd = [scheduleEnd, cappedOccurrence].sort().at(-1)!;
-  const recurrenceEnd = input.newEndDate && input.newEndDate < scanEnd ? input.newEndDate : scanEnd;
-  const newPattern = recurrenceEnd >= input.effectiveDate
-    ? occurrenceDates(input.effectiveDate, recurrenceEnd, input.newWeekdays)
-    : [];
-  const newDates = new Set(newPattern);
   const activeDates = new Set(input.occurrences.filter(item => !item.cancelled).map(item => item.date));
   const skipDates = new Set(input.skips);
   const add = occurrenceDates(input.effectiveDate, scheduleEnd, input.newWeekdays)
@@ -132,7 +130,7 @@ export function previewScheduleChange(input: SchedulePreviewInput): SchedulePrev
   for (const occurrence of [...input.occurrences].sort((a, b) => a.date.localeCompare(b.date))) {
     if (occurrence.date < input.effectiveDate || occurrence.cancelled) continue;
     if (occurrence.status !== 'todo') preserved.push(occurrence.date);
-    else if (newDates.has(occurrence.date)) keep.push(occurrence.date);
+    else if (dateMatchesSchedule(occurrence.date, input.effectiveDate, input.newEndDate, input.newWeekdays)) keep.push(occurrence.date);
     else cancel.push(occurrence.date);
   }
   return {

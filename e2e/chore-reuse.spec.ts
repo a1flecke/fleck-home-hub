@@ -121,6 +121,12 @@ test('a repeated batch request creates one set of assignments', async ({ page })
   const retry = await page.request.post(`/chores/week/again?/create`, { form: body, headers: { origin }, maxRedirects: 0 });
   expect(retry.status()).toBe(200);
   expect(await retry.json()).toMatchObject({ type: 'redirect', status: 303 });
+  const conflict = await page.request.post(`/chores/week/again?/create`, { form: { ...body, title: 'Different title same key' }, headers: { origin }, maxRedirects: 0 });
+  expect(conflict.status()).toBe(409);
+  expect(await conflict.json()).toMatchObject({ type: 'failure', status: 409 });
+  const invalidDate = await page.request.post(`/chores/week/again?/create`, { form: { ...body, dueDate: 'not-a-date' }, headers: { origin }, maxRedirects: 0 });
+  expect(invalidDate.status()).toBe(400);
+  expect(await invalidDate.json()).toMatchObject({ type: 'failure', status: 400 });
   await page.goto('/chores/week?date=2099-11-01');
   await expect(page.getByRole('article').filter({ hasText: title })).toHaveCount(1);
 });
