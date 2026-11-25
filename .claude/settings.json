@@ -1,6 +1,26 @@
 {
   "permissions": {
-    "deny": ["Read(.env)", "Read(.env.*)", "Read(**/*.sqlite)", "Read(**/*.db)", "Read(~/.config/opencode/service.json)"],
+    "deny": [
+      "Read(.env)",
+      "Read(.env.*)",
+      "Read(hub.conf)",
+      "Read(**/hub.conf)",
+      "Read(**/*.sqlite)",
+      "Read(**/*.sqlite3)",
+      "Read(**/*.sqlite-wal)",
+      "Read(**/*.sqlite-shm)",
+      "Read(**/*.sqlite-journal)",
+      "Read(**/*.db)",
+      "Read(**/*.db-wal)",
+      "Read(**/*.db-shm)",
+      "Read(**/*.db-journal)",
+      "Read(**/*.age)",
+      "Read(**/*.pem)",
+      "Read(**/*.key)",
+      "Read(**/*.p12)",
+      "Read(**/*.pfx)",
+      "Read(~/.config/opencode/service.json)"
+    ],
     "ask": ["Bash(tailscale:*)", "Edit(~/.config/opencode/**)", "Write(~/.config/opencode/**)"]
   },
   "hooks": {

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { previewRecipe } from '../src/lib/server/recipe-preview';
+import { extractRecipeDetails, previewRecipe } from '../src/lib/server/recipe-preview';
 
 const sourceUrl = 'https://emeals.com/recipes/synthetic-preview';
 const recipeHtml = `<html><head>
@@ -115,5 +115,22 @@ describe('recipe preview fetch', () => {
   it('rejects an oversized response before reading it', async () => {
     mockFetch(() => new Response('small', { status: 200, headers: { 'content-type': 'text/html', 'content-length': '2000000' } }));
     expect(await previewRecipe(sourceUrl)).toEqual({ status: 'failed' });
+  });
+
+  it('extracts JSON-LD with MIME parameters and closing-tag whitespace', () => {
+    const html = `<html><head>
+      <SCRIPT data-test="1" type="application/ld+json; charset=utf-8">${JSON.stringify({ '@type': 'Recipe', name: 'Parameterized', recipeIngredient: ['1 cup oats'] })}</SCRIPT >
+    </head></html>`;
+    expect(extractRecipeDetails(html, sourceUrl)).toMatchObject({
+      title: 'Parameterized',
+      groups: [{ name: 'Parameterized', lines: ['1 cup oats'] }]
+    });
+  });
+
+  it('parses pathological unclosed script tags in linear time without ReDoS', () => {
+    const start = performance.now();
+    expect(extractRecipeDetails('<script '.repeat(25_000), sourceUrl)).toBeNull();
+    expect(extractRecipeDetails('<script type="application/ld+json">'.repeat(15_000), sourceUrl)).toBeNull();
+    expect(performance.now() - start).toBeLessThan(200);
   });
 });
