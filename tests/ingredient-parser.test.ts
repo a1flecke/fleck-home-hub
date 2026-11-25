@@ -86,6 +86,39 @@ describe('ingredient parsing', () => {
 
   it('does not split product names that begin with a number', () => {
     expect(parsed('2% milk')).toEqual({ name: '2% milk', quantity: '', unit: '', needsReview: false });
+    expect(parsed('2 % milk')).toEqual({ name: '2 % milk', quantity: '', unit: '', needsReview: false });
+    expect(parsed('1.5 % milk')).toEqual({ name: '1.5 % milk', quantity: '', unit: '', needsReview: false });
+    expect(parsed('100 % whole wheat bread')).toEqual({ name: '100 % whole wheat bread', quantity: '', unit: '', needsReview: false });
     expect(parsed('7-Up soda')).toEqual({ name: '7-Up soda', quantity: '', unit: '', needsReview: false });
+    expect(parsed('1 gallon 2 % milk')).toEqual({ name: '2 % milk', quantity: '1', unit: 'gallon', needsReview: false });
+    expect(parsed('1 cup milk or buttermilk')).toEqual({ name: 'milk or buttermilk', quantity: '1', unit: 'cup', needsReview: false });
+  });
+
+  it('flags fraction/decimal ranges, sums, alternatives, and compound quantities for review', () => {
+    const ambiguous = [
+      '1/2 to 1 cup milk',
+      '1 1/2 to 2 cups flour',
+      '½ to 1 cup milk',
+      '1 to 1½ cups milk',
+      '1/2-3/4 tsp salt',
+      '½–1 cup milk',
+      '1.5 or 2 cups milk',
+      '1/2 or 3/4 cup milk',
+      '1 1/2 or 2 cups flour',
+      '½ or 1 cup milk',
+      '1/2 + 1/4 cup sugar',
+      '1 1/2 + 1/4 cups flour',
+      '½ + ¼ cup sugar',
+      '1 cup + 2 tbsp flour',
+      '1 cup to 2 cups milk',
+      '1 cup or 2 cups milk',
+      '~½ cup sugar',
+      '2 × 15 oz cans tomatoes',
+      '2 of',
+      '2 cups of'
+    ];
+    for (const line of ambiguous) {
+      expect(parseIngredientLine(line)).toEqual({ original: line, name: line, quantity: '', unit: '', needsReview: true });
+    }
   });
 });

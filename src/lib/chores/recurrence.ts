@@ -24,3 +24,15 @@ export function occurrenceDates(start: string, end: string, weekdays: readonly n
   }
   return result;
 }
+
+/** True when `[start, end]` (or an unbounded start) contains at least one matching weekday. */
+export function hasRecurrenceOccurrence(start: string, end: string | null | undefined, weekdays: readonly number[]): boolean {
+  const first = parseDate(start);
+  const last = end ? parseDate(end) : first + 6 * dayMs;
+  if (last < first || !weekdays.length || weekdays.some(day => !Number.isInteger(day) || day < 0 || day > 6)) return false;
+  const limit = Math.min(last, first + 6 * dayMs);
+  for (let time = first; time <= limit; time += dayMs) {
+    if (weekdays.includes(new Date(time).getUTCDay())) return true;
+  }
+  return false;
+}

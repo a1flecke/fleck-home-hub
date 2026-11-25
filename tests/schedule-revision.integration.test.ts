@@ -400,3 +400,25 @@ it('cancels and previews materialized occurrences more than 366 days after the e
   expect(occurrence(db, id, '2028-11-29')).toMatchObject({ title: 'Updated trash', cancelledAt: expect.any(String) });
   expect(db.prepare('SELECT archived_at FROM recurring_occurrence WHERE series_id = ? AND scheduled_date = ?').get(id, '2028-11-29')).toMatchObject({ archived_at: expect.any(String) });
 });
+
+it('rejects creating or revising a recurring chore series whose date range matches zero weekdays', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-22T18:00:00Z'));
+  const db = await fixture();
+  // Mon 2026-11-23 through Wed 2026-11-25 has no Friday (weekday 5).
+  expect(() => createSeries(db, 'parent', 'home', {
+    ...input,
+    startDate: '2026-11-23',
+    endDate: '2026-11-25',
+    weekdays: [5]
+  })).toThrow('Invalid series');
+
+  const id = createSeries(db, 'parent', 'home', seriesInput);
+  const before = series(db, id);
+  expect(() => reviseSeriesSchedule(db, 'parent', 'home', id, before.updated_at, {
+    ...seriesInput,
+    effectiveDate: '2026-11-23',
+    endDate: '2026-11-25',
+    weekdays: [5]
+  })).toThrow('invalid');
+});

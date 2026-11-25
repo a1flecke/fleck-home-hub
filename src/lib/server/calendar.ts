@@ -1,6 +1,6 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
-import { occurrenceDates } from '../chores/recurrence';
+import { hasRecurrenceOccurrence, occurrenceDates } from '../chores/recurrence';
 
 export type EventInput = { title: string; date: string; endDate?: string; startTime?: string; endTime?: string; allDay: boolean; weekdays?: number[]; participants?: string[]; description?: string; location?: string };
 type Row = { id: string; title: string; start_date: string; end_date: string | null; start_time: string | null; end_time: string | null; all_day: number; weekdays: string | null; description: string | null; location: string | null };
@@ -18,7 +18,10 @@ function validate(input: EventInput) {
   if (input.endDate) occurrenceDates(input.endDate, input.endDate, [0]);
   if (!title || title.length > 120 || (description && description.length > 1000) || (location && location.length > 200) || (input.endDate && input.endDate < input.date)) throw new Error('Invalid event');
   if (!input.allDay && (!/^([01]\d|2[0-3]):[0-5]\d$/.test(input.startTime ?? '') || !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.endTime ?? '') || input.endTime! <= input.startTime!)) throw new Error('Invalid event time');
-  if (input.weekdays?.length) occurrenceDates(input.date, input.date, input.weekdays);
+  if (input.weekdays?.length) {
+    occurrenceDates(input.date, input.date, input.weekdays);
+    if (!hasRecurrenceOccurrence(input.date, input.endDate, input.weekdays)) throw new Error('Recurrence has no occurrences');
+  }
   if (input.endDate && !input.weekdays?.length) throw new Error('End date requires recurrence');
   return { title, description, location };
 }
@@ -68,7 +71,9 @@ export function householdEventOccurrences(db: Database.Database, household: stri
 export function cancelOccurrence(db: Database.Database, actor: string, household: string, id: string, date: string): void {
   db.transaction(() => {
     requireMember(db, actor, household, true);
-    if (!listEvents(db, actor, household, date, date).some(event => event.id === id)) throw new Error('Event occurrence not found');
+    const event = db.prepare('SELECT weekdays FROM calendar_event WHERE id = ? AND household_id = ? AND cancelled = 0').get(id, household) as { weekdays: string | null } | undefined;
+    if (!event || !event.weekdays) throw new Error('Only repeating event occurrences can be cancelled');
+    if (!listEvents(db, actor, household, date, date).some(item => item.id === id)) throw new Error('Event occurrence not found');
     db.prepare('INSERT INTO calendar_exception VALUES (?, ?)').run(id, date);
   }).immediate();
 }

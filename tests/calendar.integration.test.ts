@@ -104,3 +104,48 @@ it('schedules an inbox item transactionally and forbids children from managing i
     expect(listUnscheduled(db, 'parent', 'home')).toEqual([]);
   } finally { db.close(); }
 });
+
+it('rejects recurring events with zero matching occurrences while allowing valid short and multi-year spans', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run('parent', 'Parent', 'parent@example.test');
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+
+    // Mon 2026-11-02 through Wed 2026-11-04 has no Friday (weekday 5).
+    const emptyRecurrence = { title: 'Ghost Friday', date: '2026-11-02', endDate: '2026-11-04', allDay: true, weekdays: [5] };
+    expect(() => createEvent(db, 'parent', 'home', emptyRecurrence)).toThrow();
+    const inboxId = addUnscheduled(db, 'parent', 'home', { title: 'Inbox ghost' });
+    expect(() => scheduleUnscheduled(db, 'parent', 'home', inboxId, emptyRecurrence)).toThrow();
+    expect(listUnscheduled(db, 'parent', 'home')).toHaveLength(1);
+
+    // Valid short span (Wed 2026-11-04 matches weekday 3) and valid multi-year span (> 366 days) succeed.
+    const validId = createEvent(db, 'parent', 'home', { title: 'Wednesday check', date: '2026-11-02', endDate: '2026-11-04', allDay: true, weekdays: [3] });
+    expect(listEvents(db, 'parent', 'home', '2026-11-02', '2026-11-04').map(event => event.date)).toEqual(['2026-11-04']);
+    expect(() => updateEvent(db, 'parent', 'home', validId, emptyRecurrence)).toThrow();
+    expect(listEvents(db, 'parent', 'home', '2026-11-02', '2026-11-04').map(event => event.title)).toEqual(['Wednesday check']);
+
+    const multiYearId = createEvent(db, 'parent', 'home', { title: 'Multi-year Friday', date: '2026-01-01', endDate: '2028-12-31', allDay: true, weekdays: [5] });
+    expect(listEvents(db, 'parent', 'home', '2026-01-01', '2026-01-07').some(event => event.id === multiYearId)).toBe(true);
+  } finally { db.close(); }
+});
+
+it('rejects cancelOccurrence on one-off events so they cannot become phantom uncancelled rows', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run('parent', 'Parent', 'parent@example.test');
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+
+    const oneOffId = createEvent(db, 'parent', 'home', { title: 'Single dentist visit', date: '2026-11-05', allDay: true });
+    expect(() => cancelOccurrence(db, 'parent', 'home', oneOffId, '2026-11-05')).toThrow();
+    expect(db.prepare('SELECT count(*) AS count FROM calendar_exception WHERE event_id = ?').get(oneOffId)).toEqual({ count: 0 });
+    expect(listEvents(db, 'parent', 'home', '2026-11-05', '2026-11-05').map(event => event.id)).toEqual([oneOffId]);
+
+    // Cancelling the whole one-off event via cancelEvent still works cleanly.
+    cancelEvent(db, 'parent', 'home', oneOffId);
+    expect(listEvents(db, 'parent', 'home', '2026-11-05', '2026-11-05')).toEqual([]);
+  } finally { db.close(); }
+});
