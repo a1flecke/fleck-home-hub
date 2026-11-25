@@ -158,3 +158,77 @@ test('recovery keeps edits through delayed hydration and a rejected submission',
   await expect(page.getByRole('status').filter({ hasText: 'Late chore created' })).toBeVisible();
   await expect(form).toHaveCount(0);
 });
+
+test('a rejected recovery draft keeps its stale reviewed token across concurrent edits', async ({ browser }, testInfo) => {
+  const origin = 'http://127.0.0.1:4173';
+  const parentOne = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  const parentTwo = await browser.newContext({ viewport: { width: 375, height: 812 } });
+  try {
+    const loginOne = await parentOne.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'reuse-parent@example.test', password: 'synthetic-reuse-parent-password' } });
+    expect(loginOne.status()).toBe(200);
+    const loginTwo = await parentTwo.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'reuse-parent-two@example.test', password: 'synthetic-reuse-parent-two-password' } });
+    expect(loginTwo.status()).toBe(200);
+    const sessionOne = await (await parentOne.request.get('/api/auth/get-session')).json();
+    const sessionTwo = await (await parentTwo.request.get('/api/auth/get-session')).json();
+    expect(sessionOne.session.id).not.toBe(sessionTwo.session.id);
+
+    const pageOne = await parentOne.newPage();
+    const title = `Recovery stale ${testInfo.repeatEachIndex}`;
+    const date = dateOffset(-2);
+    await pageOne.goto('/chores/series');
+    const panel = pageOne.locator('details').filter({ has: pageOne.getByText('Add a recurring chore', { exact: true }) });
+    await panel.getByText('Add a recurring chore', { exact: true }).click();
+    const seriesForm = panel.locator('form');
+    await seriesForm.getByLabel('Recurring chore title').fill(title);
+    await seriesForm.getByLabel('Recurring assigned child').selectOption({ label: 'Reuse Kid One' });
+    await seriesForm.getByLabel('Starts on').fill(date);
+    for (const day of ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']) await seriesForm.getByLabel(day, { exact: true }).check();
+    await seriesForm.getByLabel('Recurring reward in dollars').fill('2.00');
+    await seriesForm.getByRole('button', { name: 'Add recurring chore' }).click();
+    const seriesArticle = pageOne.getByRole('article').filter({ has: pageOne.getByRole('heading', { name: title, exact: true }) });
+    await expect(seriesArticle).toBeVisible();
+    const seriesId = (await seriesArticle.getAttribute('id'))!.replace(/^series-/, '');
+
+    await pageOne.goto('/chores/recovery');
+    const createForm = pageOne.getByRole('form', { name: `Create late chore for ${title} on ${date}`, exact: true });
+    for (let index = 0; index < 20 && await createForm.count() === 0; index++) {
+      await pageOne.getByRole('link', { name: 'Next chore', exact: true }).click();
+    }
+    await expect(createForm).toBeVisible();
+    const originalReviewed = await createForm.locator('input[name="reviewed"]').inputValue();
+    expect(originalReviewed.length).toBeGreaterThan(10);
+
+    // Parent two updates the series in an independent session, changing the series fingerprint.
+    const pageTwo = await parentTwo.newPage();
+    await pageTwo.goto(`/chores/series?focus=${encodeURIComponent(seriesId)}`);
+    const changeForm = pageTwo.locator(`#series-${seriesId}`).getByRole('form', { name: `Change schedule for ${title}` });
+    await changeForm.getByRole('textbox', { name: 'Recurring chore title', exact: true }).fill(`${title} updated`);
+    await changeForm.getByRole('button', { name: 'Preview schedule change' }).click();
+    await pageTwo.getByRole('region', { name: 'Proposed schedule change' }).getByRole('button', { name: 'Save schedule change' }).click();
+    await expect(pageTwo.getByRole('status').filter({ hasText: 'Schedule updated' })).toBeVisible();
+
+    // Parent one first triggers a 400 validation error: the stale reviewed token must stay attached to the draft.
+    const reward = createForm.getByLabel('Confirmed reward in dollars');
+    const confirmed = createForm.getByLabel('I confirm this late chore');
+    await reward.fill('1.555');
+    await confirmed.check();
+    await createForm.getByRole('button', { name: 'Create late chore', exact: true }).click();
+    await expect(pageOne.getByRole('alert').filter({ hasText: 'Enter a reward' })).toBeVisible();
+    const staleForm = pageOne.getByRole('form', { name: `Create late chore for ${title} on ${date}`, exact: true });
+    await expect(staleForm.locator('input[name="reviewed"]')).toHaveValue(originalReviewed);
+
+    // Correcting the reward without refreshing must hit 409 conflict, NOT silently adopt the new reviewed token.
+    await staleForm.getByLabel('Confirmed reward in dollars').fill('1.50');
+    await staleForm.getByRole('button', { name: 'Create late chore', exact: true }).click();
+    await expect(pageOne.getByRole('alert').filter({ hasText: 'This date or chore changed' })).toBeVisible();
+    await expect(staleForm.locator('input[name="reviewed"]')).toHaveValue(originalReviewed);
+
+    // Resubmitting the rejected draft unchanged must still be rejected with 409.
+    await staleForm.getByRole('button', { name: 'Create late chore', exact: true }).click();
+    await expect(pageOne.getByRole('alert').filter({ hasText: 'This date or chore changed' })).toBeVisible();
+    await expect(staleForm.locator('input[name="reviewed"]')).toHaveValue(originalReviewed);
+  } finally {
+    await parentOne.close();
+    await parentTwo.close();
+  }
+});

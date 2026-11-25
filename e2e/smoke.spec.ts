@@ -46,6 +46,10 @@ test('parent and child sessions enforce access at the API', async ({ page }) => 
   const dataResponse = await page.request.get('/dashboard/__data.json');
   expect(dataResponse.status()).toBe(200);
   expect(dataResponse.headers()['cache-control']).toContain('no-store');
+  for (const route of ['/chores/week', '/chores/week/again', '/sign-in']) {
+    const response = await page.request.get(route, { maxRedirects: 0 });
+    expect(response.headers()['cache-control'], route).toContain('no-store');
+  }
   await expect(page.getByText('Add a chore', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
