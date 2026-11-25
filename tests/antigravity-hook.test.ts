@@ -52,12 +52,19 @@ describe('Antigravity PreToolUse hook', () => {
       'gh repo delete a1flecke/fleck-home-hub',
       'sudo ls',
       'git push --force origin HEAD',
+      'git push -f origin HEAD',
+      'git push -uf origin HEAD',
+      'git push -d origin feature/old',
+      '/usr/bin/git push -f origin HEAD',
       'git push origin +HEAD:main',
       'git push origin :feature/old',
       'git push --delete origin feature/old',
       'git push --tags',
       'git push --mirror',
       'gh pr review 123 --approve',
+      "gh pr review 123 '--approve'",
+      'gh pr review 123 "-a"',
+      '/opt/homebrew/bin/gh pr review 123 --approve',
       'gh pr review -a 123',
       'gh pr review 123 -ab "looks good"',
       'git -C /tmp/example status; rm -rf /tmp/example',
@@ -83,6 +90,11 @@ describe('Antigravity PreToolUse hook', () => {
       `git push ${skip}`,
       `git push ${skip.slice(0, -1)} origin HEAD`,
       `git push origin HEAD ${skip}`,
+      `git commit '${skip}' -m example`,
+      'git commit "-n" -m example',
+      `git push '${skip}' origin HEAD`,
+      `/usr/bin/git commit ${skip} -m example`,
+      `git --namespace foo commit ${skip} -m example`,
       'git status && git commit -nm example',
     ]) {
       const output = parseDecision(commandEvent(command, featureRepo));
@@ -125,6 +137,8 @@ describe('Antigravity PreToolUse hook', () => {
       'cat backup.age',
       'cat ~/.config/opencode/service.json',
       'ls ~/.gemini/config',
+      'cat ~/.claude/settings.json',
+      'cat ~/.codex/config.toml',
     ]) {
       expect(parseDecision(commandEvent(command, featureRepo)).decision, command).toBe('force_ask');
     }

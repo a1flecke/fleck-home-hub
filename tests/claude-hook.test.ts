@@ -13,7 +13,24 @@ spawnSync('git', ['init', '-q', '-b', 'feature/hook-test'], { cwd: featureRepo }
 afterAll(() => rmSync(featureRepo, { recursive: true, force: true }));
 const bypassReason = 'Do not bypass Git verification hooks';
 describe('Claude PreToolUse hook', () => {
-  it('blocks destructive commands', () => expect(run(event('git reset --hard')).status).toBe(2));
+  it('blocks destructive commands, short force/delete push flags, privilege escalation, and PR approvals', () => {
+    for (const command of [
+      'git reset --hard',
+      'git push -f origin HEAD',
+      'git push -uf origin HEAD',
+      'git push -d origin feature/old',
+      'git push --tags',
+      'git push --mirror',
+      '/usr/bin/git push -f origin HEAD',
+      'sudo ls',
+      'gh pr review 123 --approve',
+      "gh pr review 123 '--approve'",
+      'gh pr review -a 123',
+      '/opt/homebrew/bin/gh pr review 123 --approve',
+    ]) {
+      expect(run(event(command, featureRepo)).status, command).toBe(2);
+    }
+  });
   it('asks before a feature-branch force-with-lease while still denying plain force', () => {
     const result = run(event('git push --force-with-lease=refs/heads/feature/test:abc origin HEAD:refs/heads/feature/test'));
     expect(result.status).toBe(0);
@@ -25,10 +42,23 @@ describe('Claude PreToolUse hook', () => {
     expect(run('{').status).toBe(2);
     expect(run(JSON.stringify({ tool_input: {} })).status).toBe(2);
   });
-  it('asks for sensitive operations', () => {
-    const result = run(event('tailscale serve reset'));
-    expect(result.status).toBe(0);
-    expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision).toBe('ask');
+  it('asks for sensitive operations and branch deletions', () => {
+    for (const command of [
+      'tailscale serve reset',
+      'git branch -d feature/old',
+      'git branch -D feature/old',
+      'cat hub.conf',
+      'cat data/hub.sqlite',
+      'cat backup.age',
+      'cat server.key',
+      'cat ~/.claude/settings.json',
+      'cat ~/.codex/config.toml',
+      'cat ~/.gemini/settings.json',
+    ]) {
+      const result = run(event(command, featureRepo));
+      expect(result.status, command).toBe(0);
+      expect(JSON.parse(result.stdout).hookSpecificOutput.permissionDecision, command).toBe('ask');
+    }
   });
   it('requires review for Git context changes and refuses hook bypasses', () => {
     for (const command of ['git -C /tmp/example commit -m example', 'cd /tmp/example && git commit -m example', 'git -c core.hooksPath=/dev/null commit -m example']) {
@@ -47,6 +77,8 @@ describe('Claude PreToolUse hook', () => {
       `git commit -nm example`, `git commit -anm example`, `git commit -an -m example`,
       `git commit ${skip.slice(0, -2)} -m example`, `git commit ${skip.slice(0, -3)} -m example`, `git commit ${skip}=true -m example`,
       `git push ${skip}`, `git push ${skip.slice(0, -1)} origin HEAD`, `git push origin HEAD ${skip}`,
+      `git commit '${skip}' -m example`, 'git commit "-n" -m example', `git push '${skip}' origin HEAD`,
+      `/usr/bin/git commit ${skip} -m example`, `git --namespace foo commit ${skip} -m example`,
       `git status && git commit -nm example`
     ]) {
       const result = run(event(command, featureRepo));

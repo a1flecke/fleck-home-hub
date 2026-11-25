@@ -30,9 +30,13 @@ test('a parent invites another parent and that parent can manage household acces
   const submission = page.waitForRequest((request) => request.method() === 'POST');
   await page.getByRole('button', { name: 'Create invitation' }).click();
   expect((await submission).headers().origin).toBe('http://127.0.0.1:4173');
-  await expect(page.getByLabel('Invitation link')).toBeVisible();
-  const link = await page.getByLabel('Invitation link').inputValue();
-  await page.getByLabel('Invitation link').evaluate((input: HTMLInputElement) => { input.value = ''; input.removeAttribute('value'); });
+  const linkInput = page.getByLabel('Invitation link');
+  await expect(linkInput).toBeVisible();
+  await expect(linkInput).toHaveAttribute('type', 'text');
+  const link = await linkInput.inputValue();
+  await linkInput.click();
+  expect(await linkInput.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
+  await linkInput.evaluate((input: HTMLInputElement) => { input.value = ''; input.removeAttribute('value'); });
   expect(link.includes('/accept-invitation#')).toBe(true);
   await expect(page.getByText('Parent invitation pending')).toBeVisible();
   const context = await browser.newContext({ viewport: { width: 375, height: 812 }, recordVideo: undefined });

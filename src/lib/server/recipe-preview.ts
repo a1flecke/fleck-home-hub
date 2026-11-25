@@ -146,12 +146,83 @@ function collectRecipes(value: unknown, recipes: Record<string, unknown>[]): voi
   if (Array.isArray(node['@graph'])) collectRecipes(node['@graph'], recipes);
 }
 
+function scriptMediaType(attrs: string): string | null {
+  let index = 0;
+  while (index < attrs.length) {
+    while (index < attrs.length && /[\s/]/.test(attrs[index])) index++;
+    const nameStart = index;
+    while (index < attrs.length && !/[\s=/>]/.test(attrs[index])) index++;
+    const name = attrs.slice(nameStart, index).toLowerCase();
+    if (!name) { index++; continue; }
+    while (index < attrs.length && /\s/.test(attrs[index])) index++;
+    let value = '';
+    if (attrs[index] === '=') {
+      index++;
+      while (index < attrs.length && /\s/.test(attrs[index])) index++;
+      const quote = attrs[index];
+      if (quote === '"' || quote === "'") {
+        index++;
+        const valueStart = index;
+        const close = attrs.indexOf(quote, index);
+        if (close < 0) { value = attrs.slice(valueStart); index = attrs.length; }
+        else { value = attrs.slice(valueStart, close); index = close + 1; }
+      } else {
+        const valueStart = index;
+        while (index < attrs.length && !/[\s>]/.test(attrs[index])) index++;
+        value = attrs.slice(valueStart, index);
+      }
+    }
+    if (name === 'type') return value.split(';')[0].trim().toLowerCase();
+  }
+  return null;
+}
+
+function extractJsonLdBlocks(html: string): string[] {
+  const blocks: string[] = [];
+  const lower = html.toLowerCase();
+  let pos = 0;
+  while (pos < lower.length) {
+    const tagStart = lower.indexOf('<script', pos);
+    if (tagStart < 0) break;
+    const afterTag = lower[tagStart + 7];
+    if (afterTag !== undefined && !/[\s>/]/.test(afterTag)) {
+      pos = tagStart + 7;
+      continue;
+    }
+    const openEnd = lower.indexOf('>', tagStart + 7);
+    if (openEnd < 0) break;
+    let searchClose = openEnd + 1;
+    let closeStart = -1;
+    let closeEnd = -1;
+    while (searchClose < lower.length) {
+      const candidate = lower.indexOf('</script', searchClose);
+      if (candidate < 0) break;
+      const boundary = lower[candidate + 8];
+      if (boundary === '>' || (boundary !== undefined && /\s/.test(boundary))) {
+        const end = lower.indexOf('>', candidate + 8);
+        if (end >= 0) {
+          closeStart = candidate;
+          closeEnd = end;
+        }
+        break;
+      }
+      searchClose = candidate + 8;
+    }
+    if (closeStart < 0) break;
+    const attrs = html.slice(tagStart + 7, openEnd);
+    if (scriptMediaType(attrs) === 'application/ld+json') {
+      blocks.push(html.slice(openEnd + 1, closeStart));
+    }
+    pos = closeEnd + 1;
+  }
+  return blocks;
+}
+
 /** Extracts only title, yield, total time and ingredient lines; directions and images are ignored. */
 export function extractRecipeDetails(html: string, sourceUrl: string): RecipeDetails | null {
   const recipes: Record<string, unknown>[] = [];
-  const scripts = /<script\b[^>]*\btype\s*=\s*(?:"application\/ld\+json"|'application\/ld\+json'|application\/ld\+json)[^>]*>([\s\S]*?)<\/script>/gi;
-  for (const match of html.matchAll(scripts)) {
-    try { collectRecipes(JSON.parse(match[1]), recipes); } catch { /* Ignore malformed blocks. */ }
+  for (const block of extractJsonLdBlocks(html)) {
+    try { collectRecipes(JSON.parse(block), recipes); } catch { /* Ignore malformed blocks. */ }
     if (recipes.length >= 10) break;
   }
   if (!recipes.length) return null;

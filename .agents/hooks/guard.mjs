@@ -14,23 +14,40 @@ const deny = reason => respond('deny', reason);
 const ask = reason => respond('ask', reason);
 const forceAsk = reason => respond('force_ask', reason);
 
-// Shell words per simple command, keeping quoted text whole so commit/review text is not parsed as options.
+// Shell words per simple command, keeping quoted text whole so commit/review text is not split.
 const commands = text => text.split(/&&|\|\||[;|\n]/).map(part => [...part.matchAll(/"(?:\\.|[^"\\])*"|'[^']*'|[^\s"']+/g)].map(match => match[0]));
+const stripQuotes = word => {
+  if (word.length >= 2 && word.startsWith("'") && word.endsWith("'")) return word.slice(1, -1);
+  if (word.length >= 2 && word.startsWith('"') && word.endsWith('"')) return word.slice(1, -1).replace(/\\(["\\$`])/g, '$1');
+  return word;
+};
+const findBinary = (words, binary) => words.findIndex(word => basename(stripQuotes(word)) === binary);
+
+const gitGlobalValueFlags = new Set(['-C', '-c', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--config-env', '--exec-path']);
 const valueShort = { commit: new Set(['m', 'F', 'c', 'C', 't']), push: new Set(['o']) };
 const valueLong = /^--(?:message|file|reuse-message|reedit-message|template|push-option|repo|receive-pack|exec)$/;
 
-/** Match Git option parsing (clustered short options and unambiguous long prefixes) to catch hook bypasses. */
-function skipsGitHooks(words) {
-  const at = words.indexOf('git');
-  if (at < 0) return false;
+function gitSubcommand(words) {
+  const at = findBinary(words, 'git');
+  if (at < 0) return null;
   let index = at + 1;
-  while (index < words.length && words[index].startsWith('-')) index += words[index] === '-C' || words[index] === '-c' ? 2 : 1;
-  const subcommand = words[index];
-  if (subcommand !== 'commit' && subcommand !== 'push') return false;
-  for (let next = index + 1; next < words.length; next++) {
-    const word = words[next];
+  while (index < words.length) {
+    const word = stripQuotes(words[index]);
+    if (!word.startsWith('-')) break;
+    index += gitGlobalValueFlags.has(word) ? 2 : 1;
+  }
+  if (index >= words.length) return null;
+  return { subcommand: stripQuotes(words[index]), nextIndex: index + 1 };
+}
+
+/** Match Git option parsing (including quoted options, clustered short options and unambiguous long prefixes). */
+function skipsGitHooks(words) {
+  const parsed = gitSubcommand(words);
+  if (!parsed || (parsed.subcommand !== 'commit' && parsed.subcommand !== 'push')) return false;
+  const { subcommand, nextIndex } = parsed;
+  for (let next = nextIndex; next < words.length; next++) {
+    const word = stripQuotes(words[next]);
     if (word === '--') break;
-    if (/^["']/.test(word)) continue;
     if (/^--no-ver(?!b)/.test(word)) return true;
     if (valueLong.test(word)) { next++; continue; }
     if (!/^-[A-Za-z]+$/.test(word)) continue;
@@ -43,20 +60,46 @@ function skipsGitHooks(words) {
   return false;
 }
 
+function dangerousGitPush(words) {
+  const parsed = gitSubcommand(words);
+  if (!parsed || parsed.subcommand !== 'push') return false;
+  let afterDoubleDash = false;
+  let positionalIndex = 0;
+  for (let next = parsed.nextIndex; next < words.length; next++) {
+    const word = stripQuotes(words[next]);
+    if (!afterDoubleDash && word === '--') { afterDoubleDash = true; continue; }
+    if (!afterDoubleDash && word.startsWith('-')) {
+      if (word === '--force' || word.startsWith('--force=') || word === '--delete' || word === '--tags' || word === '--mirror') return true;
+      if (valueLong.test(word)) { next++; continue; }
+      if (/^-[A-Za-z]+$/.test(word)) {
+        const flags = [...word.slice(1)];
+        for (const [position, flag] of flags.entries()) {
+          if (flag === 'f' || flag === 'd') return true;
+          if (valueShort.push.has(flag)) { if (position === flags.length - 1) next++; break; }
+        }
+      }
+      continue;
+    }
+    // Positional args: remote (index 0), then refspecs (index >= 1).
+    if (positionalIndex >= 1 && (word.startsWith('+') || word.startsWith(':'))) return true;
+    positionalIndex++;
+  }
+  return false;
+}
+
 function mergesPr(words) {
-  const at = words.indexOf('gh');
-  return at >= 0 && words[at + 1] === 'pr' && words[at + 2] === 'merge';
+  const at = findBinary(words, 'gh');
+  return at >= 0 && stripQuotes(words[at + 1] ?? '') === 'pr' && stripQuotes(words[at + 2] ?? '') === 'merge';
 }
 
 function approvesPr(words) {
-  const at = words.indexOf('gh');
-  if (at < 0 || words[at + 1] !== 'pr' || words[at + 2] !== 'review') return false;
+  const at = findBinary(words, 'gh');
+  if (at < 0 || stripQuotes(words[at + 1] ?? '') !== 'pr' || stripQuotes(words[at + 2] ?? '') !== 'review') return false;
   const reviewValueLong = /^--(?:body|body-file|repo)$/;
   const reviewValueShort = new Set(['b', 'F', 'R']);
   for (let next = at + 3; next < words.length; next++) {
-    const word = words[next];
+    const word = stripQuotes(words[next]);
     if (word === '--') break;
-    if (/^["']/.test(word)) continue;
     if (word === '--approve' || word.startsWith('--approve=')) return true;
     if (reviewValueLong.test(word)) { next++; continue; }
     if (!/^-[A-Za-z]+$/.test(word)) continue;
@@ -110,7 +153,8 @@ try {
     const parsedCommands = commands(command);
     if (parsedCommands.some(skipsGitHooks)) deny('Do not bypass Git verification hooks');
     if (parsedCommands.some(approvesPr)) deny('Agents must never approve pull requests');
-    if (/\b(?:pkill|killall|sudo)\b|\bgh\s+repo\s+delete\b|\bgit\s+reset\s+[^\n]*--hard\b|\bgit\s+clean\b|\bgit\s+push\s+[^\n]*(?:--force(?!-with-lease)|--delete|--tags|--mirror|\s\+|\s:)|\brm\s+-[a-zA-Z]*[rf][a-zA-Z]*/.test(command)) {
+    if (parsedCommands.some(dangerousGitPush)) deny('Blocked dangerous operation; use a reviewed safe workflow');
+    if (/\b(?:pkill|killall|sudo)\b|\bgh\s+repo\s+delete\b|\bgit\s+reset\s+[^\n]*--hard\b|\bgit\s+clean\b|\brm\s+-[a-zA-Z]*[rf][a-zA-Z]*/.test(command)) {
       deny('Blocked dangerous operation; use a reviewed safe workflow');
     }
     if (parsedCommands.some(mergesPr)) {
@@ -125,13 +169,13 @@ try {
     if (/\bgit\s+branch\b[^\n]*(?:\s-[dD]\b|\s--delete\b)/.test(command)) {
       ask('Branch deletion requires human review');
     }
-    if (/\bgit\s+commit\b/.test(command)) {
+    if (parsedCommands.some(words => gitSubcommand(words)?.subcommand === 'commit')) {
       const result = spawnSync('git', ['symbolic-ref', '--short', 'HEAD'], { cwd: event.cwd, encoding: 'utf8' });
       if (result.status !== 0 || ['main', 'master'].includes(result.stdout.trim())) {
         deny('Commits require a feature branch');
       }
     }
-    if (/\b(?:tailscale|deploy)\b|(?:^|[\s"'=/~])\.config\/(?:opencode|gh)(?:\/|$|\b)|(?:^|[\s"'=/~])\.gemini\/(?:config|settings\.json|GEMINI\.md|AGENTS\.md|antigravity-cli)(?:\/|$|\b)|(?:^|[\s"'=/~])hub\.conf(?:\b|$)|(?:^|[\s"'=/~])\.env(?!\.example\b)(?:\.|\b)|\.(?:sqlite3?|db)(?:-(?:wal|shm|journal))?(?:\b|$)|\.(?:age|pem|key|p12|pfx)(?:\b|$)/i.test(command)) {
+    if (/\b(?:tailscale|deploy)\b|(?:^|[\s"'=/~])\.config\/(?:opencode|gh)(?:\/|$|\b)|(?:^|[\s"'=/~])\.gemini\/(?:config|settings\.json|GEMINI\.md|AGENTS\.md|antigravity-cli)(?:\/|$|\b)|(?:~|\$HOME|\/Users\/[^/\s"']+|\/home\/[^/\s"']+)\/\.(?:claude|codex)(?:\/|$|\b)|(?:^|[\s"'=/~])hub\.conf(?:\b|$)|(?:^|[\s"'=/~])\.env(?!\.example\b)(?:\.|\b)|\.(?:sqlite3?|db)(?:-(?:wal|shm|journal))?(?:\b|$)|\.(?:age|pem|key|p12|pfx)(?:\b|$)/i.test(command)) {
       forceAsk('Sensitive operation requires human review');
     }
     allow();
