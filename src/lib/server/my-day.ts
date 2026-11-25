@@ -83,7 +83,7 @@ export function choreVisibility(audience: ChoreAudience) {
     parameters.push(audience.childId);
   }
   clauses.push('NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date)');
-  clauses.push("NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= ?)");
+  clauses.push("NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= COALESCE(r.paused_on, ?))");
   parameters.push(audience.today);
   return { sql: clauses.join(' AND '), parameters };
 }

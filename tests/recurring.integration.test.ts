@@ -1,8 +1,11 @@
 import { expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
-import { createSeries, generateOccurrences, setHouseholdTimezone, setSeriesState, skipOccurrence, updateSeries } from '../src/lib/server/recurring';
+import { createSeries, generateOccurrences, listSeriesPage, setHouseholdTimezone, setSeriesState, skipOccurrence, updateSeries } from '../src/lib/server/recurring';
 import { changeChore } from '../src/lib/server/chores';
+import { choreScopeCounts, listChoreScope } from '../src/lib/server/my-day';
+import { loadChoreWeek } from '../src/lib/server/chore-week';
+import { displayData, setDisplayVisibility } from '../src/lib/server/display';
 import { runDatabaseWorkers } from './helpers/database-workers';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -114,5 +117,97 @@ it('does not revive generated dates that elapsed while a series was paused', asy
     expect(db.prepare('SELECT scheduled_date FROM recurring_skip ORDER BY scheduled_date').all()).toEqual([{ scheduled_date: '2026-03-07' }, { scheduled_date: '2026-03-08' }]);
     const skipped = db.prepare("SELECT chore_id FROM recurring_occurrence WHERE scheduled_date = '2026-03-08'").get() as { chore_id: string };
     expect(() => changeChore(db, 'kid', 'home', skipped.chore_id, 'submit')).toThrow();
+  } finally { vi.useRealTimers(); db.close(); }
+});
+
+it('keeps paused occurrences hidden and unsubmittable after their date passes while keeping prior overdue and submitted work', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON');
+    await migrate(db);
+    for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-07T18:00:00Z'));
+    const series = createSeries(db, 'parent', 'home', { title: 'Daily paused', assigneeId: 'kid', startDate: '2026-03-06', weekdays: [0, 1, 2, 3, 4, 5, 6], rewardCents: 200 });
+    const submittedSeries = createSeries(db, 'parent', 'home', { title: 'Submitted before pause', assigneeId: 'kid', startDate: '2026-03-07', weekdays: [0, 1, 2, 3, 4, 5, 6], rewardCents: 150 });
+    generateOccurrences(db, 'parent', 'home', '2026-03-06', '2026-03-09');
+    const choreId = (s: string, date: string) => (db.prepare('SELECT chore_id FROM recurring_occurrence WHERE series_id = ? AND scheduled_date = ?').get(s, date) as { chore_id: string }).chore_id;
+    const priorOverdue = choreId(series, '2026-03-06');
+    const dayPaused = choreId(series, '2026-03-07');
+    const submittedToday = choreId(submittedSeries, '2026-03-07');
+    changeChore(db, 'kid', 'home', submittedToday, 'submit');
+    setDisplayVisibility(db, 'parent', 'home', 'chore', dayPaused, true);
+
+    setSeriesState(db, 'parent', 'home', series, 'paused');
+    setSeriesState(db, 'parent', 'home', submittedSeries, 'paused');
+
+    // Advance one day while still paused: 2026-03-07 is now in the past and must NOT resurrect as overdue.
+    vi.setSystemTime(new Date('2026-03-08T18:00:00Z'));
+    const audience = { householdId: 'home', role: 'kid' as const, actorId: 'kid', today: '2026-03-08' };
+    expect(listChoreScope(db, { ...audience, scope: 'overdue' }).items.map(item => item.id)).toEqual([priorOverdue]);
+    expect(choreScopeCounts(db, audience)).toMatchObject({ overdue: 1, today: 0, upcoming: 0, review: 1 });
+    const parentAudience = { householdId: 'home', role: 'parent' as const, actorId: 'parent', today: '2026-03-08' };
+    const weekChores = loadChoreWeek(db, parentAudience, { start: '2026-03-08' }).days.flatMap(day => day.children.flatMap(child => child.chores));
+    expect(weekChores.map(item => item.id)).not.toContain(dayPaused);
+    expect(() => changeChore(db, 'kid', 'home', dayPaused, 'submit')).toThrow(/not available/i);
+    // Prior overdue work and already-submitted work remain usable.
+    changeChore(db, 'kid', 'home', priorOverdue, 'submit');
+    changeChore(db, 'parent', 'home', submittedToday, 'verify');
+    expect(db.prepare('SELECT amount_cents FROM earning WHERE chore_id = ?').get(submittedToday)).toEqual({ amount_cents: 150 });
+  } finally { vi.useRealTimers(); db.close(); }
+});
+
+it('cancels unstarted occurrences from today onward when ending an active or paused series so they never resurrect', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON');
+    await migrate(db);
+    for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-07T18:00:00Z'));
+
+    const activeToEnd = createSeries(db, 'parent', 'home', { title: 'End from active', assigneeId: 'kid', startDate: '2026-03-06', weekdays: [0, 1, 2, 3, 4, 5, 6], rewardCents: 200 });
+    const pausedToEnd = createSeries(db, 'parent', 'home', { title: 'End from paused', assigneeId: 'kid', startDate: '2026-03-06', weekdays: [0, 1, 2, 3, 4, 5, 6], rewardCents: 300 });
+    generateOccurrences(db, 'parent', 'home', '2026-03-06', '2026-03-10');
+    const choreId = (s: string, date: string) => (db.prepare('SELECT chore_id FROM recurring_occurrence WHERE series_id = ? AND scheduled_date = ?').get(s, date) as { chore_id: string }).chore_id;
+
+    // Submit today's chore on activeToEnd? Keep 03-07 unstarted on both and submit 03-08? No, submit 03-06 on activeToEnd and keep 03-06 todo on pausedToEnd.
+    const activeSubmitted = choreId(activeToEnd, '2026-03-06');
+    const pausedPriorOverdue = choreId(pausedToEnd, '2026-03-06');
+    const activeEndDay = choreId(activeToEnd, '2026-03-07');
+    const activeFuture = choreId(activeToEnd, '2026-03-08');
+    const pausedStartDay = choreId(pausedToEnd, '2026-03-07');
+    const pausedFuture = choreId(pausedToEnd, '2026-03-09');
+    changeChore(db, 'kid', 'home', activeSubmitted, 'submit');
+    setDisplayVisibility(db, 'parent', 'home', 'chore', activeFuture, true);
+
+    setSeriesState(db, 'parent', 'home', activeToEnd, 'ended');
+    setSeriesState(db, 'parent', 'home', pausedToEnd, 'paused');
+
+    vi.setSystemTime(new Date('2026-03-08T18:00:00Z'));
+    setSeriesState(db, 'parent', 'home', pausedToEnd, 'ended');
+
+    // Advance past every pre-generated date: none of the ended occurrences from the end/pause cutoff onward may reappear.
+    vi.setSystemTime(new Date('2026-03-12T18:00:00Z'));
+    const audience = { householdId: 'home', role: 'kid' as const, actorId: 'kid', today: '2026-03-12' };
+    expect(listChoreScope(db, { ...audience, scope: 'overdue' }).items.map(item => item.id)).toEqual([pausedPriorOverdue]);
+    expect(choreScopeCounts(db, audience)).toMatchObject({ overdue: 1, today: 0, upcoming: 0, review: 1 });
+    for (const dead of [activeEndDay, activeFuture, pausedStartDay, pausedFuture]) {
+      expect(() => changeChore(db, 'kid', 'home', dead, 'submit')).toThrow();
+    }
+    expect(displayData(db, 'parent', 'home', '2026-03-08', '2026-03-15').chores).toEqual([]);
+    // Ending an active series does not pollute its skip list with cancelled future occurrences.
+    const page = listSeriesPage(db, 'parent', 'home', 1, 10);
+    expect(page.items.find(item => item.id === activeToEnd)?.skipCount).toBe(0);
+    // Prior overdue and already-submitted work remain intact.
+    changeChore(db, 'kid', 'home', pausedPriorOverdue, 'submit');
+    changeChore(db, 'parent', 'home', activeSubmitted, 'verify');
+    expect(db.prepare('SELECT amount_cents FROM earning WHERE chore_id = ?').get(activeSubmitted)).toEqual({ amount_cents: 200 });
   } finally { vi.useRealTimers(); db.close(); }
 });

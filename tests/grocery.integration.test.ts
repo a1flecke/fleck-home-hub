@@ -1,4 +1,4 @@
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import {
@@ -12,7 +12,8 @@ import {
   IngredientValidationError,
   listGroceries,
   removeGrocery,
-  reviewMealIngredients
+  reviewMealIngredients,
+  StaleIngredientSelectionError
 } from '../src/lib/server/groceries';
 import { createMeal, updateMeal } from '../src/lib/server/meals';
 import { familyIngredientKey, providerIngredientKey, type IngredientDecision, type IngredientReview } from '../src/lib/grocery/handoff';
@@ -378,5 +379,39 @@ it('keeps per-item changes, removals and meal handoff working after a clear', as
 
     removeGrocery(db, 'kid', 'home', remaining, 2);
     expect(listGroceries(db, 'parent', 'home')).toMatchObject([{ name: 'onion' }]);
+  } finally { db.close(); }
+});
+
+it('rechecks parent role and meal lines inside the immediate write transaction for confirmMealIngredients', async () => {
+  const db = await setup();
+  try {
+    const meal = createMeal(db, 'parent', 'home', { title: 'Race dinner', date: '2099-01-12', ingredients: '2 cups beans', shared: false });
+    const review = reviewMealIngredients(db, 'parent', 'home', meal, [familyIngredientKey(0)]);
+
+    // Simulate a parent -> kid role downgrade landing right before the writer lock is acquired.
+    const originalTx = db.transaction.bind(db);
+    const downgradeSpy = vi.spyOn(db, 'transaction').mockImplementationOnce((cb) => {
+      db.prepare("UPDATE membership SET role = 'kid' WHERE user_id = 'parent' AND household_id = 'home'").run();
+      return originalTx(cb);
+    });
+    try {
+      expect(() => confirmMealIngredients(db, 'parent', 'home', meal, decisions(review))).toThrow('Not authorized');
+      expect(listGroceries(db, 'kid', 'home')).toEqual([]);
+    } finally {
+      downgradeSpy.mockRestore();
+      db.prepare("UPDATE membership SET role = 'parent' WHERE user_id = 'parent' AND household_id = 'home'").run();
+    }
+
+    // Simulate the meal being edited right before the writer lock is acquired.
+    const editSpy = vi.spyOn(db, 'transaction').mockImplementationOnce((cb) => {
+      db.prepare("UPDATE meal SET ingredients = '1 tomato' WHERE id = ?").run(meal);
+      return originalTx(cb);
+    });
+    try {
+      expect(() => confirmMealIngredients(db, 'parent', 'home', meal, decisions(review))).toThrow(StaleIngredientSelectionError);
+      expect(listGroceries(db, 'parent', 'home')).toEqual([]);
+    } finally {
+      editSpy.mockRestore();
+    }
   } finally { db.close(); }
 });
