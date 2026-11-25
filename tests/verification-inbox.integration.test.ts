@@ -2,6 +2,7 @@ import { afterEach, expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import { changeChore, createChore } from '../src/lib/server/chores';
+import { recordPayout } from '../src/lib/server/payouts';
 import { listReviewQueue, reviewChildSummaries } from '../src/lib/server/verification';
 
 const opened: Database.Database[] = [];
@@ -108,4 +109,30 @@ it('keeps a newly created one-off chore pending until a parent verifies it', asy
   changeChore(db, 'kid', 'home', id, 'submit');
   expect(listReviewQueue(db, 'parent', 'home', { today: '2026-11-18' }).total).toBe(1);
   expect(db.prepare('SELECT count(*) AS count FROM earning').get()).toEqual({ count: 0 });
+});
+
+it('includes children with zero pending submissions in reviewChildSummaries so verified owed totals stay accurate', async () => {
+  const db = await fixture();
+  // Ada has $5.00 verified and $1.00 paid ($4.00 owed), with zero pending chores.
+  pending(db, 'ada-done', 'kid', 500, '2026-11-15T09:00:00.000Z');
+  changeChore(db, 'parent', 'home', 'ada-done', 'verify');
+  recordPayout(db, 'parent', 'home', { childId: 'kid', amountCents: 100, date: '2026-11-16', note: 'Partial', requestId: 'req-1' });
+  // Ben has one pending $2.00 chore and $0.00 verified so far.
+  pending(db, 'ben-pending', 'sibling', 200, '2026-11-17T09:00:00.000Z');
+
+  const before = reviewChildSummaries(db, 'parent', 'home', '2026-11-18');
+  expect(before).toEqual([
+    { id: 'kid', name: 'Ada', pendingCount: 0, pendingCents: 0, owed: 400 },
+    { id: 'sibling', name: 'Ben', pendingCount: 1, pendingCents: 200, owed: 0 }
+  ]);
+  expect(before.reduce((total, child) => total + child.owed, 0)).toBe(400);
+
+  // Verifying Ben's last pending chore leaves zero pending work; owed total must rise to $6.00 (not drop to $0.00).
+  changeChore(db, 'parent', 'home', 'ben-pending', 'verify');
+  const after = reviewChildSummaries(db, 'parent', 'home', '2026-11-18');
+  expect(after).toEqual([
+    { id: 'kid', name: 'Ada', pendingCount: 0, pendingCents: 0, owed: 400 },
+    { id: 'sibling', name: 'Ben', pendingCount: 0, pendingCents: 0, owed: 200 }
+  ]);
+  expect(after.reduce((total, child) => total + child.owed, 0)).toBe(600);
 });

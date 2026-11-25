@@ -52,7 +52,14 @@ it('upgrades the previous journal prefix and restores both recovery decisions fr
     writeFileSync(join(dir, 'meta/_journal.json'), JSON.stringify({ ...journal, entries }));
     migrateDrizzle(drizzle(db), { migrationsFolder: dir });
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name IN ('recurring_pause_interval', 'recurring_recovery_decision')").all()).toEqual([]);
-    const seriesId = seed(db, '2026-03-01');
+    db.exec("INSERT INTO household VALUES ('home', 'Synthetic')");
+    for (const [id, role] of [['parent', 'parent'], ['other-parent', 'parent'], ['kid', 'kid']]) {
+      db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, id + '@example.test');
+      db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, 'home', ?)").run(id, role);
+    }
+    const seriesId = 'pre-upgrade-recovery-series';
+    db.prepare(`INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, reward_cents, start_date, weekdays, state, created_at, updated_at)
+      VALUES (?, 'home', 'parent', 'kid', 'Synthetic recovery', 200, '2026-03-01', '[0,1,2,3,4,5,6]', 'active', '2026-03-01T00:00:00.000Z', '2026-03-01T00:00:00.000Z')`).run(seriesId);
     const series = db.prepare('SELECT * FROM recurring_series').get();
 
     await migrate(db);

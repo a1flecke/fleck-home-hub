@@ -9,6 +9,18 @@ export type ScheduleOccurrence = {
   cancelled: boolean;
 };
 
+export type ScheduleVersion = {
+  effectiveDate: string;
+  endDate: string | null;
+  weekdays: readonly number[];
+};
+
+export type ScheduleSegment<T extends ScheduleVersion = ScheduleVersion> = {
+  version: T;
+  startDate: string;
+  endDate: string | null;
+};
+
 export type SchedulePreviewInput = {
   today: string;
   effectiveDate: string;
@@ -64,9 +76,29 @@ export function schedulePatternLabel(weekdays: readonly number[], endDate: strin
   return endDate ? `${pattern} through ${endDate}` : pattern;
 }
 
+export function scheduleSegments<T extends ScheduleVersion>(versions: readonly T[]): ScheduleSegment<T>[] {
+  const sorted = [...versions].sort((a, b) => a.effectiveDate.localeCompare(b.effectiveDate));
+  const segments: ScheduleSegment<T>[] = [];
+  for (let index = 0; index < sorted.length; index++) {
+    const version = sorted[index];
+    const startDate = version.effectiveDate;
+    const nextStart = index + 1 < sorted.length ? addDays(sorted[index + 1].effectiveDate, -1) : null;
+    let endDate = version.endDate;
+    if (nextStart && (!endDate || nextStart < endDate)) endDate = nextStart;
+    if (endDate && endDate < startDate) continue;
+    segments.push({ version, startDate, endDate });
+  }
+  return segments;
+}
+
+export function scheduleVersionForDate<T extends ScheduleVersion>(versions: readonly T[], date: string): T | undefined {
+  return scheduleSegments(versions).find(segment => date >= segment.startDate && (!segment.endDate || date <= segment.endDate))?.version;
+}
+
 /**
  * Compare a proposed future recurrence pattern with existing occurrences. Only future unstarted,
  * uncancelled work is eligible to be archived; submitted, rework and verified work is preserved.
+ * Previously cancelled occurrences do not block re-adding that date under a new pattern.
  * Lists are bounded for display while counts describe every matching date.
  */
 export function previewScheduleChange(input: SchedulePreviewInput): SchedulePreview {
@@ -90,10 +122,10 @@ export function previewScheduleChange(input: SchedulePreviewInput): SchedulePrev
     ? occurrenceDates(input.effectiveDate, recurrenceEnd, input.newWeekdays)
     : [];
   const newDates = new Set(newPattern);
-  const existingDates = new Set(input.occurrences.map(item => item.date));
+  const activeDates = new Set(input.occurrences.filter(item => !item.cancelled).map(item => item.date));
   const skipDates = new Set(input.skips);
   const add = occurrenceDates(input.effectiveDate, scheduleEnd, input.newWeekdays)
-    .filter(date => !existingDates.has(date) && !skipDates.has(date));
+    .filter(date => !activeDates.has(date) && !skipDates.has(date));
   const keep: string[] = [];
   const cancel: string[] = [];
   const preserved: string[] = [];

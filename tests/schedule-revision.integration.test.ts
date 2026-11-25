@@ -1,9 +1,9 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
-import { createSeries, generateOccurrences, previewSeriesSchedule, reviseSeriesSchedule, SeriesChangeError, setSeriesState } from '../src/lib/server/recurring';
+import { createSeries, generateOccurrences, listSeriesPage, previewSeriesSchedule, reviseSeriesSchedule, SeriesChangeError, setSeriesState, skipOccurrence } from '../src/lib/server/recurring';
 import { changeChore } from '../src/lib/server/chores';
-import { listRecoveryGaps } from '../src/lib/server/recovery';
+import { listRecoveryGaps, resolveRecoveryGap } from '../src/lib/server/recovery';
 
 const opened: Database.Database[] = [];
 afterEach(() => { vi.useRealTimers(); for (const db of opened.splice(0)) db.close(); });
@@ -71,7 +71,8 @@ it('revises future weekdays, cancels obsolete unstarted dates and preserves comp
 
   reviseSeriesSchedule(db, 'parent', 'home', id, before.updated_at, { ...seriesInput, effectiveDate, weekdays: [2, 4] });
   const revised = series(db, id);
-  expect(revised).toMatchObject({ start_date: effectiveDate, weekdays: '[2,4]', title: 'Take out trash', assignee_id: 'kid', reward_cents: 150 });
+  expect(revised).toMatchObject({ start_date: '2026-11-16', weekdays: '[2,4]', title: 'Take out trash', assignee_id: 'kid', reward_cents: 150 });
+  expect(listSeriesPage(db, 'parent', 'home').items.find(item => item.id === id)).toMatchObject({ startDate: '2026-11-16', effectiveDate });
   expect(revised.updated_at).not.toBe(before.updated_at);
   expect(occurrence(db, id, '2026-11-23')!.cancelledAt).toBeTruthy();
   expect(occurrence(db, id, '2026-11-30')!.cancelledAt).toBeTruthy();
@@ -167,4 +168,182 @@ it('does not create a date recorded as skipped and does not revive an archived o
   generateOccurrences(db, 'parent', 'home', effectiveDate, '2026-12-31');
   expect(occurrence(db, id, '2026-11-23')!.cancelledAt).toBeTruthy();
   expect(occurrence(db, id, '2026-11-24')).toBeUndefined();
+});
+
+it('preserves pre-effective-date generation, skips, recovery and earlier revisions when scheduling a future change', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-05-05T18:00:00Z'));
+  const db = await fixture();
+  const id = createSeries(db, 'parent', 'home', {
+    title: 'Old trash',
+    description: 'Before change',
+    assigneeId: 'kid',
+    rewardCents: 150,
+    startDate: '2026-05-01',
+    weekdays: [1, 3]
+  });
+  // Only generate today+7 (May 5..12); May 4 (Mon) was missed so recovery should see it.
+  generateOccurrences(db, 'parent', 'home', '2026-05-05', '2026-05-12');
+  const before = series(db, id);
+
+  // Schedule a future revision effective June 1 (2026-06-01) switching to Tue/Thu with new details.
+  reviseSeriesSchedule(db, 'parent', 'home', id, before.updated_at, {
+    title: 'New trash',
+    description: 'After change',
+    assigneeId: 'sibling',
+    rewardCents: 250,
+    startDate: '2026-06-01',
+    effectiveDate: '2026-06-01',
+    weekdays: [2, 4]
+  });
+
+  // Series start_date must remain 2026-05-01, while latest effectiveDate is 2026-06-01.
+  expect(series(db, id).start_date).toBe('2026-05-01');
+  expect(listSeriesPage(db, 'parent', 'home').items.find(item => item.id === id)).toMatchObject({
+    startDate: '2026-05-01',
+    effectiveDate: '2026-06-01'
+  });
+
+  // 1) Recovery still sees missed Mon May 4 under [1, 3] and does not invent false Tue/Thu gaps.
+  expect(listRecoveryGaps(db, 'parent', 'home').map(gap => ({ date: gap.date, assigneeId: gap.assigneeId, rewardCents: gap.rewardCents }))).toEqual([
+    { date: '2026-05-04', assigneeId: 'kid', rewardCents: 150 }
+  ]);
+
+  // 2) Skipping an upcoming pre-effective-date Monday/Wednesday succeeds; non-scheduled Tuesday is rejected.
+  skipOccurrence(db, 'parent', 'home', id, '2026-05-13');
+  expect(() => skipOccurrence(db, 'parent', 'home', id, '2026-05-12')).toThrow();
+
+  // 3) Advancing into mid-May still generates Mon/Wed occurrences before June 1 with the old details (and skips May 13).
+  generateOccurrences(db, 'parent', 'home', '2026-05-12', '2026-06-05');
+  expect(occurrence(db, id, '2026-05-13')).toBeUndefined();
+  expect(occurrence(db, id, '2026-05-18')).toMatchObject({ title: 'Old trash', status: 'todo', cancelledAt: null });
+  expect(occurrence(db, id, '2026-05-20')).toMatchObject({ title: 'Old trash', status: 'todo', cancelledAt: null });
+  expect(occurrence(db, id, '2026-06-02')).toMatchObject({ title: 'New trash', status: 'todo', cancelledAt: null });
+  const may18 = db.prepare('SELECT c.assignee_id, c.reward_cents FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date = ? AND o.archived_at IS NULL').get(id, '2026-05-18');
+  expect(may18).toEqual({ assignee_id: 'kid', reward_cents: 150 });
+
+  // 4) A subsequent revision effective earlier than 2026-06-01 (2026-05-22) is accepted and supersedes the June 1 revision.
+  const mid = series(db, id);
+  reviseSeriesSchedule(db, 'parent', 'home', id, mid.updated_at, {
+    title: 'Friday trash',
+    description: 'Fridays only',
+    assigneeId: 'kid',
+    rewardCents: 300,
+    startDate: '2026-05-22',
+    effectiveDate: '2026-05-22',
+    weekdays: [5]
+  });
+  // Previously pre-generated June 2 (Tuesday) from the superseded June 1 revision is cancelled; May 22 & May 29 (Fridays) exist.
+  const activeOn = (date: string) => db.prepare('SELECT c.title, c.status, c.cancelled_at AS cancelledAt FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date = ? AND o.archived_at IS NULL').get(id, date);
+  expect(activeOn('2026-05-18')).toMatchObject({ title: 'Old trash', cancelledAt: null });
+  expect(activeOn('2026-05-22')).toMatchObject({ title: 'Friday trash', cancelledAt: null });
+  expect(activeOn('2026-06-02')).toBeUndefined();
+});
+
+it('re-adds previously removed weekdays on a later schedule revision without losing audit history or duplicating active work', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-22T18:00:00Z'));
+  const db = await fixture();
+  const id = createSeries(db, 'parent', 'home', seriesInput);
+  generateOccurrences(db, 'parent', 'home', '2026-11-16', '2026-12-06');
+  // Preserve Wed 2026-11-25 as submitted, explicitly skip Mon 2026-11-30.
+  setStatus(db, id, '2026-11-25', 'pending_verification');
+  skipOccurrence(db, 'parent', 'home', id, '2026-11-30');
+  const firstMonChoreId = occurrence(db, id, '2026-11-23')!.choreId;
+
+  // Revision 1: Mon/Wed -> Tue/Thu (cancels Mon 11-23 and Wed 12-02, preserves pending Wed 11-25).
+  const beforeFirst = series(db, id);
+  reviseSeriesSchedule(db, 'parent', 'home', id, beforeFirst.updated_at, { ...seriesInput, effectiveDate, weekdays: [2, 4] });
+  expect(db.prepare('SELECT cancelled_at FROM chore WHERE id = ?').get(firstMonChoreId)).toMatchObject({ cancelled_at: expect.any(String) });
+
+  // Revision 2: Tue/Thu -> back to Mon/Wed.
+  const beforeSecond = series(db, id);
+  const preview = previewSeriesSchedule(db, 'parent', 'home', id, beforeSecond.updated_at, { ...seriesInput, effectiveDate, weekdays: [1, 3] });
+  expect(preview.addDates).toContain('2026-11-23');
+  expect(preview.addDates).toContain('2026-12-02');
+  expect(preview.addDates).not.toContain('2026-11-25');
+  expect(preview.addDates).not.toContain('2026-11-30');
+  expect(preview.preservedDates).toContain('2026-11-25');
+
+  reviseSeriesSchedule(db, 'parent', 'home', id, beforeSecond.updated_at, { ...seriesInput, effectiveDate, weekdays: [1, 3] });
+  const activeRows = (date: string) => db.prepare('SELECT o.chore_id AS choreId, c.status, c.cancelled_at AS cancelledAt FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date = ? AND o.archived_at IS NULL').all(id, date) as { choreId: string; status: string; cancelledAt: string | null }[];
+  // Mon 11-23 and Wed 12-02 are freshly created; old cancelled chore stays intact in audit history.
+  expect(activeRows('2026-11-23')).toHaveLength(1);
+  expect(activeRows('2026-11-23')[0].choreId).not.toBe(firstMonChoreId);
+  expect(activeRows('2026-11-23')[0]).toMatchObject({ status: 'todo', cancelledAt: null });
+  expect(db.prepare('SELECT cancelled_at FROM chore WHERE id = ?').get(firstMonChoreId)).toMatchObject({ cancelled_at: expect.any(String) });
+  expect(activeRows('2026-12-02')).toHaveLength(1);
+  // Preserved pending Wed 11-25 has no duplicate; skipped Mon 11-30 stays uncreated.
+  expect(activeRows('2026-11-25')).toHaveLength(1);
+  expect(activeRows('2026-11-25')[0].status).toBe('pending_verification');
+  expect(activeRows('2026-11-30').filter(row => row.cancelledAt === null)).toHaveLength(0);
+});
+
+it('resumes a paused series before a future effective date using the prior version and allows recovering a re-added cancelled date', async () => {
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-05-04T18:00:00Z'));
+  const db = await fixture();
+  const id = createSeries(db, 'parent', 'home', {
+    title: 'Before pause',
+    assigneeId: 'kid',
+    rewardCents: 100,
+    startDate: '2026-05-04',
+    weekdays: [1, 3]
+  });
+  generateOccurrences(db, 'parent', 'home', '2026-05-04', '2026-05-18');
+  setSeriesState(db, 'parent', 'home', id, 'paused');
+
+  // Revise effective May 11 -> Tue/Thu (cancels Mon May 11 & Wed May 13), then revise effective May 11 back to Mon/Wed while paused.
+  const paused = series(db, id);
+  reviseSeriesSchedule(db, 'parent', 'home', id, paused.updated_at, {
+    title: 'Temp Tue/Thu',
+    assigneeId: 'kid',
+    rewardCents: 150,
+    startDate: '2026-05-11',
+    effectiveDate: '2026-05-11',
+    weekdays: [2, 4]
+  });
+  const afterRemove = series(db, id);
+  reviseSeriesSchedule(db, 'parent', 'home', id, afterRemove.updated_at, {
+    title: 'Restored Mon/Wed',
+    assigneeId: 'kid',
+    rewardCents: 175,
+    startDate: '2026-05-11',
+    effectiveDate: '2026-05-11',
+    weekdays: [1, 3]
+  });
+  // Also schedule a later June 1 revision to Fridays.
+  const afterRestore = series(db, id);
+  reviseSeriesSchedule(db, 'parent', 'home', id, afterRestore.updated_at, {
+    title: 'June Friday',
+    assigneeId: 'sibling',
+    rewardCents: 200,
+    startDate: '2026-06-01',
+    effectiveDate: '2026-06-01',
+    weekdays: [5]
+  });
+
+  // Resume on May 11 (without running generation for May 11), then advance clock to May 12.
+  vi.setSystemTime(new Date('2026-05-11T18:00:00Z'));
+  setSeriesState(db, 'parent', 'home', id, 'active');
+  vi.setSystemTime(new Date('2026-05-12T18:00:00Z'));
+
+  // Recovery must see Mon May 11 despite the earlier cancelled chore row and allow creating a fresh occurrence.
+  const gaps = listRecoveryGaps(db, 'parent', 'home');
+  expect(gaps.map(gap => ({ date: gap.date, title: gap.title, assigneeId: gap.assigneeId, rewardCents: gap.rewardCents }))).toEqual([
+    { date: '2026-05-11', title: 'Restored Mon/Wed', assigneeId: 'kid', rewardCents: 175 }
+  ]);
+  resolveRecoveryGap(db, 'parent', 'home', { seriesId: id, date: '2026-05-11', decision: 'create', assigneeId: 'kid', rewardCents: 175, reviewed: gaps[0].reviewed });
+  expect(listRecoveryGaps(db, 'parent', 'home')).toEqual([]);
+
+  // Generating May 12..May 25 after resuming uses the May 11 version (Mon/Wed), not the June 1 Friday version.
+  generateOccurrences(db, 'parent', 'home', '2026-05-12', '2026-05-25');
+  const activeDates = db.prepare('SELECT scheduled_date, c.title FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ? ORDER BY scheduled_date').all(id, '2026-05-11');
+  expect(activeDates).toEqual([
+    { scheduled_date: '2026-05-11', title: 'Restored Mon/Wed' },
+    { scheduled_date: '2026-05-13', title: 'Restored Mon/Wed' },
+    { scheduled_date: '2026-05-18', title: 'Restored Mon/Wed' },
+    { scheduled_date: '2026-05-20', title: 'Restored Mon/Wed' },
+    { scheduled_date: '2026-05-25', title: 'Restored Mon/Wed' }
+  ]);
 });

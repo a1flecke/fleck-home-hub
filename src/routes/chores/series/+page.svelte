@@ -88,7 +88,7 @@
     {#each data.items as series (series.id)}
       {@const draft = draftFor(series)}
       <article id={`series-${series.id}`} class="mt-4 rounded-2xl bg-white p-5 shadow-sm"><h3 class="text-lg font-bold">{series.title}</h3><p class="mt-2">{series.state} · {JSON.parse(series.weekdays).map((day: number) => days[day]).join(', ')} · {series.childName}</p>
-        <p class="mt-1 text-sm">Effective from {series.startDate}{series.endDate ? ` through ${series.endDate}` : ''} · {money(series.rewardCents)}</p>
+        <p class="mt-1 text-sm">Effective from {series.effectiveDate}{series.endDate ? ` through ${series.endDate}` : ''} · {money(series.rewardCents)}</p>
         {#if series.state === 'active'}<p>{series.next ? `Next: ${series.next}` : 'No upcoming occurrence in the next seven days.'}</p>{/if}
         {#if series.skips.length}<p>Skipped: {series.skips.join(', ')}{#if series.skipCount > series.skips.length} · {series.skipCount - series.skips.length} older in history{/if}</p>{/if}
         {#if series.state !== 'ended'}
