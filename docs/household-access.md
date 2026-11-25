@@ -57,7 +57,7 @@ A parent can disable one member of one household. The row stays, with `disabled_
 
 ### Limits
 
-- Disabling the final active membership revokes the account's existing sessions. A later email sign-in on a legacy account can still authenticate the account without granting access to the disabled household. Managed-child sign-in requires an active child membership. Accounts with other active memberships keep their sessions.
+- Disabling the final active membership revokes the account's existing sessions. A disabled account with no remaining active household cannot sign back in through `/api/auth/sign-in/email` or call Better Auth account-mutation endpoints (such as profile or password updates), preventing edits to names joined into household history. Managed-child sign-in also requires an active child membership. Accounts with other active memberships keep their sessions.
 - The disable worker uses Better Auth 1.7.14's typed plugin context to revoke sessions on its SQLite connection. Membership, invitations, displays and session deletion commit together or roll back together. Revalidate this framework contract when upgrading Better Auth. No admin plugin or HTTP revocation endpoint is enabled.
 - There is no "sign out everywhere including this device" action; use sign out after ending the others. The parent-managed child password reset ends all sessions for that managed child account.
 - Device labels come from the User-Agent header and are only a hint. IP addresses are not shown because forwarded headers are not trusted.

@@ -4,10 +4,10 @@ import svelte from 'eslint-plugin-svelte';
 import globals from 'globals';
 
 export default ts.config(
-  { ignores: ['node_modules/**', '.svelte-kit/**', 'build/**', 'test-results/**', 'playwright-report/**', '.synthetic-sign-in-limit-*/**'] },
+  { ignores: ['node_modules/**', '.svelte-kit/**', 'build/**', 'test-results/**', 'playwright-report/**', '.synthetic-sign-in-limit-*/**', '.claude/worktrees/**'] },
   js.configs.recommended,
   ...ts.configs.recommended,
   ...svelte.configs['flat/recommended'],
-  { languageOptions: { globals: { ...globals.node, ...globals.browser } } },
-  { files: ['**/*.svelte'], languageOptions: { parserOptions: { parser: ts.parser } } }
+  { languageOptions: { globals: { ...globals.node, ...globals.browser }, parserOptions: { tsconfigRootDir: import.meta.dirname } } },
+  { files: ['**/*.svelte'], languageOptions: { parserOptions: { parser: ts.parser, tsconfigRootDir: import.meta.dirname } } }
 );

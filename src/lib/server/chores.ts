@@ -42,11 +42,12 @@ export function changeChore(db: Database.Database, actor: string, household: str
     if (chore.cancelled_at) throw new Error('Chore cancelled');
     if (db.prepare('SELECT 1 FROM recurring_occurrence o JOIN recurring_skip s ON s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date WHERE o.chore_id = ?').get(id)) throw new Error('Occurrence skipped');
     if (action === 'submit') {
-      const recurring = db.prepare('SELECT o.scheduled_date, s.state FROM recurring_occurrence o JOIN recurring_series s ON s.id = o.series_id WHERE o.chore_id = ?').get(id) as { scheduled_date: string; state: string } | undefined;
+      const recurring = db.prepare('SELECT o.scheduled_date, s.state, s.paused_on FROM recurring_occurrence o JOIN recurring_series s ON s.id = o.series_id WHERE o.chore_id = ?').get(id) as { scheduled_date: string; state: string; paused_on: string | null } | undefined;
       if (recurring) {
         const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
         const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
-        if (recurring.scheduled_date > today || (recurring.scheduled_date >= today && recurring.state !== 'active' && chore.status === 'todo')) throw new Error('Occurrence not available');
+        const inactiveSince = recurring.paused_on ?? today;
+        if (recurring.scheduled_date > today || (recurring.scheduled_date >= inactiveSince && recurring.state !== 'active' && chore.status === 'todo')) throw new Error('Occurrence not available');
       }
     }
     const next = transition(chore.status, action, member.role);

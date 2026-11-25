@@ -9,7 +9,8 @@ import { tmpdir } from 'node:os';
 import { createAuth, migrate, authorizeRequest, parentAction } from '../src/lib/server/identity';
 import { createInvitation, listHouseholdAccess, redeemInvitation } from '../src/lib/server/invitations';
 import { MemberDisableError, activeMembership, disableMember, primaryActiveMembership } from '../src/lib/server/household-access';
-import { addGrocery, changeGrocery, listGroceries, removeGrocery } from '../src/lib/server/groceries';
+import { addGrocery, changeGrocery, confirmMealIngredients, listGroceries, removeGrocery, reviewMealIngredients } from '../src/lib/server/groceries';
+import { familyIngredientKey } from '../src/lib/grocery/handoff';
 import { changeChore, createChore } from '../src/lib/server/chores';
 import { createSeries, generateOccurrences, setHouseholdTimezone } from '../src/lib/server/recurring';
 import { balance, recordPayout, setPayday } from '../src/lib/server/payouts';
@@ -485,6 +486,12 @@ describe('transactions competing with member disabling', () => {
     ['meal edit', ['meal'], (f) => {
       const id = createMeal(f.db, f.parentA, 'house-a', meal);
       return () => updateMeal(f.db, f.parentB, 'house-a', id, { ...meal, title: 'Changed meal' });
+    }],
+    ['meal ingredient confirmation', ['grocery_item'], (f) => {
+      const id = createMeal(f.db, f.parentA, 'house-a', { ...meal, ingredients: '2 cups beans' });
+      const review = reviewMealIngredients(f.db, f.parentB, 'house-a', id, [familyIngredientKey(0)]);
+      const decisions = review.items.map(item => ({ key: item.key, line: item.line, action: item.action, name: item.name, quantity: item.quantity, unit: item.unit }));
+      return () => confirmMealIngredients(f.db, f.parentB, 'house-a', id, decisions);
     }]
   ] satisfies [string, string[], (f: DisableFixture) => () => unknown][])(
     'rejects %s after disable wins the writer lock', async (_operation, tables, prepare) => {

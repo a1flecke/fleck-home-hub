@@ -202,19 +202,19 @@ export function reviewMealIngredients(db: Database.Database, actor: string, hous
  * when any proposal is stale, invalid or conflicting.
  */
 export function confirmMealIngredients(db: Database.Database, actor: string, household: string, mealId: string, decisions: IngredientDecision[]): { added: number; skipped: number } {
-  const { refs } = mealIngredients(db, actor, household, mealId);
-  const byKey = new Map(refs.map(ref => [ref.key, ref]));
-  if (!decisions.length || decisions.length > 100) throw new IngredientValidationError('Choose ingredients');
-  const keys = new Set<string>();
-  for (const decision of decisions) {
-    const ref = byKey.get(decision.key);
-    if (!decision.key || keys.has(decision.key) || !ref || ref.line !== decision.line) throw new StaleIngredientSelectionError('Ingredient selection changed');
-    keys.add(decision.key);
-    if (!ingredientActions.includes(decision.action)) throw new IngredientValidationError('Invalid action');
-  }
-
   return db.transaction(() => {
-    const active = listGroceries(db, actor, household).filter(item => !item.completed);
+    const { refs } = mealIngredients(db, actor, household, mealId);
+    const byKey = new Map(refs.map(ref => [ref.key, ref]));
+    if (!decisions.length || decisions.length > 100) throw new IngredientValidationError('Choose ingredients');
+    const keys = new Set<string>();
+    for (const decision of decisions) {
+      const ref = byKey.get(decision.key);
+      if (!decision.key || keys.has(decision.key) || !ref || ref.line !== decision.line) throw new StaleIngredientSelectionError('Ingredient selection changed');
+      keys.add(decision.key);
+      if (!ingredientActions.includes(decision.action)) throw new IngredientValidationError('Invalid action');
+    }
+
+    const active = groceryItems(db, household).filter(item => !item.completed);
     const prepared = new Map<string, ItemInput>();
     const conflicts: string[] = [];
     for (const decision of decisions) {

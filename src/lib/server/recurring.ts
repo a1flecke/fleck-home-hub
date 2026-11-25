@@ -84,20 +84,32 @@ export function setSeriesState(db: Database.Database, actor: string, household: 
   db.transaction(() => {
     requireParent(db, actor, household, id);
     const existing = db.prepare('SELECT state, paused_on FROM recurring_series WHERE id = ? AND household_id = ?').get(id, household) as { state: string; paused_on: string | null };
+    if (existing.state === 'ended') throw new Error('Series ended');
     const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(household) as { timezone: string } | undefined;
     const today = localDate(new Date(), settings?.timezone ?? 'America/Chicago');
-    if (existing.state === 'paused' && state !== 'paused' && existing.paused_on) {
+    const now = new Date().toISOString();
+    if (existing.state === 'paused' && state === 'active' && existing.paused_on) {
       db.prepare(`INSERT OR IGNORE INTO recurring_skip (series_id, scheduled_date) SELECT o.series_id, o.scheduled_date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date >= ? AND o.scheduled_date < ? AND c.status = 'todo' AND c.cancelled_at IS NULL`).run(id, existing.paused_on, today);
     }
     if (existing.state === 'active' && state === 'paused') {
-      db.prepare('INSERT INTO recurring_pause_interval (series_id, started_on, actor_id, created_at) VALUES (?, ?, ?, ?)').run(id, today, actor, new Date().toISOString());
+      db.prepare('INSERT INTO recurring_pause_interval (series_id, started_on, actor_id, created_at) VALUES (?, ?, ?, ?)').run(id, today, actor, now);
     }
     if (existing.state === 'paused' && state !== 'paused' && existing.paused_on) {
       const closed = db.prepare('UPDATE recurring_pause_interval SET ended_on = ? WHERE series_id = ? AND ended_on IS NULL').run(today, id);
-      if (!closed.changes) db.prepare('INSERT INTO recurring_pause_interval (series_id, started_on, ended_on, actor_id, created_at) VALUES (?, ?, ?, ?, ?)').run(id, existing.paused_on, today, actor, new Date().toISOString());
+      if (!closed.changes) db.prepare('INSERT INTO recurring_pause_interval (series_id, started_on, ended_on, actor_id, created_at) VALUES (?, ?, ?, ?, ?)').run(id, existing.paused_on, today, actor, now);
+    }
+    if (state === 'ended') {
+      const cutoff = existing.state === 'paused' && existing.paused_on && existing.paused_on < today ? existing.paused_on : today;
+      const toCancel = db.prepare(`SELECT o.chore_id AS choreId FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id WHERE o.series_id = ? AND o.scheduled_date >= ? AND c.status = 'todo' AND c.cancelled_at IS NULL`).all(id, cutoff) as { choreId: string }[];
+      for (const row of toCancel) {
+        const cancelled = db.prepare('UPDATE chore SET cancelled_at = ?, cancelled_by = ?, updated_at = ? WHERE id = ? AND cancelled_at IS NULL').run(now, actor, now, row.choreId);
+        if (cancelled.changes) {
+          db.prepare('INSERT INTO chore_revision (chore_id, actor_id, changed_at, changes) VALUES (?, ?, ?, ?)').run(row.choreId, actor, now, JSON.stringify({ cancelled: { from: null, to: now, reason: 'series_ended' } }));
+        }
+      }
     }
     const pausedOn = state === 'paused' ? (existing.paused_on ?? today) : null;
-    const changed = db.prepare("UPDATE recurring_series SET state = ?, paused_on = ?, updated_at = ? WHERE id = ? AND household_id = ? AND state != 'ended'").run(state, pausedOn, new Date().toISOString(), id, household);
+    const changed = db.prepare("UPDATE recurring_series SET state = ?, paused_on = ?, updated_at = ? WHERE id = ? AND household_id = ? AND state != 'ended'").run(state, pausedOn, now, id, household);
     if (!changed.changes) throw new Error('Series ended');
   }).immediate();
 }
