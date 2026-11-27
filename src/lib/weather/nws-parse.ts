@@ -36,7 +36,7 @@ export function parseDaily(
   if (!Array.isArray(periods) || periods.length === 0) throw invalidResponse();
 
   const parsed = periods
-    .map((period) => parsePeriod(period))
+    .map((period) => parsePeriod(period, timeZone))
     .filter((period): period is ParsedPeriod => period !== null);
   if (parsed.length === 0) throw invalidResponse();
 
@@ -59,19 +59,54 @@ export function parseDaily(
   };
 }
 
-export function parseCurrent(value: unknown): CurrentConditions {
+const DEFAULT_HOURLY_MS = 60 * 60 * 1000;
+
+export function parseCurrent(value: unknown, now?: Date): CurrentConditions {
   const properties = asRecord(asRecord(value)?.properties);
   const periods = properties?.periods;
   if (!Array.isArray(periods) || periods.length === 0) throw invalidResponse();
-  const period = asRecord(periods[0]);
-  if (!period) throw invalidResponse();
-  const startTime = readPeriodStart(period.startTime);
-  const temperatureF = readTemperature(period);
-  if (!startTime || temperatureF === null) throw invalidResponse();
+
+  const parsed = periods.map((raw) => {
+    const period = asRecord(raw);
+    if (!period) return null;
+    const startTime = readPeriodStart(period.startTime);
+    if (!startTime) return null;
+    const explicitEnd = readTimestampMs(period.endTime);
+    return {
+      period,
+      startValue: startTime.value,
+      startMs: startTime.ms,
+      explicitEndMs: explicitEnd !== null && explicitEnd > startTime.ms ? explicitEnd : null,
+    };
+  });
+
+  const resolved = parsed
+    .map((entry, index) => {
+      if (!entry) return null;
+      const nextStart = parsed[index + 1]?.startMs ?? null;
+      const endMs = entry.explicitEndMs
+        ?? (nextStart !== null && nextStart > entry.startMs ? nextStart : entry.startMs + DEFAULT_HOURLY_MS);
+      return { ...entry, endMs };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+
+  if (resolved.length === 0) throw invalidResponse();
+
+  let selected = resolved[0];
+  if (now) {
+    const nowMs = now.getTime();
+    const active = resolved.find((entry) => entry.startMs <= nowMs && nowMs < entry.endMs);
+    const upcoming = resolved.find((entry) => entry.endMs > nowMs);
+    if (!active && !upcoming) throw invalidResponse();
+    selected = active ?? upcoming!;
+  }
+
+  const temperatureF = readTemperature(selected.period);
+  if (temperatureF === null) throw invalidResponse();
   return {
     temperatureF,
-    description: readDescription(period.shortForecast),
-    periodStart: startTime.value,
+    description: readDescription(selected.period.shortForecast),
+    periodStart: selected.startValue,
   };
 }
 
@@ -110,10 +145,18 @@ function readTimeZone(value: unknown): string {
   return value;
 }
 
-function parsePeriod(value: unknown): ParsedPeriod | null {
+const ISO_TIMESTAMP_WITH_OFFSET = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function readTimestampMs(value: unknown): number | null {
+  if (typeof value !== 'string' || !ISO_TIMESTAMP_WITH_OFFSET.test(value)) return null;
+  const ms = Date.parse(value);
+  return Number.isFinite(ms) ? ms : null;
+}
+
+function parsePeriod(value: unknown, timeZone: string): ParsedPeriod | null {
   const period = asRecord(value);
   if (!period || typeof period.isDaytime !== 'boolean') return null;
-  const startTime = readPeriodStart(period.startTime);
+  const startTime = readPeriodStart(period.startTime, timeZone);
   if (!startTime) return null;
   return {
     date: startTime.date,
@@ -123,11 +166,11 @@ function parsePeriod(value: unknown): ParsedPeriod | null {
   };
 }
 
-function readPeriodStart(value: unknown): { value: string; date: string } | null {
-  if (typeof value !== 'string') return null;
-  const date = /^(\d{4}-\d{2}-\d{2})T/.exec(value)?.[1];
-  if (!date || !Number.isFinite(Date.parse(value))) return null;
-  return { value, date };
+function readPeriodStart(value: unknown, timeZone?: string): { value: string; ms: number; date: string } | null {
+  const ms = readTimestampMs(value);
+  if (ms === null || typeof value !== 'string') return null;
+  const date = timeZone ? localDate(new Date(ms), timeZone) : value.slice(0, 10);
+  return { value, ms, date };
 }
 
 function readTemperature(period: Record<string, unknown>): number | null {

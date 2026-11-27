@@ -7,7 +7,8 @@ import { createInvitation, listHouseholdAccess, revokeInvitation } from '../../.
 import { MemberDisableError, disableMember } from '../../../lib/server/household-access';
 
 async function parent(request: Request, url: URL) {
-  const services = getIdentityServices();
+  let services;
+  try { services = getIdentityServices(); } catch { error(503, 'Identity service unavailable'); }
   const session = await services.auth.api.getSession({ headers: request.headers });
   if (!session) redirect(303, '/sign-in');
   const households = parentHouseholds(services.db, session.user.id);
