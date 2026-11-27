@@ -13,9 +13,9 @@ it('adds calendar import tables to the latest journal prefix without changing ho
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync('drizzle/auth/0001_better_auth.sql', 'utf8'));
     const journal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8')) as { entries: { tag: string; idx: number; when: number }[] };
-    const prefix = (entries: typeof journal.entries) => entries.slice(0, entries.findIndex(entry => entry.tag === '0024_recurring_schedule_versions') + 1);
+    const prefix = (entries: typeof journal.entries) => entries.slice(0, entries.findIndex(entry => entry.tag === '0025_checklist_templates') + 1);
     const previous = prefix(journal.entries);
-    expect(previous.at(-1)?.tag).toBe('0024_recurring_schedule_versions');
+    expect(previous.at(-1)?.tag).toBe('0025_checklist_templates');
     expect(prefix([...journal.entries, { tag: 'future', idx: 999, when: 9999999999999 }])).toEqual(previous);
     // Ensure consecutive indexes and strictly increasing timestamps across the journal
     for (let i = 0; i < journal.entries.length; i += 1) {

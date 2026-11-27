@@ -4,6 +4,7 @@
   import { onMount, untrack } from 'svelte';
   import Disclosure from '../calendar/Disclosure.svelte';
   import { groupGroceryItems, type GroceryGroupName } from '../../lib/grocery/grouping';
+  import { boughtClearBatch } from '../../lib/grocery/domain';
   import {
     classifyGroceryRefreshResponse,
     GROCERY_DATA_PATH,
@@ -36,6 +37,7 @@
   let editingPaused = $derived(addDirty || dirtyEdits.length > 0 || recoveryOpen);
   let items = $state<Item[]>(untrack(() => data.items));
   let groups = $derived(groupGroceryItems(items, pinnedGroups));
+  let clearing = $derived(boughtClearBatch(groups.bought));
   let inFlight = false;
   let disposed = false;
   let request: AbortController | null = null;
@@ -307,12 +309,13 @@
         <details class="mt-5 rounded-xl border border-slate-200 p-4">
           <summary class="cursor-pointer font-bold">Clear bought items…</summary>
           <form method="POST" action="?/clearBought" aria-label="Clear bought items" class="mt-3 grid gap-3">
-            <p class="text-sm text-slate-700">This permanently removes these {groups.bought.length} bought {groups.bought.length === 1 ? 'record' : 'records'} from the active list. It is not a hide or archive, and there is no undo.</p>
-            {#each groups.bought as item (item.id)}
+            <p class="text-sm text-slate-700">This permanently removes {clearing.remaining ? `the first ${clearing.batch.length} of ${groups.bought.length}` : `these ${clearing.batch.length}`} bought {clearing.batch.length === 1 ? 'record' : 'records'} from the active list. It is not a hide or archive, and there is no undo.</p>
+            {#if clearing.remaining}<p class="text-sm text-slate-700">{clearing.remaining} more {clearing.remaining === 1 ? 'item stays' : 'items stay'} bought. Clear again afterwards to remove {clearing.remaining === 1 ? 'it' : 'them'}.</p>{/if}
+            {#each clearing.batch as item (item.id)}
               <input type="hidden" name="id" value={item.id} />
               <input type="hidden" name="version" value={item.version} />
             {/each}
-            <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Clear {groups.bought.length} bought {groups.bought.length === 1 ? 'item' : 'items'}</button>
+            <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Clear {clearing.batch.length} bought {clearing.batch.length === 1 ? 'item' : 'items'}</button>
           </form>
         </details>
       {/if}

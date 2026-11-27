@@ -45,6 +45,12 @@
   {#if form?.message}<p role="alert" class="mt-4 rounded-xl bg-amber-100 p-3">{form.message}</p>{/if}
 
   {#if data.role === 'parent'}
+    <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1">
+      <a class="inline-flex min-h-11 items-center font-semibold text-teal-800 underline" href={resolve('/lists/copy/[source]/[id]', { source: 'list', id: data.list.id })}>Use this list again</a>
+      <form method="POST" action="?/saveTemplate">
+        <button class="min-h-11 rounded-xl border border-teal-800 px-3 py-2 font-bold text-teal-800">Save as template</button>
+      </form>
+    </div>
     {#if !data.list.archived}
       <section class="mt-4 rounded-2xl bg-white p-4 shadow-sm">
         <h2 class="text-lg font-bold">Add things to do</h2>

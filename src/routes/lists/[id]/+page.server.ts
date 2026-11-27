@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { requestAccess } from '../../../lib/server/request-access';
-import { addChecklistItems, ChecklistConflict, getChecklist, removeChecklistItem, setItemCompletion, updateChecklist, updateChecklistItem } from '../../../lib/server/checklists';
+import { addChecklistItems, ChecklistConflict, getChecklist, removeChecklistItem, saveChecklistTemplate, setItemCompletion, updateChecklist, updateChecklistItem } from '../../../lib/server/checklists';
 
 async function principal(request: Request) {
   const access = await requestAccess(request);
@@ -26,6 +26,14 @@ export const load: PageServerLoad = async ({ request, params }) => {
 };
 
 export const actions = {
+  saveTemplate: async ({ request, params }) => {
+    const access = await principal(request);
+    if (access.role !== 'parent' || request.headers.get('origin') !== access.origin) return fail(403, { message: 'Request not authorized.' });
+    let id: string;
+    try { id = saveChecklistTemplate(access.db, access.userId, access.householdId, params.id); }
+    catch { return fail(400, { message: 'Could not save a template from this list. Refresh and try again.' }); }
+    redirect(303, `/lists/templates/${id}`);
+  },
   add: async ({ request, params }) => {
     const access = await principal(request);
     if (access.role !== 'parent' || request.headers.get('origin') !== access.origin) return fail(403, { message: 'Request not authorized.' });

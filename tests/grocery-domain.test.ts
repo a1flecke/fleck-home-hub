@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ingredientLines, probableGroceryMatch, sameGroceryName } from '../src/lib/grocery/domain';
+import { boughtClearBatch, ingredientLines, MAX_BOUGHT_CLEAR_ROWS, probableGroceryMatch, sameGroceryName } from '../src/lib/grocery/domain';
 
 describe('grocery item matching', () => {
   it('compares names without case or incidental whitespace', () => {
@@ -52,5 +52,31 @@ describe('grocery item matching', () => {
 
   it('preserves ingredient quantities and ignores blank lines', () => {
     expect(ingredientLines(' 2 cups beans\n\n1 onion \r\n')).toEqual(['2 cups beans', '1 onion']);
+  });
+});
+
+describe('bought clearing batches', () => {
+  const items = (count: number) => Array.from({ length: count }, (_, index) => ({ id: `item-${index}`, version: 2 }));
+
+  it('offers every bought item when the list fits one clear request', () => {
+    expect(boughtClearBatch(items(3), 200)).toEqual({ batch: items(3), remaining: 0 });
+    expect(boughtClearBatch(items(200), 200)).toMatchObject({ remaining: 0 });
+    expect(boughtClearBatch(items(200), 200).batch).toHaveLength(200);
+  });
+
+  it('caps one request at the server limit and reports the rows left for the next clear', () => {
+    const result = boughtClearBatch(items(201), 200);
+    expect(result.batch).toHaveLength(200);
+    expect(result.remaining).toBe(1);
+    expect(result.batch[0].id).toBe('item-0');
+    expect(boughtClearBatch(items(450), 200)).toMatchObject({ remaining: 250 });
+  });
+
+  it('handles an empty list', () => {
+    expect(boughtClearBatch([], 200)).toEqual({ batch: [], remaining: 0 });
+  });
+
+  it('uses the same limit the server enforces', () => {
+    expect(MAX_BOUGHT_CLEAR_ROWS).toBe(200);
   });
 });
