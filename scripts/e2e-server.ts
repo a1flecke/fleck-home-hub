@@ -36,15 +36,9 @@ db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(multiParent.user.id, 'synthetic-other-household', 'parent');
 db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-failure-household', 'Validation example');
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(multiParent.user.id, 'synthetic-failure-household', 'parent');
-// Shopping journeys: one isolated household per scenario so list-wide counts and bulk
-// clears are independent of every other grocery test.
+// Bulk grocery journeys: one household per scenario (e2e/bulk-groceries.spec.ts). The grocery
+// list journeys build their own households with freshHousehold() instead.
 for (const fixture of [
-  { key: 'a', name: 'Grocery Parent A', role: 'parent' },
-  { key: 'c', name: 'Grocery Parent C', role: 'parent' },
-  { key: 'd', name: 'Grocery Parent D', role: 'parent' },
-  { key: 'e', name: 'Grocery Parent E', role: 'parent' },
-  { key: 'f', name: 'Grocery Parent F', role: 'parent' },
-  { key: 'kid', name: 'Grocery Kid', role: 'kid' },
   { key: 'bulk-a', name: 'Bulk Grocery Parent A', role: 'parent' },
   { key: 'bulk-b', name: 'Bulk Grocery Parent B', role: 'parent' },
   { key: 'bulk-kid', name: 'Bulk Grocery Kid', role: 'kid' },

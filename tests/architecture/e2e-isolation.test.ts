@@ -16,7 +16,7 @@ export const ISOLATION_MARKER = '// e2e-isolation: fresh-households';
 export const LEGACY_SHARED_SPECS = [
   'bulk-groceries.spec.ts', 'calendar-import.spec.ts', 'calendar.spec.ts', 'checklist-event-prep.spec.ts', 'checklist-templates.spec.ts',
   'chore-edit.spec.ts', 'chore-week.spec.ts', 'chores.spec.ts', 'dashboard-calendar.spec.ts', 'display-pairing.spec.ts', 'display.spec.ts',
-  'expenses.spec.ts', 'family-checklists.spec.ts', 'family-dinners.spec.ts', 'family-readiness.spec.ts', 'groceries.spec.ts',
+  'expenses.spec.ts', 'family-checklists.spec.ts', 'family-dinners.spec.ts', 'family-readiness.spec.ts',
   'household-invitations.spec.ts', 'kid-my-day.spec.ts', 'meal-planner.spec.ts', 'meals.spec.ts', 'member-disable.spec.ts',
   'my-day-history.spec.ts', 'onboarding.spec.ts', 'payouts.spec.ts', 'plan-again.spec.ts', 'pwa.spec.ts', 'recovery.spec.ts',
   'recurring-schedule.spec.ts', 'sessions.spec.ts', 'shop-the-week.spec.ts', 'smoke.spec.ts', 'verification-inbox.spec.ts'
