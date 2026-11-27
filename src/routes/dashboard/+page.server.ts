@@ -12,7 +12,7 @@ import { mealDayLabel } from '../../lib/meals/week';
 import { dashboardChoreSections, childEarningSummaries, pendingRewardTotal } from '../../lib/server/my-day';
 import { requestAccess } from '../../lib/server/request-access';
 import { onboardingStep } from '../../lib/server/onboarding';
-import { listUpcomingEvents } from '../../lib/server/calendar';
+import { loadChecklistReadiness } from '../../lib/server/checklists';
 import { addCalendarDays } from '../../lib/calendar/dates';
 
 async function member(request: Request) {
@@ -28,7 +28,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(householdId) as { timezone: string } | undefined;
   const timezone = settings?.timezone ?? 'America/Chicago';
   const today = localDate(new Date(), timezone);
-  const upcomingEvents = listUpcomingEvents(db, userId, householdId, today, addCalendarDays(today, 6));
+  const { upcomingEvents, preparations } = loadChecklistReadiness(db, userId, householdId, today);
   const dinnerEnd = addCalendarDays(today, 6);
   const dinnerMeals = listMealWeek(db, userId, householdId, today, dinnerEnd);
   const dinnerDates = [0, 1, 2, 3, 4, 5, 6].map(offset => addCalendarDays(today, offset));
@@ -52,7 +52,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
   return {
     onboardingPending: Boolean(onboarding && onboarding !== 'complete'),
     showWelcome: onboarding === 'complete' && url.searchParams.get('welcome') === '1',
-    name, householdId, role, counts, sections, children, balances, pendingRewards: pendingRewardTotal(db, audience), today, timezone, payday, meals, dinnerDays, missingDinnerDays, dinnerEnd, upcomingEvents, activeSeries: role === 'parent' ? activeSeriesCount(db, householdId) : 0
+    name, householdId, role, counts, sections, children, balances, pendingRewards: pendingRewardTotal(db, audience), today, timezone, payday, meals, dinnerDays, missingDinnerDays, dinnerEnd, upcomingEvents, preparations, activeSeries: role === 'parent' ? activeSeriesCount(db, householdId) : 0
   };
 };
 
