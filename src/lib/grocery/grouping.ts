@@ -1,5 +1,8 @@
 export type GroceryGroupName = 'toBuy' | 'bought';
 
+/** One request may review at most this many bought rows before clearing. */
+export const MAX_BOUGHT_CLEAR_ROWS = 200;
+
 type GroupableGrocery = { id: string; completed: boolean };
 
 /**
@@ -14,4 +17,10 @@ export function groupGroceryItems<T extends GroupableGrocery>(items: T[], pinned
     else toBuy.push(item);
   }
   return { toBuy, bought };
+}
+
+/** Bounds a single bought-clear form submission to the server row limit so large lists stay clearable in batches. */
+export function boughtClearBatch<T>(bought: readonly T[], limit = MAX_BOUGHT_CLEAR_ROWS): { batch: T[]; remaining: number } {
+  const batch = bought.slice(0, limit);
+  return { batch, remaining: Math.max(0, bought.length - batch.length) };
 }

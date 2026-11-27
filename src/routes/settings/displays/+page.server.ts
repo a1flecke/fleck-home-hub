@@ -1,17 +1,11 @@
-import { error, fail, redirect } from '@sveltejs/kit';
+import { fail } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { DisplayPairingError, createPairing, listDisplays, revokeDisplay, revokePairing } from '../../../lib/server/display-pairing';
-import { getIdentityServices } from '../../../lib/server/runtime';
+import { parentHouseholds } from '../../../lib/server/parent-household';
 
 async function parent(request: Request, url: URL) {
-  let services;
-  try { services = getIdentityServices(); } catch { error(503, 'Identity service unavailable'); }
-  const session = await services.auth.api.getSession({ headers: request.headers });
-  if (!session) redirect(303, '/sign-in');
-  const households = services.db.prepare("SELECT household.id, household.name FROM household JOIN active_membership ON active_membership.household_id = household.id WHERE active_membership.user_id = ? AND active_membership.role = 'parent' ORDER BY household.name, household.id").all(session.user.id) as { id: string; name: string }[];
-  const householdId = url.searchParams.get('household') ?? households[0]?.id;
-  if (!householdId || !households.some(item => item.id === householdId)) error(403, 'No household administration access');
-  return { ...services, actor: session.user.id, households, householdId };
+  const { household, ...rest } = await parentHouseholds(request, url.searchParams.get('household'));
+  return { ...rest, householdId: household.id };
 }
 
 export const load: PageServerLoad = async ({ request, url }) => {

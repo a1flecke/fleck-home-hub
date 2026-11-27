@@ -1,7 +1,8 @@
 import { expect, it } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
-import { createMeal, listMealWeek, listMeals, mealCopySource, moveMeal, recentMeals, removeMeal, updateMeal } from '../src/lib/server/meals';
+import { createMeal, listMealWeek, listMeals, mealCopySource, moveMeal, normalizeMealDraft, recentMeals, removeMeal, updateMeal } from '../src/lib/server/meals';
+import { parseRecipeLink } from '../src/lib/meals/recipe-link';
 import { displayData } from '../src/lib/server/display';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate as migrateDrizzle } from 'drizzle-orm/better-sqlite3/migrator';
@@ -22,8 +23,16 @@ it('keeps meal management parent-only and household-scoped, with opt-in display 
     expect(() => createMeal(db, 'kid', 'home', meal)).toThrow();
     expect(() => createMeal(db, 'outsider', 'home', meal)).toThrow();
     expect(() => createMeal(db, 'parent', 'home', { ...meal, recipeUrl: 'javascript:alert(1)' })).toThrow();
+    expect(() => createMeal(db, 'parent', 'home', { ...meal, recipeUrl: 'https://cooking.nytimes.com' })).toThrow('Invalid recipe URL');
+    expect(() => createMeal(db, 'parent', 'home', { ...meal, recipeUrl: 'https://emeals.com/' })).toThrow('Invalid recipe URL');
+    expect(() => createMeal(db, 'parent', 'home', { ...meal, recipeUrl: 'https://example.test:8443/recipe' })).toThrow('Invalid recipe URL');
+    expect(() => normalizeMealDraft({ ...meal, recipeUrl: 'https://cooking.nytimes.com' })).toThrow('Invalid recipe URL');
+    expect(() => normalizeMealDraft({ ...meal, recipeUrl: 'https://example.test:8443/recipe' })).toThrow('Invalid recipe URL');
     expect(() => createMeal(db, 'parent', 'home', { ...meal, date: '2026-02-30' })).toThrow();
     const id = createMeal(db, 'parent', 'home', meal);
+    expect(parseRecipeLink(listMeals(db, 'parent', 'home', '2026-11-01')[0].recipeUrl)).not.toBeNull();
+    expect(() => updateMeal(db, 'parent', 'home', id, { ...meal, recipeUrl: 'https://cooking.nytimes.com' })).toThrow('Invalid recipe URL');
+    expect(() => updateMeal(db, 'parent', 'home', id, { ...meal, recipeUrl: 'https://example.test:8443/recipe' })).toThrow('Invalid recipe URL');
     expect(displayData(db, 'kid', 'home', meal.date, '2026-11-08').meals).toEqual([]);
     expect(listMeals(db, 'kid', 'home', '2026-11-01')).toEqual([]);
     expect(listMeals(db, 'parent', 'home', '2026-11-01')).toMatchObject([{ id, title: 'Soup', ingredients: '2 cups beans\n1 onion', shared: false }]);

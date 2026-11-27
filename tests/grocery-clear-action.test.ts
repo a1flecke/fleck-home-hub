@@ -1,7 +1,8 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
-import { addGrocery, changeGrocery, listGroceries } from '../src/lib/server/groceries';
+import { addGrocery, changeGrocery, listGroceries, MAX_BOUGHT_CLEAR_ROWS } from '../src/lib/server/groceries';
+import { boughtClearBatch } from '../src/lib/grocery/grouping';
 import { getIdentityServices } from '../src/lib/server/runtime';
 import { actions } from '../src/routes/groceries/+page.server';
 
@@ -132,5 +133,37 @@ it('rejects malformed, duplicated and oversized clear submissions before writing
     expect(await (actions.clearBought as ClearAction)({ request: oversized })).toMatchObject({ status: 413 });
 
     expect(listGroceries(db, 'parent', 'home')).toMatchObject([{ id: bread.id, completed: true }]);
+  } finally { db.close(); }
+});
+
+it('clears more than 200 bought items in bounded batches while still rejecting over-limit single posts', async () => {
+  const db = await setup();
+  try {
+    const insert = db.prepare('INSERT INTO grocery_item (id, household_id, name, quantity, unit, completed, version, created_by, updated_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, 2, ?, ?, ?, ?)');
+    const total = MAX_BOUGHT_CLEAR_ROWS + 5;
+    db.transaction(() => {
+      for (let i = 0; i < total; i += 1) {
+        insert.run(`bought-${String(i).padStart(3, '0')}`, 'home', `Bought ${i}`, '', '', 'parent', 'parent', '2026-11-01', '2026-11-01');
+      }
+    })();
+    useSession(db, 'parent');
+
+    const allBought = listGroceries(db, 'parent', 'home').filter(item => item.completed);
+    expect(allBought).toHaveLength(total);
+    // An unbatched over-limit request is still rejected cleanly.
+    expect(await submit(selectionFields(allBought))).toMatchObject({ status: 400, data: { clear: { ok: false } } });
+
+    // Submitting bounded batches clears every bought item without hitting 400 or 413.
+    const first = boughtClearBatch(allBought);
+    expect(first.batch).toHaveLength(MAX_BOUGHT_CLEAR_ROWS);
+    expect(first.remaining).toBe(5);
+    expect(await submit(selectionFields(first.batch))).toEqual({ clear: { ok: true, cleared: MAX_BOUGHT_CLEAR_ROWS } });
+
+    const remaining = listGroceries(db, 'parent', 'home').filter(item => item.completed);
+    expect(remaining).toHaveLength(5);
+    const second = boughtClearBatch(remaining);
+    expect(second.remaining).toBe(0);
+    expect(await submit(selectionFields(second.batch))).toEqual({ clear: { ok: true, cleared: 5 } });
+    expect(listGroceries(db, 'parent', 'home')).toEqual([]);
   } finally { db.close(); }
 });

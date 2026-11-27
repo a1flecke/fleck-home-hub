@@ -2,6 +2,7 @@ import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { occurrenceDates } from '../chores/recurrence';
 import { normalizeRecipeDetails, parseRecipeDetailsJson, recipeDetailsForMeal, type RecipeDetails } from '../meals/recipe-details';
+import { parseRecipeLink } from '../meals/recipe-link';
 
 export type MealInput = { title: string; date: string; time?: string; servings?: number; ingredients: string; notes?: string; source?: string; recipeUrl?: string; recipeDetails?: RecipeDetails | null; shared: boolean; submissionKey?: string };
 export type Meal = { id: string; title: string; date: string; time: string | null; servings: number | null; ingredients: string; notes: string | null; source: string | null; recipeUrl: string | null; recipeDetails: RecipeDetails | null; shared: boolean };
@@ -23,11 +24,7 @@ function validate(input: MealInput) {
   const recipeDetails = recipeDetailsForMeal(normalizeRecipeDetails(input.recipeDetails), recipeUrl);
   occurrenceDates(input.date, input.date, [0]);
   if (!title || title.length > 120 || ingredients.length > 5000 || (notes && notes.length > 1000) || (source && source.length > 120) || (submissionKey && submissionKey.length > 100) || (input.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(input.time)) || (input.servings !== undefined && (!Number.isInteger(input.servings) || input.servings < 1 || input.servings > 100))) throw new Error('Invalid meal');
-  if (recipeUrl) {
-    let url: URL;
-    try { url = new URL(recipeUrl); } catch { throw new Error('Invalid recipe URL'); }
-    if (url.protocol !== 'https:' || url.username || url.password || recipeUrl.length > 2048) throw new Error('Invalid recipe URL');
-  }
+  if (recipeUrl && !parseRecipeLink(recipeUrl)) throw new Error('Invalid recipe URL');
   return { title, ingredients, notes, source, recipeUrl, recipeDetails, submissionKey };
 }
 
