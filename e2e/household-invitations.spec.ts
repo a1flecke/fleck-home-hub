@@ -1,6 +1,7 @@
 import type { Page } from '@playwright/test';
 import { expect, test, openInvitation } from './invitation-test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off', viewport: { width: 375, height: 812 } });
 
@@ -29,8 +30,8 @@ test('a parent invites another parent and that parent can manage household acces
   await expect(page.getByRole('heading', { name: 'Household access' })).toBeVisible();
   await page.getByLabel('Invite as').selectOption('parent');
   const gate = Promise.withResolvers<void>(), requested = Promise.withResolvers<void>();
-  const pageModule = '**/src/routes/settings/household/+page.svelte*';
-  await page.route(pageModule, async route => {
+  const householdModule = pageModule('settings/household');
+  await page.route(householdModule, async route => {
     requested.resolve();
     await gate.promise;
     await route.continue();
@@ -55,7 +56,7 @@ test('a parent invites another parent and that parent can manage household acces
     await linkInput.evaluate((input: HTMLInputElement) => { input.value = ''; input.removeAttribute('value'); });
   } finally {
     gate.resolve();
-    await page.unroute(pageModule);
+    await page.unroute(householdModule);
   }
   expect(link.includes('/accept-invitation#')).toBe(true);
   await expect(page.getByText('Parent invitation pending')).toBeVisible();
@@ -96,7 +97,7 @@ test('a child joins after correcting an existing-email error and cannot administ
   const gate = Promise.withResolvers<void>(), requested = Promise.withResolvers<void>();
   try {
     const child = await context.newPage();
-    const formModule = '**/src/routes/accept-invitation/+page.svelte*';
+    const formModule = pageModule('accept-invitation');
     let delayCorrection = false;
     await child.route(formModule, async route => {
       if (delayCorrection) {
@@ -156,7 +157,7 @@ test('child role selected before hydration is submitted as child', async ({ page
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/settings/household/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await delayed.route(pageModule('settings/household'), async route => { blocked(); await gate; await route.continue(); });
     await delayed.goto('/settings/household', { waitUntil: 'commit' });
     await requested;
     await delayed.getByLabel('Invite as').selectOption('kid');
@@ -212,7 +213,7 @@ test('account details entered before hydration survive and are submitted', async
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/accept-invitation/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await delayed.route(pageModule('accept-invitation'), async route => { blocked(); await gate; await route.continue(); });
     await openInvitation(delayed, link, { waitUntil: 'commit' });
     await requested;
     await delayed.getByLabel('Name').fill('Early Child');
@@ -242,7 +243,7 @@ test('household selection made before hydration survives and opens the chosen ho
   const gate = new Promise<void>(resolve => { release = resolve; });
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
-    await page.route('**/src/routes/settings/household/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await page.route(pageModule('settings/household'), async route => { blocked(); await gate; await route.continue(); });
     await page.goto('/settings/household', { waitUntil: 'commit' });
     await requested;
     const selector = page.locator('select[name=household]');
@@ -302,7 +303,7 @@ test('a parent revokes a copied invitation and redemption fails', async ({ page,
   const gate = new Promise<void>(resolve => { release = resolve; });
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
-    await page.route('**/src/routes/settings/household/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await page.route(pageModule('settings/household'), async route => { blocked(); await gate; await route.continue(); });
     await page.goto('/settings/household', { waitUntil: 'commit' });
     await requested;
     const pending = page.locator(`article:has(input[value="${id}"])`);

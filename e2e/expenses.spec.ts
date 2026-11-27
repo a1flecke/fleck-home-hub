@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 async function signIn(page: Page, account = 'parent') {
   await page.goto('/sign-in');
@@ -81,7 +82,7 @@ test('monthly expenses survive delayed hydration and support skip, pause, resume
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   const title = 'Synthetic desktop insurance';
   try {
-    await page.route('**/src/routes/expenses/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await page.route(pageModule('expenses'), async route => { blocked(); await gate; await route.continue(); });
     await page.goto('/expenses?days=90', { waitUntil: 'commit' });
     await requested;
     await page.getByText('Add expense', { exact: true }).click();
@@ -207,7 +208,7 @@ async function beforeExpenseHydration(page: Page, url: string, edit: () => Promi
   let blocked!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const requested = new Promise<void>(resolve => { blocked = resolve; });
-  const module = '**/src/routes/expenses/+page.svelte*';
+  const module = pageModule('expenses');
   await page.route(module, async route => { blocked(); await gate; await route.continue(); });
   try {
     await page.goto(url, { waitUntil: 'commit' });

@@ -42,6 +42,19 @@ The service runs in the e2e server process and writes the same SQLite file as th
 
 Mark a spec built this way `// e2e-isolation: fresh-households`. `mise run e2e-repeat` runs the marked specs twice, and CI runs it after the full suite. `tests/architecture/e2e-isolation.test.ts` rejects shared seeded accounts in marked specs, rejects new unmarked specs, and requires migrated specs to leave `LEGACY_SHARED_SPECS`, so the shared-household suite can only shrink.
 
+## Browser tests run the production build
+
+`mise run e2e` and `mise run e2e-repeat` build the application with `scripts/e2e-prepare.mjs`, then start each test server with `node` on that build (`scripts/e2e-app-command.ts`), as the household's install does. `E2E_SERVER=dev` runs `vite dev` instead, for debugging with source modules; a passing dev run says nothing about the production build.
+
+- **One build per test server.** `AUTH_ORIGIN` is a build-time input: it sets SvelteKit's `paths.origin`, and Better Auth serves `/api/auth` only for that origin. A build made without it answers every `/api/auth` request with 404. So the main server (`127.0.0.1:4173`) and the onboarding server (`127.0.0.1:4174`) each get their own build in `.e2e-build/`, through an optional `E2E_BUILD_OUT`. The deployable `build/` is never touched.
+- **`NODE_ENV=test`** keeps Better Auth's sign-in limiter off for the suite, as under `vite dev`. `mise run sign-in-limit-test` still proves the limiter with the real launcher.
+- **Gating hydration.** A production build serves hashed bundles, not `src/routes/.../+page.svelte`. `pageModule(route)` returns a pattern for a page's client module in either mode: the hashed node chunk from the build manifest, or the dev source URL, with parameter folders such as `lists/[id]` matched even when percent-encoded. It throws when no page matches, or when the two builds would serve different client files. An architecture test rejects hard-coded `src/routes` module URLs, which silently gate nothing in a build and leave the test waiting for a request that never comes.
+
+Differences found when the suite first ran against a build, which tests must allow for:
+
+- SvelteKit's CSRF check rejects cross-site and origin-less form POSTs with a plain-text 403 before any action runs; `vite dev` let them reach the action. Assert the status and that nothing changed, not the action's own response body. Same-origin requests, such as a share from the installed app, send their origin.
+- With `paths.origin`, the build renders `<link>` asset URLs absolute (`http://127.0.0.1:4173/icon.svg`); `vite dev` renders them relative. Assert that they resolve to this origin's path.
+
 ## Migration upgrade fixtures
 
 Construct historical journals as a contiguous prefix before a named migration, rather than filtering out known later entries. The pinned Drizzle migrator uses migration timestamps, so admitting a future entry can hide missing migrations. Assert the target schema is absent before the upgrade and test that appending a synthetic future entry leaves the baseline unchanged. Check existing data and migration history after upgrading. A fixture reconstructed from current SQL does not establish compatibility with every previously released schema.

@@ -3,6 +3,7 @@ import { expect, test, type Locator, type Page, type Route } from '@playwright/t
 import { addCalendarDays } from '../src/lib/calendar/dates';
 import { localDate } from '../src/lib/chores/recurrence';
 import { settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 const origin = 'http://127.0.0.1:4173';
 const phone = { width: 375, height: 812 };
@@ -257,7 +258,7 @@ test('early ownership and text edits survive hydration and a rejected draft keep
     let release!: () => void, requested!: () => void;
     const gate = new Promise<void>(resolve => { release = resolve; });
     const arrived = new Promise<void>(resolve => { requested = resolve; });
-    const modules = (url: URL) => decodeURIComponent(url.pathname).endsWith('/src/routes/lists/[id]/+page.svelte');
+    const modules = pageModule('lists/[id]');
     const delay = async (route: Route) => { requested(); await gate; await route.continue(); };
     await page.route(modules, delay);
     let selected = '';

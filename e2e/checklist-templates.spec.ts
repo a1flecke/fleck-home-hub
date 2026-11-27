@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -244,7 +245,7 @@ test('stale previews survive rejection and an identical HTTP retry creates only 
   } finally { await otherContext.close(); }
 });
 
-async function beforeHydration(page: Page, path: string, modulePattern: string, edit: () => Promise<void>) {
+async function beforeHydration(page: Page, path: string, modulePattern: string | RegExp, edit: () => Promise<void>) {
   let release!: () => void, requested!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const loading = new Promise<void>(resolve => { requested = resolve; });
@@ -275,7 +276,7 @@ test('template edits and fresh-list fields entered before hydration survive subm
     const name = early.getByLabel('Template name'), description = early.getByLabel('Description (optional)');
     const contents = early.getByLabel('Items, one per line');
     const removePanel = early.getByText('Remove template', { exact: true });
-    await beforeHydration(early, editUrl, '**/src/routes/lists/templates/**/+page.svelte*', async () => {
+    await beforeHydration(early, editUrl, pageModule('lists/templates/**'), async () => {
       await description.fill('Change while loading');
       await contents.fill('Gloves\nSnacks');
       await removePanel.click();
@@ -292,7 +293,7 @@ test('template edits and fresh-list fields entered before hydration survive subm
     const href = await choice.getByRole('link', { name: 'Use this template', exact: true }).getAttribute('href');
     const copy = await copyContext.newPage();
     await signIn(copy);
-    await beforeHydration(copy, href!, '**/src/routes/lists/copy/**/+page.svelte*', async () => {
+    await beforeHydration(copy, href!, pageModule('lists/copy/**'), async () => {
       await copy.getByLabel('Description (optional)').fill('Phone draft');
       await copy.getByLabel('Target date (optional)').fill('2099-11-30');
       await copy.getByLabel('Share with family').check();

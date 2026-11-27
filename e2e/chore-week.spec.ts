@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -128,7 +129,7 @@ test('the quick-add form and disclosure survive delayed hydration with an active
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/chores/week/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('chores/week'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/chores/week?date=2099-03-08&add=1', { waitUntil: 'commit' });
     await blocked;
     const form = delayed.getByRole('form', { name: 'Add a chore for this week' });
