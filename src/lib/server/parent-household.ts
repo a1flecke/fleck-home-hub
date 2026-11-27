@@ -15,7 +15,8 @@ export function parentHouseholds(db: Database.Database, userId: string): { id: s
 }
 
 export async function parentHousehold(request: Request, selected: string | null = null) {
-  const services = getIdentityServices();
+  let services;
+  try { services = getIdentityServices(); } catch { error(503, 'Identity service unavailable'); }
   const session = await services.auth.api.getSession({ headers: request.headers });
   if (!session) redirect(303, '/sign-in');
   const households = parentHouseholds(services.db, session.user.id);

@@ -1,4 +1,4 @@
-import { fail, redirect } from '@sveltejs/kit';
+import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { getIdentityServices } from '../../lib/server/runtime';
 import { needsInitialSetup } from '../../lib/server/setup-code';
@@ -8,7 +8,8 @@ import { writeSessionCookies } from '../../lib/server/session-cookies';
 import { readIdentityConfig } from '../../lib/server/config';
 
 function checkAvailability() {
-  const services = getIdentityServices();
+  let services;
+  try { services = getIdentityServices(); } catch { error(503, 'Identity service unavailable'); }
   if (!needsInitialSetup(services.db)) redirect(303, '/sign-in');
   return services;
 }

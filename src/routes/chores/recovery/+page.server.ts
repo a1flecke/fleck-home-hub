@@ -5,7 +5,8 @@ import { hasRecoverySeries, listRecoveryGaps, resolveRecoveryGap } from '../../.
 import { getIdentityServices } from '../../../lib/server/runtime';
 
 async function parentAccess(request: Request) {
-  const services = getIdentityServices();
+  let services;
+  try { services = getIdentityServices(); } catch { error(503, 'Identity service unavailable'); }
   const session = await services.auth.api.getSession({ headers: request.headers });
   if (!session) redirect(303, '/sign-in');
   const member = primaryActiveMembership(services.db, session.user.id);
