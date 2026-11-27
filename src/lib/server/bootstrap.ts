@@ -14,6 +14,7 @@ export async function bootstrap(config: Config, input: Input) {
   const db = new Database(config.dbPath, { fileMustExist: true });
   try {
     db.pragma('foreign_keys = ON');
+    db.pragma('journal_mode = WAL');
     await migrate(db);
     const householdId = randomUUID();
     await provisionIdentity(db, config, input, (userId) => {
@@ -31,6 +32,7 @@ export async function addKid(config: Config, householdId: string, input: Omit<In
   const db = new Database(config.dbPath, { fileMustExist: true });
   try {
     db.pragma('foreign_keys = ON');
+    db.pragma('journal_mode = WAL');
     if (!db.prepare('SELECT 1 FROM household WHERE id = ?').get(householdId)) throw new Error('Household not found');
     await provisionIdentity(db, config, input, (userId) => {
       db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(userId, householdId, 'kid');

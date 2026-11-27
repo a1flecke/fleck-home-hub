@@ -205,11 +205,13 @@ export function listPayoutHistory(db: Database.Database, input: ChoreAudience & 
   const child = db.prepare(`SELECT u.id, u.name FROM active_membership m JOIN user u ON u.id = m.user_id
     WHERE m.household_id = ? AND m.role = 'kid' AND u.id = ?`).get(input.householdId, input.childId) as { id: string; name: string } | undefined;
   if (!child) throw new Error('Not authorized');
-  const audience = { ...input, childId: input.childId };
-  const summary = childEarningSummaries(db, audience).find(item => item.id === input.childId);
-  if (!summary) throw new Error('Not authorized');
+  const visible = choreVisibility(input);
+  const pending = db.prepare(`SELECT COUNT(*) AS count, COALESCE(SUM(c.reward_cents), 0) AS cents
+    ${FROM} WHERE ${visible.sql} AND c.assignee_id = ? AND c.status = 'pending_verification'`)
+    .get(...visible.parameters, input.childId) as { count: number; cents: number };
+  const amounts = balance(db, input.householdId, input.childId);
   const pageSize = Math.max(1, Math.min(100, Math.trunc(input.pageSize ?? PAYOUT_PAGE_SIZE)));
-  const total = summary.payoutCount;
+  const total = (db.prepare('SELECT COUNT(*) AS count FROM payout WHERE household_id = ? AND child_id = ?').get(input.householdId, input.childId) as { count: number }).count;
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const requested = Number.isSafeInteger(input.page) ? input.page! : 1;
   const page = Math.min(Math.max(1, requested), pageCount);
@@ -217,5 +219,5 @@ export function listPayoutHistory(db: Database.Database, input: ChoreAudience & 
     FROM payout p LEFT JOIN payout_reversal r ON r.payout_id = p.id
     WHERE p.household_id = ? AND p.child_id = ?
     ORDER BY p.paid_date DESC, p.created_at DESC, p.id DESC LIMIT ? OFFSET ?`).all(input.householdId, input.childId, pageSize, (page - 1) * pageSize) as PayoutRow[];
-  return { child, balance: { earned: summary.earned, paid: summary.paid, owed: summary.owed }, pendingCount: summary.pendingCount, pendingCents: summary.pendingCents, items: pageItems, total, page, pageSize, pageCount };
+  return { child, balance: { earned: amounts.earned, paid: amounts.paid, owed: amounts.owed }, pendingCount: pending.count, pendingCents: pending.cents, items: pageItems, total, page, pageSize, pageCount };
 }

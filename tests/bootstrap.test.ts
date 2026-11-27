@@ -12,6 +12,7 @@ it('creates a private new database with one parent and refuses replacement', asy
   try {
     await bootstrap(config, { name: 'Parent', email: 'parent@example.test', password: 'synthetic-password-123', household: 'Test' });
     const db = new Database(path, { readonly: true });
+    expect(db.pragma('journal_mode', { simple: true })).toBe('wal');
     expect(db.prepare('SELECT role FROM membership').get()).toEqual({ role: 'parent' });
     expect(db.prepare('SELECT COUNT(*) AS count FROM session').get()).toEqual({ count: 0 });
     db.close();

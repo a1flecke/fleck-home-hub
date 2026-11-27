@@ -163,6 +163,32 @@ it('replays the same confirmation across two SQLite connections without adding r
   } finally { second?.close(); first.close(); rmSync(directory, { recursive: true, force: true }); }
 });
 
+it('reads week ingredient sources without re-querying each meal in an N+1 loop', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db); setup(db);
+    for (let day = 16; day <= 22; day += 1) {
+      createMeal(db, 'parent', 'home', {
+        title: `Dinner ${day}`,
+        date: `2026-11-${day}`,
+        ingredients: `1 cup oats\n2 tbsp olive oil`,
+        shared: true
+      });
+    }
+
+    const originalPrepare = db.prepare.bind(db);
+    const statements: string[] = [];
+    db.prepare = ((sql: string) => {
+      statements.push(sql);
+      return originalPrepare(sql);
+    }) as typeof db.prepare;
+
+    const refs = weekIngredientSources(db, 'parent', 'home', '2026-11-16', '2026-11-22');
+    expect(refs).toHaveLength(14);
+    expect(statements.filter(sql => /FROM\s+meal\b/i.test(sql)).length).toBe(1);
+  } finally { db.close(); }
+});
+
 it('upgrades an existing grocery database without losing items when adding week confirmations', () => {
   const directory = mkdtempSync(join(tmpdir(), 'hub-grocery-week-migration-'));
   const db = new Database(':memory:');
