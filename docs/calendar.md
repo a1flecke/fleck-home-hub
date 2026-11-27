@@ -14,4 +14,18 @@ Dates and times are stored as local calendar values, not converted to UTC. Chang
 
 The inbox stores commitments without dates. A parent can edit or archive an item, or turn it into an event. Scheduling and marking the item scheduled happen in one SQLite transaction. The authenticated shared display can show events explicitly selected by a parent; see [display.md](display.md).
 
-Migration `0004_calendar` adds the calendar tables without changing authentication, chores or financial records. Stop the service and verify a backup before migrating an existing database. `mise run test` and `mise run e2e` use synthetic databases; actual household and device validation remain separate.
+## Importing calendars (`.ics`)
+
+Parents can open **Import calendar (.ics)** (`/calendar/import`) to upload a `.ics` file or paste iCalendar text (for example, school calendars, youth sports schedules, or emailed event invites). Imports are parent-only, served with `no-store`, and bounded to 256 KB and 100 `VEVENT` entries per import. The server never fetches remote calendar URLs or stores third-party credentials.
+
+Previewing parses the RFC 5545 `VEVENT` subset without writing to the database:
+
+- Line unfolding and text unescaping (`\\`, `\,`, `\;`, `\n`) are applied, and nested `VALARM` blocks are ignored.
+- UTC timestamps, IANA `TZID`s, common U.S. Windows `TZID`s, and floating local timestamps are converted to the household's configured IANA time zone.
+- `FREQ=DAILY` and `FREQ=WEEKLY` rules (with `INTERVAL=1`, optional `BYDAY`, `UNTIL`, or bounded `COUNT` up to 366 occurrences) map to the calendar's weekday recurrence model and require at least one valid occurrence.
+- Multi-day all-day spans, midnight-spanning timed events, missing end times, unknown `TZID`s, `STATUS:CANCELLED`, `RECURRENCE-ID` overrides, `EXDATE`, and unsupported `RRULE`s are surfaced with warnings and default to **Skip** so parents can edit or omit them.
+- Existing non-cancelled household events are matched by previously imported `UID` or normalized title, date, start time, and weekdays, and duplicates within the same file are flagged; matched rows default to **Skip** and existing events are never overwritten.
+
+Confirming runs in one SQLite immediate transaction that rechecks active parent membership, validates active rows and participants, verifies duplicates under the writer lock (returning HTTP `409` with edits preserved if a matching event was added concurrently), and records a payload-hashed confirmation key in `calendar_import_batch` so retries are idempotent and mismatched key reuse is rejected. Imported events are private by default and stay off `/display` until a parent explicitly shares them.
+
+Migration `0004_calendar` adds the calendar tables without changing authentication, chores or financial records. Migration `0025_calendar_import` adds `calendar_import_batch` and `calendar_import_item` without altering existing tables. Stop the service and verify a backup before migrating an existing database. `mise run test` and `mise run e2e` use synthetic databases; actual household and device validation (including iOS file-picker behavior) remain separate.
