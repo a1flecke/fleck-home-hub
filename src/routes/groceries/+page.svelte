@@ -12,7 +12,10 @@
     GROCERY_REFRESH_TIMEOUT_MS,
     groceryAddDraftExists,
     groceryDraftIsDirty,
-    parseGroceryItems
+    parseGroceryItems,
+    resolveEditFormVersion,
+    shouldApplyGroceryRefresh,
+    type GroceryEditVersion
   } from '../../lib/grocery/live-update';
   import GroceryFields from './GroceryFields.svelte';
   import type { PageData } from './$types';
@@ -32,6 +35,7 @@
   let manualNotice = $state('');
   let editRounds = $state<Record<string, number>>({});
   let pinnedGroups = $state<Record<string, GroceryGroupName>>({});
+  let editSnapshots = $state<Record<string, GroceryEditVersion>>({});
   let failedBoughtEdit = $derived(Boolean(form?.edit?.completed));
   let recoveryOpen = $derived(Boolean(form?.edit && openEdits.includes(form.edit.id)));
   let editingPaused = $derived(addDirty || dirtyEdits.length > 0 || recoveryOpen);
@@ -83,6 +87,18 @@
     pinnedGroups = next;
   }
 
+  function snapshotEdit(id: string, source: GroceryEditVersion) {
+    if (editSnapshots[id]) return;
+    editSnapshots = { ...editSnapshots, [id]: { version: source.version, completed: source.completed } };
+  }
+
+  function clearEditSnapshot(id: string) {
+    if (!(id in editSnapshots)) return;
+    const next = { ...editSnapshots };
+    delete next[id];
+    editSnapshots = next;
+  }
+
   function applyServerItems(next: Item[]) {
     const open = openEditIds();
     const removed = items.filter(item => !next.some(value => value.id === item.id) && open.includes(item.id)).map(item => item.id);
@@ -125,6 +141,9 @@
 
   function editFormChanged(event: Event, item: Item) {
     const dirty = groceryDraftIsDirty(draft(event.currentTarget as HTMLFormElement), item);
+    if (dirty) {
+      snapshotEdit(item.id, form?.edit?.id === item.id ? form.edit : item);
+    }
     dirtyEdits = dirty ? addUnique(dirtyEdits, item.id) : dirtyEdits.filter(id => id !== item.id);
     manualNotice = '';
   }
@@ -139,13 +158,17 @@
     if (target.open) {
       openEdits = addUnique(openEdits, id);
       const item = items.find(value => value.id === id);
-      if (item) pinGroup(id, groupOf(item));
+      if (item) {
+        pinGroup(id, groupOf(item));
+        snapshotEdit(id, form?.edit?.id === id ? form.edit : item);
+      }
       return;
     }
     const wasRemoved = removedWhileEditing.includes(id);
     openEdits = openEdits.filter(value => value !== id);
     dirtyEdits = dirtyEdits.filter(value => value !== id);
     removedWhileEditing = removedWhileEditing.filter(value => value !== id);
+    clearEditSnapshot(id);
     // A failed edit still referenced by the form prop must not move to the other group,
     // because remounting its disclosure would force it open again.
     if (form?.edit?.id !== id) unpinGroup(id);
@@ -184,6 +207,7 @@
     dirtyEdits = [];
     openEdits = [];
     pinnedGroups = {};
+    editSnapshots = {};
   }
 
   async function runRefresh(manual = false) {
@@ -204,24 +228,31 @@
     const controller = new AbortController();
     request = controller;
     const timeout = window.setTimeout(() => controller.abort(), GROCERY_REFRESH_TIMEOUT_MS);
+    const canApply = () => shouldApplyGroceryRefresh({
+      disposed,
+      authorizationLost,
+      startedVersion: version,
+      currentVersion: dataVersion
+    });
     try {
       const response = await fetch(GROCERY_DATA_PATH, {
         headers: { accept: 'application/json' },
         cache: 'no-store',
         signal: controller.signal
       });
-      if (disposed || version !== dataVersion) return;
+      if (!canApply()) return;
       const status = classifyGroceryRefreshResponse(response.status, response.headers.get('content-type'), response.redirected, response.url);
       if (status === 'unauthenticated') { await endSession(); return; }
       if (status === 'forbidden') { loseAccess(); return; }
       if (status === 'transient') { refreshFailed = true; return; }
       const next = parseGroceryItems(await response.json());
+      if (!canApply()) return;
       if (!next) { refreshFailed = true; return; }
       applyServerItems(next);
       refreshFailed = false;
       manualNotice = '';
     } catch {
-      if (!disposed && version === dataVersion && !authorizationLost) refreshFailed = true;
+      if (canApply()) refreshFailed = true;
     } finally {
       window.clearTimeout(timeout);
       if (request === controller) request = null;
@@ -239,16 +270,39 @@
         allowDuplicate: Boolean(failedForm.duplicate)
       });
     }
+    const addForm = document.querySelector<HTMLFormElement>('form[action="?/add"]');
+    if (addForm) {
+      const addValues = new FormData(addForm);
+      if (groceryAddDraftExists({ ...draft(addForm), allowDuplicate: addValues.get('allowDuplicate') === 'yes' })) {
+        addDirty = true;
+      }
+    }
     if (failedForm?.edit) {
       const saved = data.items.find(item => item.id === failedForm.edit?.id);
       if (saved && groceryDraftIsDirty(failedForm.edit, saved)) dirtyEdits = [saved.id];
       openEdits = addUnique(openEdits, failedForm.edit.id);
       pinGroup(failedForm.edit.id, failedForm.edit.completed ? 'bought' : 'toBuy');
+      snapshotEdit(failedForm.edit.id, failedForm.edit);
     }
+    document.querySelectorAll<HTMLFormElement>('form[data-grocery-edit]').forEach(formElement => {
+      const id = formElement.dataset.groceryEdit;
+      if (!id) return;
+      const item = items.find(value => value.id === id);
+      if (!item) return;
+      if (groceryDraftIsDirty(draft(formElement), item)) {
+        dirtyEdits = addUnique(dirtyEdits, id);
+        openEdits = addUnique(openEdits, id);
+        pinGroup(id, groupOf(item));
+        snapshotEdit(id, failedForm?.edit?.id === id ? failedForm.edit : item);
+      }
+    });
     for (const id of openEditIds()) {
       openEdits = addUnique(openEdits, id);
       const item = items.find(value => value.id === id);
-      if (item) pinGroup(id, groupOf(item));
+      if (item) {
+        pinGroup(id, groupOf(item));
+        snapshotEdit(id, failedForm?.edit?.id === id ? failedForm.edit : item);
+      }
     }
 
     const tick = () => {
@@ -288,8 +342,9 @@
       <button class={item.completed ? 'w-full rounded-xl border border-teal-700 px-4 py-3 text-lg font-bold' : 'w-full rounded-xl bg-teal-700 px-4 py-3 text-lg font-bold text-white'}>{item.completed ? 'Mark to buy' : 'Mark bought'}</button>
     </form>
     <Disclosure class="mt-3" expanded={form?.edit?.id === item.id}><summary class="cursor-pointer font-bold">Edit item</summary>
+      {@const editState = resolveEditFormVersion(form?.edit, editSnapshots[item.id], item)}
       <form method="POST" action="?/change" aria-label={`Edit ${item.name}`} data-grocery-edit={item.id} oninput={(event) => editFormChanged(event, item)} onchange={(event) => editFormChanged(event, item)} class="mt-3 grid gap-3">
-        <input type="hidden" name="id" value={item.id} /><input type="hidden" name="version" value={form?.edit?.id === item.id ? form.edit.version : item.version} /><input type="hidden" name="completed" value={(form?.edit?.id === item.id ? form.edit.completed : item.completed) ? 'yes' : 'no'} />
+        <input type="hidden" name="id" value={item.id} /><input type="hidden" name="version" value={editState.version} /><input type="hidden" name="completed" value={editState.completed ? 'yes' : 'no'} />
         {#key editRounds[item.id] ?? 0}
           <GroceryFields initial={form?.edit?.id === item.id ? form.edit : item} />
         {/key}

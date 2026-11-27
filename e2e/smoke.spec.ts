@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
-import { settle } from './support/navigation';
+import { pageModule } from './support/modules';
+import { hydrated, settle } from './support/navigation';
 
 test('sign-in cannot submit before hydration', async ({ browser }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
@@ -8,6 +9,39 @@ test('sign-in cannot submit before hydration', async ({ browser }) => {
     await page.goto('/sign-in');
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeDisabled();
   } finally { await context.close(); }
+});
+
+test('sign-in preserves credentials typed before hydration and signs in', async ({ page }) => {
+  let release!: () => void, requested!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const blocked = new Promise<void>(resolve => { requested = resolve; });
+  const signInModule = pageModule('sign-in');
+  await page.route(signInModule, async route => { requested(); await gate; await route.continue(); });
+  try {
+    await page.goto('/sign-in', { waitUntil: 'commit' });
+    await blocked;
+    const email = page.getByLabel('Email');
+    const password = page.getByLabel('Password');
+    await email.fill('parent@example.test');
+    await password.fill('synthetic-parent-password');
+    await expect(page.getByRole('button', { name: 'Sign in' })).toBeDisabled();
+    release();
+    await hydrated(page);
+    await expect(email).toHaveValue('parent@example.test');
+    await expect(password).toHaveValue('synthetic-parent-password');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+    await expect(page.getByText('Parent dashboard')).toBeVisible({ timeout: 5000 });
+  } finally {
+    release();
+    await page.unroute(signInModule);
+  }
+});
+
+test('leftover parent-test API route is not exposed', async ({ request }) => {
+  const response = await request.post('/api/households/any/parent-test', {
+    headers: { origin: 'http://127.0.0.1:4173' }
+  });
+  expect(response.status()).toBe(404);
 });
 
 test('shared display and sign-in are usable on a narrow screen', async ({ page }) => {

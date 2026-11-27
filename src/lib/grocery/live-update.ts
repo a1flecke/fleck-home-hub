@@ -35,6 +35,30 @@ export function classifyGroceryRefreshResponse(status: number, contentType: stri
   return 'ok';
 }
 
+export type GroceryEditVersion = {
+  version: number;
+  completed: boolean;
+};
+
+export function resolveEditFormVersion(
+  formEdit: (GroceryEditVersion & { id: string }) | undefined,
+  snapshot: GroceryEditVersion | undefined,
+  item: GroceryEditVersion & { id: string }
+): GroceryEditVersion {
+  if (formEdit?.id === item.id) return { version: formEdit.version, completed: formEdit.completed };
+  if (snapshot) return { version: snapshot.version, completed: snapshot.completed };
+  return { version: item.version, completed: item.completed };
+}
+
+export function shouldApplyGroceryRefresh(state: {
+  disposed: boolean;
+  authorizationLost: boolean;
+  startedVersion: number;
+  currentVersion: number;
+}): boolean {
+  return !state.disposed && !state.authorizationLost && state.startedVersion === state.currentVersion;
+}
+
 /** Rejects a malformed payload instead of replacing the displayed list with it. */
 export function parseGroceryItems(payload: unknown): GroceryLiveItem[] | null {
   if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;

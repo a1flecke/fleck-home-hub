@@ -5,7 +5,9 @@ import {
   GROCERY_REFRESH_TIMEOUT_MS,
   groceryAddDraftExists,
   groceryDraftIsDirty,
-  parseGroceryItems
+  parseGroceryItems,
+  resolveEditFormVersion,
+  shouldApplyGroceryRefresh
 } from '../src/lib/grocery/live-update';
 
 it('treats any changed add-form field or duplicate confirmation as an active draft', () => {
@@ -61,4 +63,22 @@ it('rejects malformed grocery payloads instead of replacing the displayed list',
   expect(parseGroceryItems({ items: 'not an array' })).toBeNull();
   expect(parseGroceryItems(null)).toBeNull();
   expect(parseGroceryItems([])).toBeNull();
+});
+
+it('keeps the submitted or snapshotted edit version instead of silently advancing to a newer item version', () => {
+  const item = { id: 'item-1', version: 3, completed: true };
+  expect(resolveEditFormVersion({ id: 'item-1', version: 1, completed: false }, { version: 2, completed: true }, item))
+    .toEqual({ version: 1, completed: false });
+  expect(resolveEditFormVersion(undefined, { version: 2, completed: false }, item))
+    .toEqual({ version: 2, completed: false });
+  expect(resolveEditFormVersion({ id: 'other', version: 1, completed: false }, undefined, item))
+    .toEqual({ version: 3, completed: true });
+});
+
+it('skips applying a refresh response once the page is disposed, unauthorized, or reloaded', () => {
+  const base = { disposed: false, authorizationLost: false, startedVersion: 1, currentVersion: 1 };
+  expect(shouldApplyGroceryRefresh(base)).toBe(true);
+  expect(shouldApplyGroceryRefresh({ ...base, disposed: true })).toBe(false);
+  expect(shouldApplyGroceryRefresh({ ...base, authorizationLost: true })).toBe(false);
+  expect(shouldApplyGroceryRefresh({ ...base, currentVersion: 2 })).toBe(false);
 });
