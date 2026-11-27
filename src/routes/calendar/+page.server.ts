@@ -36,6 +36,15 @@ function parseEvent(form: FormData): EventInput {
   return { title: String(form.get('title') ?? ''), date: String(form.get('date') ?? ''), endDate: String(form.get('endDate') ?? ''), startTime: String(form.get('startTime') ?? ''), endTime: String(form.get('endTime') ?? ''), allDay: form.has('allDay'), weekdays: form.getAll('weekday').map(Number), participants: form.getAll('participant').map(String), description: String(form.get('description') ?? ''), location: String(form.get('location') ?? '') };
 }
 
+function readImportSummary(url: URL): { added: number; skipped: number } | null {
+  const rawAdded = url.searchParams.get('added');
+  if (rawAdded === null) return null;
+  const added = Number(rawAdded);
+  const skipped = Number(url.searchParams.get('skipped') ?? '0');
+  if (!Number.isInteger(added) || added < 0 || added > 100 || !Number.isInteger(skipped) || skipped < 0 || skipped > 100) return null;
+  return { added, skipped };
+}
+
 export const load: PageServerLoad = async ({ request, url }) => {
   const { db, actor, householdId, role } = await principal(request);
   const settings = db.prepare('SELECT timezone FROM household_settings WHERE household_id = ?').get(householdId) as { timezone: string } | undefined;
@@ -47,7 +56,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
   const { start, end } = viewRange(date, view);
   const events = listCalendarPreparation(db, actor, householdId, start, end);
   const members = db.prepare('SELECT u.id, u.name FROM active_membership m JOIN user u ON u.id = m.user_id WHERE m.household_id = ? ORDER BY u.name').all(householdId) as { id: string; name: string }[];
-  return { date, view, start, end, heading: viewHeading(date, view), today, timezone, role, events, members, inbox: listUnscheduled(db, actor, householdId) };
+  return { date, view, start, end, heading: viewHeading(date, view), today, timezone, role, events, members, inbox: listUnscheduled(db, actor, householdId), importSummary: readImportSummary(url) };
 };
 
 export const actions = {
