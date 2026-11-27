@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { addCalendarDays } from '../src/lib/calendar/dates';
 import { localDate } from '../src/lib/chores/recurrence';
+import { settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 const phone = { width: 375, height: 812 };
@@ -53,7 +54,9 @@ async function createList(page: Page, title: string, items: string[], shared = f
 async function useTemplate(page: Page, template: string, title: string, shared = false) {
   await page.goto('/lists');
   await page.getByRole('link', { name: 'Choose a template', exact: true }).click();
+  await settle(page);
   await item(page, template).getByRole('link', { name: 'Use this template', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('region', { name: 'Preview', exact: true }).getByRole('listitem')).toHaveText(names);
   const copy = page.getByRole('form', { name: 'Create a fresh list', exact: true });
   await copy.getByLabel('List name').fill(title);
@@ -68,6 +71,7 @@ async function useTemplate(page: Page, template: string, title: string, shared =
 async function attach(page: Page, event: string, date: string, checklist: string, shared = true) {
   await page.goto(calendarPath(date));
   await eventCard(page, event).getByRole('link', { name: 'Attach existing checklist', exact: true }).click();
+  await settle(page);
   const form = page.getByRole('form', { name: 'Attach existing checklist', exact: true });
   await form.getByRole('combobox', { name: 'Checklist', exact: true }).selectOption({ label: `${checklist} (${shared ? 'shared' : 'parents only'})` });
   await form.getByRole('button', { name: 'Attach checklist', exact: true }).click();
@@ -111,13 +115,16 @@ test('a family uses a template, shares trip responsibilities, and gets ready on 
     const listUrl = await useTemplate(parent, template, packing, true);
     await attach(parent, trip, date, packing);
     await eventCard(parent, trip).getByRole('link', { name: packing, exact: true }).click();
+    await settle(parent);
     await assign(parent, names[0], 'Alex');
     await assign(parent, names[1], 'Riley');
     await assign(parent, names[2], 'Trip Parent');
     await filters(parent).getByRole('link', { name: 'My items', exact: true }).click();
+    await settle(parent);
     await expect(item(parent, names[2])).toBeVisible();
     await expect(item(parent, names[0])).toHaveCount(0);
     await filters(parent).getByRole('link', { name: 'Unassigned', exact: true }).click();
+    await settle(parent);
     await expect(item(parent, names[3])).toBeVisible();
     await expect(item(parent, names[2])).toHaveCount(0);
     await assign(parent, names[3], 'Trip Parent');
@@ -156,6 +163,7 @@ test('a family uses a template, shares trip responsibilities, and gets ready on 
     expect(rejected.status()).toBe(409);
     expect(await rejected.json()).toMatchObject({ type: 'failure', status: 409 });
     await alexPrep.getByRole('link', { name: packing, exact: true }).click();
+    await settle(alexPrep);
     await expect(item(alex, names[1]).getByRole('button', { name: 'Mark ready', exact: true })).toHaveCount(0);
     await markReady(alex, names[0], 1);
     await expect(filters(alex).getByRole('link', { name: 'Still to do', exact: true })).toHaveAttribute('aria-current', 'page');
@@ -166,9 +174,11 @@ test('a family uses a template, shares trip responsibilities, and gets ready on 
     await expect(rileyPrep).toContainText(names[3]);
     await expect(rileyPrep).not.toContainText(names[0]);
     await rileyPrep.getByRole('link', { name: packing, exact: true }).click();
+    await settle(rileyPrep);
     await markReady(riley, names[1], 2);
     await markReady(riley, names[3], 3);
     await filters(riley).getByRole('link', { name: 'Completed', exact: true }).click();
+    await settle(riley);
     await expect(item(riley, names[1])).toBeVisible();
     await expect(item(riley, names[2])).toHaveCount(0);
 
@@ -182,8 +192,10 @@ test('a family uses a template, shares trip responsibilities, and gets ready on 
     expect(await parent.evaluate(() => document.documentElement.scrollWidth)).toBe(phone.width);
     await parentPrep.screenshot({ path: testInfo.outputPath('getting-ready-phone.png') });
     await parentPrep.getByRole('link', { name: packing, exact: true }).click();
+    await settle(parentPrep);
     await markReady(parent, names[2], 4);
     await parent.getByRole('region', { name: 'Calendar event', exact: true }).getByRole('link', { name: 'Open in calendar', exact: true }).click();
+    await settle(parent);
     const preparation = eventCard(parent, trip).getByRole('region', { name: 'Preparation', exact: true });
     await expect(preparation.getByText('Ready: 4 of 4 items', { exact: true })).toBeVisible();
     await expect(preparation.getByText('Everything is ready!', { exact: true })).toBeVisible();
@@ -207,6 +219,7 @@ test('native assignment restores the entered name and selected owner and keeps t
     await signIn(page, 'peer');
     await createList(page, 'Native assignment ' + randomUUID().slice(0, 6), ['Pack the blanket']);
     await filters(page).getByRole('link', { name: 'Still to do', exact: true }).click();
+    await settle(page);
     await expect(filters(page).getByRole('link', { name: 'Still to do', exact: true })).toHaveAttribute('aria-current', 'page');
     const form = await editItem(page, 'Pack the blanket');
     const owner = form.getByRole('combobox', { name: 'Assigned to', exact: true });
@@ -224,6 +237,7 @@ test('native assignment restores the entered name and selected owner and keeps t
     await item(page, 'Pack the picnic blanket').getByRole('button', { name: 'Mark ready', exact: true }).click();
     await expect(page.getByText('1 of 1 items ready', { exact: true })).toBeVisible();
     await filters(page).getByRole('link', { name: 'Completed', exact: true }).click();
+    await settle(page);
     await expect(item(page, 'Pack the picnic blanket')).toBeVisible();
   } finally { await context.close(); }
 });
