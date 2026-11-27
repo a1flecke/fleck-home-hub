@@ -1,5 +1,6 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 
@@ -227,7 +228,7 @@ test('pre-hydration edits, active selection, checkboxes, and open disclosures su
     await hydrated(page);
 
     // Gate module hydration for the POST ?/review response document
-    await page.route('**/src/routes/calendar/import/+page.svelte*', async route => {
+    await page.route(pageModule('calendar/import'), async route => {
       blocked();
       await gate;
       await route.continue();

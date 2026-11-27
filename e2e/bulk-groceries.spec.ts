@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 async function signInAsBulk(page: Page, key: string) {
   const origin = 'http://127.0.0.1:4173';
@@ -183,7 +184,7 @@ test('pasted text and review edits survive delayed hydration and are submitted',
   let requests = 0;
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/groceries/bulk/+page.svelte*', async route => {
+    await delayed.route(pageModule('groceries/bulk'), async route => {
       requests += 1;
       if (requests === 1) firstRequest();
       if (requests === 2) secondRequest();

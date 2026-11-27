@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 async function signIn(page: Page, email: string, password: string) {
   const origin = 'http://127.0.0.1:4173';
@@ -88,7 +89,7 @@ test('list details entered before hydration survive and are submitted', async ({
   const request = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/lists/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('lists'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/lists', { waitUntil: 'commit' });
     await request;
     const form = delayed.getByRole('form', { name: 'Create a family list' });
@@ -266,7 +267,7 @@ test('early edits and open panels survive checklist detail hydration', async ({ 
   const request = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route(url => decodeURIComponent(url.pathname).endsWith('/src/routes/lists/[id]/+page.svelte'), async route => {
+    await delayed.route(pageModule('lists/[id]'), async route => {
       requested();
       await gate;
       await route.continue();

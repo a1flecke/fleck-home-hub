@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { pageModule } from './support/modules';
 import { hydrated, settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4174';
@@ -15,7 +16,7 @@ async function signInParent(page: Page, email: string) {
 }
 
 async function beforeHydration(page: Page, path: '/setup' | '/onboarding', edit: () => Promise<void>) {
-  const module = `**/src/routes${path}/+page.svelte*`;
+  const module = pageModule(path.slice(1));
   const gate = Promise.withResolvers<void>();
   const requested = Promise.withResolvers<void>();
   await page.route(module, async route => {

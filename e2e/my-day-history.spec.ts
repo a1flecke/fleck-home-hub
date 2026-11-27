@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -21,7 +22,7 @@ test('schedule and historical correction forms preserve edits made before hydrat
   const seriesRequested = new Promise<void>(resolve => { seriesBlocked = resolve; });
   try {
     const delayed = await seriesContext.newPage();
-    await delayed.route('**/src/routes/chores/series/+page.svelte*', async route => { seriesBlocked(); await seriesGate; await route.continue(); });
+    await delayed.route(pageModule('chores/series'), async route => { seriesBlocked(); await seriesGate; await route.continue(); });
     await delayed.goto('/chores/series', { waitUntil: 'commit' });
     await seriesRequested;
     await delayed.getByText('Add a recurring chore', { exact: true }).click();
@@ -47,7 +48,7 @@ test('schedule and historical correction forms preserve edits made before hydrat
   const paymentRequested = new Promise<void>(resolve => { paymentBlocked = resolve; });
   try {
     const delayed = await paymentContext.newPage();
-    await delayed.route('**/src/routes/earnings/*/+page.svelte*', async route => { paymentBlocked(); await paymentGate; await route.continue(); });
+    await delayed.route(pageModule('earnings/*'), async route => { paymentBlocked(); await paymentGate; await route.continue(); });
     await delayed.goto(`${payments}?page=2`, { waitUntil: 'commit' });
     await paymentRequested;
     const article = delayed.getByRole('article').filter({ hasText: 'Synthetic payment 2' });

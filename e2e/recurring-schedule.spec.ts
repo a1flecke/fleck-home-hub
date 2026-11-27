@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated } from './support/navigation';
+import { pageModule } from './support/modules';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -156,7 +157,7 @@ test('schedule edits and repeat-day selections survive delayed hydration', async
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/chores/series/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('chores/series'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/chores/series?focus=sched-hydration', { waitUntil: 'commit' });
     await blocked;
     const edit = form(delayed, 'sched-hydration', 'Schedule hydration');

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 test('parent dashboard shows today’s meals and child dashboard does not expose them', async ({ page, browser }, testInfo) => {
   const linked = `Family supper linked ${testInfo.repeatEachIndex}`;
@@ -199,7 +200,7 @@ test('meal form edits and disclosure survive delayed hydration', async ({ page, 
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/meals/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('meals'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/meals?date=2099-03-01', { waitUntil: 'commit' });
     await blocked;
     await delayed.getByText('Add a meal', { exact: true }).click();
@@ -359,7 +360,7 @@ test('recipe link paste form preserves edits through delayed hydration', async (
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/meals/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('meals'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/meals?date=2099-07-01', { waitUntil: 'commit' });
     await blocked;
     await delayed.getByText('Add meal from recipe link', { exact: true }).click();
@@ -384,7 +385,7 @@ test('shared recipe draft form preserves edits through delayed hydration', async
   const gate = new Promise<void>(resolve => { release = resolve; });
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
-    await page.route('**/src/routes/meals/share/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await page.route(pageModule('meals/share'), async route => { requested(); await gate; await route.continue(); });
     await page.evaluate(({ url, title }) => {
       const form = document.createElement('form');
       form.method = 'POST';
