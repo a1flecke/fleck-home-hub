@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { settle } from './support/navigation';
 
 test('pausing and resuming discards a refresh started before the pause', async ({ page }) => {
   await page.goto('/sign-in');
@@ -92,6 +93,7 @@ test('a parent explicitly shares an event and changes appear on the family displ
   const todaySection = page.getByRole('region', { name: "Today's events" });
   await expect(page.locator('body')).not.toContainText(title);
   await page.getByRole('link', { name: 'Choose what to share' }).click();
+  await settle(page);
   const sharing = page.getByRole('region', { name: 'Choose what to share' });
   const event = sharing.getByRole('article').filter({ hasText: title });
   const id = await event.locator('input[name="id"]').inputValue();
@@ -99,6 +101,7 @@ test('a parent explicitly shares an event and changes appear on the family displ
   await expect(event.getByRole('button', { name: 'Remove from display' })).toBeVisible();
   await page.clock.install();
   await page.getByRole('link', { name: 'View family display' }).click();
+  await settle(page);
   await expect(todaySection.getByText(title)).toBeVisible();
   await expect(page.getByRole('button', { name: 'Pause automatic updates' })).toBeEnabled();
   const change = await page.request.post('/calendar?/saveEvent', { form: { id, title: updated, date: today, allDay: 'on' }, headers: { origin: 'http://127.0.0.1:4173' } });
@@ -304,6 +307,7 @@ test('manual display refresh works without JavaScript', async ({ page, browser }
     await display.goto('/display');
     await expect(display.getByRole('button', { name: 'Pause automatic updates' })).toBeDisabled();
     await display.getByRole('link', { name: 'Refresh display' }).click();
+    await settle(display);
     await expect(display.getByRole('heading', { name: 'Family display' })).toBeVisible();
   } finally { await context.close(); }
 });

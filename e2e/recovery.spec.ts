@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { settle } from './support/navigation';
 
 async function signInParent(page: Page) {
   await page.goto('/sign-in');
@@ -43,6 +44,7 @@ test('a parent reviews and resolves individual missed dates using native forms',
     const card = (date: string) => native.getByRole('article').filter({ has: native.getByRole('heading', { name: title, exact: true }) }).filter({ has: native.locator(`time[datetime="${date}"]`) });
     for (let index = 0; index < 100 && await card(dateOffset(-3)).count() === 0; index++) {
       await native.getByRole('link', { name: 'Next chore' }).click();
+      await settle(native);
     }
     await expect(card(dateOffset(-3))).toBeVisible();
     const reviewUrl = native.url();
@@ -51,6 +53,7 @@ test('a parent reviews and resolves individual missed dates using native forms',
     await expect(native).not.toHaveURL(reviewUrl);
     await expect(card(dateOffset(-3))).toHaveCount(0);
     await native.getByRole('link', { name: 'Next chore' }).click();
+    await settle(native);
     await expect(native).toHaveURL(reviewUrl);
     await expect(card(dateOffset(-3))).toBeVisible();
     await expect(card(dateOffset(-2))).toBeVisible();
@@ -193,6 +196,7 @@ test('a rejected recovery draft keeps its stale reviewed token across concurrent
     const createForm = pageOne.getByRole('form', { name: `Create late chore for ${title} on ${date}`, exact: true });
     for (let index = 0; index < 20 && await createForm.count() === 0; index++) {
       await pageOne.getByRole('link', { name: 'Next chore', exact: true }).click();
+      await settle(pageOne);
     }
     await expect(createForm).toBeVisible();
     const originalReviewed = await createForm.locator('input[name="reviewed"]').inputValue();

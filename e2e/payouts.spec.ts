@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 async function signIn(page: Page, role: 'parent' | 'payout-kid') {
   await page.goto('/sign-in');
@@ -62,7 +63,7 @@ for (const javaScriptEnabled of [true, false]) test(`a stale payment form keeps 
       await amount.focus();
       await amount.evaluate((input: HTMLInputElement) => input.select());
       release();
-      await stale.waitForLoadState('networkidle');
+      await hydrated(stale);
       await stale.keyboard.insertText(enteredAmount);
     } else await amount.fill(enteredAmount);
     await expect(amount).toHaveValue(enteredAmount);
@@ -116,7 +117,7 @@ test('dashboard preserves form edits made before hydration', async ({ page, brow
     await chore.getByLabel('Due date', { exact: true }).fill('2099-03-01');
     await chore.getByLabel('Reward in dollars', { exact: true }).fill('2.50');
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(payday.getByLabel('First payday')).toHaveValue('2099-01-01');
     await expect(payday.getByLabel('Frequency')).toHaveValue('14');
     await expect(timezone.getByLabel('Time zone (for example, America/Chicago)')).toHaveValue('Asia/Tokyo');
@@ -173,7 +174,7 @@ test('a verified chore can be partially paid and the child sees the remaining am
     await earnings.getByLabel('Payment date').fill('2026-11-01');
     await earnings.getByLabel('Payment note').fill('Before hydration');
     releasePayment();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(earnings.getByLabel('Payment amount')).toHaveValue('2.00');
     await expect(earnings.getByLabel('Payment date')).toHaveValue('2026-11-01');
     expect(await earnings.locator('form[action="?/payout"]').evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ amount: '2.00', date: '2026-11-01', note: 'Before hydration' });
@@ -214,7 +215,7 @@ test('a verified chore can be partially paid and the child sees the remaining am
     await entry.getByText('Correct this payment').click();
     await entry.getByLabel('Correction reason').fill('Synthetic correction');
     releaseCorrection();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(entry.getByLabel('Correction reason')).toBeVisible();
     expect(await entry.locator('form[action="?/reversePayout"]').evaluate(form => Object.fromEntries(new FormData(form as HTMLFormElement)))).toMatchObject({ id: payoutId, reason: 'Synthetic correction' });
   } finally { releaseCorrection(); await correctionHydration.close(); }
@@ -223,6 +224,7 @@ test('a verified chore can be partially paid and the child sees the remaining am
   const childEarnings = page.getByRole('article', { name: 'Earnings for Payout Kid' });
   await expect(childEarnings.getByText(/^Verified earnings owed:/)).toHaveText(`Verified earnings owed: ${money(owedBefore - 200)}`);
   await childEarnings.getByRole('link', { name: 'See my payment history' }).click();
+  await settle(childEarnings);
   await expect(page.getByRole('heading', { name: "Payout Kid's payments" })).toBeVisible();
   await expect(page.getByText('Synthetic partial payment')).toBeVisible();
   await expect(page.getByText(/^Verified earnings owed:/)).toHaveText(`Verified earnings owed: ${money(owedBefore - 200)}`);

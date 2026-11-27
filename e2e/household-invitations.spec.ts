@@ -1,5 +1,6 @@
 import type { Page } from '@playwright/test';
 import { expect, test, openInvitation } from './invitation-test';
+import { hydrated, settle } from './support/navigation';
 
 test.use({ trace: 'off', screenshot: 'off', video: 'off', viewport: { width: 375, height: 812 } });
 
@@ -48,7 +49,7 @@ test('a parent invites another parent and that parent can manage household acces
     await linkInput.selectText();
     expect(await linkInput.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
     gate.resolve();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
     // Hydration must not reset input.value and collapse an active selection before the user copies it.
     expect(await linkInput.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([0, link.length]);
     await linkInput.evaluate((input: HTMLInputElement) => { input.value = ''; input.removeAttribute('value'); });
@@ -160,7 +161,7 @@ test('child role selected before hydration is submitted as child', async ({ page
     await requested;
     await delayed.getByLabel('Invite as').selectOption('kid');
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(delayed.getByLabel('Invite as')).toHaveValue('kid');
     const form = delayed.locator('form[action^="?/invite"]');
     expect(await form.evaluate((element: HTMLFormElement) => new FormData(element).get('role'))).toBe('kid');
@@ -219,7 +220,7 @@ test('account details entered before hydration survive and are submitted', async
     await delayed.getByLabel('Password').fill('synthetic-early-child-password');
     await expect(delayed.getByRole('button', { name: 'Create account' })).toBeDisabled();
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(delayed.getByLabel('Name')).toHaveValue('Early Child');
     await expect(delayed.getByLabel('Email')).toHaveValue('early-child@example.test');
     await expect(delayed.getByLabel('Password')).toHaveValue('synthetic-early-child-password');
@@ -247,11 +248,12 @@ test('household selection made before hydration survives and opens the chosen ho
     const selector = page.locator('select[name=household]');
     await selector.selectOption('synthetic-other-household');
     release();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
     await expect(selector).toHaveValue('synthetic-other-household');
     const form = selector.locator('xpath=ancestor::form');
     expect(await form.evaluate((element: HTMLFormElement) => new FormData(element).get('household'))).toBe('synthetic-other-household');
     await form.getByRole('button', { name: 'Show household' }).click();
+    await settle(form);
     await expect(page.getByText('Other Parent · Parent')).toBeVisible();
     await expect(page.getByText('Sample Parent · Parent')).toHaveCount(0);
   } finally { release(); }
@@ -307,7 +309,7 @@ test('a parent revokes a copied invitation and redemption fails', async ({ page,
     await pending.getByText('Revoke invitation', { exact: true }).click();
     await expect(pending.getByText('This link will stop working.')).toBeVisible();
     release();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
     await expect(pending.getByText('This link will stop working.')).toBeVisible();
     await pending.getByRole('button', { name: 'Confirm revoke' }).click();
   } finally { release(); }

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -207,7 +208,7 @@ test('edit form edits, disclosure and active selection survive delayed hydration
     await title.focus();
     await title.evaluate((input: HTMLInputElement) => input.select());
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await delayed.keyboard.insertText('After edit hydration');
     await expect(form).toBeVisible();
     await expect(article.locator('details').first()).toHaveAttribute('open', '');

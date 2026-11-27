@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -34,15 +35,19 @@ test('a parent sees the week grouped by child and day, filters it, and adds a on
   await expect(day(page, '2099-03-03').getByRole('article', { name: 'Week verified chore for Week Sibling' })).toContainText('Verified');
 
   await page.getByRole('link', { name: 'Week Kid (2)', exact: true }).click();
+  await settle(page);
   await expect(page).toHaveURL(/child=/);
   await expect(day(page, '2099-03-02').getByRole('article', { name: /Week Kid/ })).toHaveCount(2);
   await expect(day(page, '2099-03-03').getByRole('article')).toHaveCount(0);
   await page.getByRole('link', { name: 'Verified (1)', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('article', { name: 'Week verified chore for Week Sibling' })).toHaveCount(0);
   await page.getByRole('link', { name: 'All statuses (3)', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('link', { name: 'All children (3)', exact: true })).toBeVisible();
 
   await page.getByRole('link', { name: 'Add a chore for 2099-03-05', exact: true }).click();
+  await settle(page);
   const form = page.getByRole('form', { name: 'Add a chore for this week' });
   await expect(form.getByLabel('Due date', { exact: true })).toHaveValue('2099-03-05');
   await expect(form).toBeVisible();
@@ -72,6 +77,7 @@ test('the empty week shows a clear first-chore action and works without JavaScri
     await expect(native.getByRole('heading', { name: 'No chores planned for this week' })).toBeVisible();
     await expect(native.getByRole('link', { name: 'Add the first chore' })).toBeVisible();
     await native.getByRole('link', { name: 'Add the first chore' }).click();
+    await settle(native);
     const form = native.getByRole('form', { name: 'Add a chore for this week' });
     await expect(form).toBeVisible();
     await form.getByLabel('Chore title', { exact: true }).fill('First native board chore');
@@ -134,7 +140,7 @@ test('the quick-add form and disclosure survive delayed hydration with an active
     await title.focus();
     await title.evaluate((input: HTMLInputElement) => input.select());
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await delayed.keyboard.insertText('During hydration selection');
     await expect(form).toBeVisible();
     await expect(delayed.locator('details').filter({ has: form })).toHaveAttribute('open', '');

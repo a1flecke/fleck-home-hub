@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -34,7 +35,7 @@ test('parent creates an event in the calendar and finds it on My Day', async ({ 
   await signIn(page, 'calendar-parent@example.test', 'synthetic-calendar-parent-password', 'Hello, Calendar Parent');
   const before = householdLocalDate('Pacific/Kiritimati');
   await page.goto('/calendar?view=day');
-  await page.waitForLoadState('networkidle');
+  await hydrated(page);
   const today = await page.locator('form[method="GET"]').getByLabel('Choose date').inputValue();
   const after = householdLocalDate('Pacific/Kiritimati');
   expect([before, after]).toContain(today);

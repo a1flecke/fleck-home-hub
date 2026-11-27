@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 function articleByTitle(page: Page, title: string) {
   return page.getByRole('article').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
@@ -6,9 +7,9 @@ function articleByTitle(page: Page, title: string) {
 
 async function waitForHydration(page: Page) {
   // Calendar submissions are native form POSTs followed by a full document load.
-  // Let module loading settle before editing bound fields so Svelte hydration
-  // cannot run between Playwright's select and insert steps.
-  await page.waitForLoadState('networkidle');
+  // Wait for hydration before editing bound fields so Svelte hydration cannot run
+  // between Playwright's select and insert steps.
+  await hydrated(page);
 }
 
 function householdLocalDate(timezone: string) {
@@ -117,6 +118,7 @@ test('parent creates and edits an event and schedules an inbox item', async ({ p
   await expect(page.getByText('Event saved.')).toBeVisible();
   // The event is outside the day being viewed, so the confirmation links to where it now appears.
   await page.getByRole('status').getByRole('link', { name: 'Go to Sunday, March 8, 2099' }).click();
+  await settle(page);
   await expect(page).toHaveURL(/\/calendar\?date=2099-03-08&view=day$/);
   await expect(articleByTitle(page, updatedInboxTitle)).toBeVisible();
   // A save that stays visible in the current view offers no detour.
@@ -163,7 +165,7 @@ test('pre-hydration event edits survive hydration and are saved', async ({ page,
     await titleInput.focus();
     await titleInput.evaluate((input: HTMLInputElement) => input.select());
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await delayed.keyboard.insertText(updatedTitle);
     await expect(article.getByLabel('Event title')).toHaveValue(updatedTitle);
     await expect(article.getByLabel('Event date')).toHaveValue('2099-07-02');
@@ -210,7 +212,7 @@ test('calendar view and inbox owner selections survive delayed hydration', async
     const owner = addInbox.getByLabel('Tentative owner');
     await owner.selectOption({ label: 'Sample Kid' });
     const selected = await owner.inputValue();
-    release(); await delayed.waitForLoadState('networkidle');
+    release(); await hydrated(delayed);
     await expect(view).toHaveValue('month');
     await expect(owner).toHaveValue(selected);
     expect(await owner.evaluate(element => new FormData((element as HTMLSelectElement).form!).get('owner'))).toBe(selected);
@@ -295,16 +297,20 @@ test('calendar navigation shifts by view, keeps the date and works from the keyb
   await expect(page.getByRole('heading', { name: 'January 2028' })).toBeVisible();
 
   await nav.getByRole('link', { name: 'Next month', exact: true }).click();
+  await settle(nav);
   await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=month$/);
   await expect(page.getByRole('heading', { name: 'February 2028' })).toBeVisible();
   await nav.getByRole('link', { name: 'Next month', exact: true }).click();
+  await settle(nav);
   await expect(page).toHaveURL(/\/calendar\?date=2028-03-29&view=month$/);
   await nav.getByRole('link', { name: 'Previous month', exact: true }).click();
+  await settle(nav);
   await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=month$/);
 
   const viewForm = page.locator('form[method="GET"]');
   await viewForm.getByLabel('View').selectOption('week');
   await viewForm.getByRole('button', { name: 'Show calendar' }).click();
+  await settle(viewForm);
   await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=week$/);
   await expect(page.getByRole('heading', { name: 'Week of February 27 – March 4, 2028' })).toBeVisible();
 
@@ -315,13 +321,16 @@ test('calendar navigation shifts by view, keeps the date and works from the keyb
   await expect(page).toHaveURL(/\/calendar\?date=2028-02-22&view=week$/);
   await expect(page.getByRole('heading', { name: 'Week of February 20 – 26, 2028' })).toBeVisible();
   await page.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Next week', exact: true }).click();
+  await settle(page);
   await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=week$/);
 
   await viewForm.getByLabel('View').selectOption('day');
   await viewForm.getByRole('button', { name: 'Show calendar' }).click();
+  await settle(viewForm);
   await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=day$/);
   await expect(page.getByRole('heading', { name: 'Tuesday, February 29, 2028' })).toBeVisible();
   await page.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Previous day', exact: true }).click();
+  await settle(page);
   await expect(page).toHaveURL(/\/calendar\?date=2028-02-28&view=day$/);
 
   const beforeToday = householdLocalDate('America/Chicago');
@@ -368,9 +377,11 @@ test('calendar navigation works without JavaScript at mobile width', async ({ pa
     await form.getByLabel('Choose date').fill('2028-12-31');
     await form.getByLabel('View').selectOption('month');
     await form.getByRole('button', { name: 'Show calendar' }).click();
+    await settle(form);
     await expect(noScript).toHaveURL(/\/calendar\?date=2028-12-31&view=month$/);
     await expect(noScript.getByRole('heading', { name: 'December 2028' })).toBeVisible();
     await noScript.getByRole('navigation', { name: 'Calendar navigation' }).getByRole('link', { name: 'Previous month', exact: true }).click();
+    await settle(noScript);
     await expect(noScript).toHaveURL(/\/calendar\?date=2028-11-30&view=month$/);
     await expect(noScript.getByRole('heading', { name: 'November 2028' })).toBeVisible();
   } finally { await context.close(); }
@@ -394,9 +405,11 @@ test('a child can navigate the calendar but sees no management controls', async 
   await expect(page.getByRole('button', { name: /Cancel/ })).toHaveCount(0);
   const nav = page.getByRole('navigation', { name: 'Calendar navigation' });
   await nav.getByRole('link', { name: 'Next week', exact: true }).click();
+  await settle(nav);
   await expect(page).toHaveURL(new RegExp(`/calendar\\?date=${addDays(date, 7)}&view=week$`));
   await page.goto('/calendar?date=2028-01-31&view=month');
   await nav.getByRole('link', { name: 'Next month', exact: true }).click();
+  await settle(nav);
   await expect(page).toHaveURL(/\/calendar\?date=2028-02-29&view=month$/);
   await expect(page.getByRole('heading', { name: 'February 2028' })).toBeVisible();
 });
@@ -541,6 +554,7 @@ test('month grid bounds desktop previews and the mobile agenda shows every event
   await expect(page.getByText('No events').first()).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('calendar-month-grid-desktop.png'), fullPage: true });
   await page.getByRole('link', { name: /\+2 more/ }).click();
+  await settle(page);
   await expect(page).toHaveURL(new RegExp(`/calendar\\?date=${date}&view=day$`));
   for (const title of titles) await expect(articleByTitle(page, title)).toBeVisible();
 
@@ -566,6 +580,7 @@ test('month links reach the day agenda without JavaScript', async ({ page, brows
     const noScript = await context.newPage();
     await noScript.goto(`/calendar?date=${date}&view=month`);
     await noScript.getByRole('link', { name: new RegExp(title) }).click();
+    await settle(noScript);
     await expect(noScript).toHaveURL(new RegExp(`/calendar\\?date=${date}&view=day$`));
     const event = articleByTitle(noScript, title);
     await expect(event).toBeVisible();

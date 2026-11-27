@@ -1,4 +1,5 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -14,9 +15,11 @@ async function chooseSource(page: Page, title: string) {
   await page.goto('/chores/week/again?date=2099-10-04');
   await page.getByLabel('Search recent chores').fill(title);
   await page.getByRole('button', { name: 'Search' }).click();
+  await settle(page);
   const result = page.getByRole('article').filter({ hasText: title });
   await expect(result).toBeVisible();
   await result.getByRole('link', { name: 'Use this chore' }).click();
+  await settle(result);
   await expect(page.getByRole('region', { name: 'Selected chore' })).toContainText(title);
 }
 
@@ -39,6 +42,7 @@ test('a parent reuses a chore for several children, each works independently, an
   await submit.click();
   await expect(page.getByRole('heading', { name: 'No chores match this search', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Clear search', exact: true }).click();
+  await settle(page);
   await expect(page).toHaveURL(origin + searchPage);
   await expect(query).toHaveValue('');
 
@@ -48,6 +52,7 @@ test('a parent reuses a chore for several children, each works independently, an
   await expect(page).toHaveURL(url => url.searchParams.get('q') === sourceTitle && url.searchParams.get('date') === today);
   const result = page.getByRole('article').filter({ has: page.getByRole('heading', { name: sourceTitle, exact: true }) });
   await result.getByRole('link', { name: 'Use this chore', exact: true }).click();
+  await settle(result);
   const form = page.getByRole('form', { name: 'Assign Clean bedroom again' });
   await expect(form.getByLabel('Chore title', { exact: true })).toHaveValue('Clean bedroom');
   await expect(form.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Vacuum and dust');
@@ -176,9 +181,11 @@ test('reuse works without JavaScript', async ({ page, browser }) => {
     const search = native.getByRole('form', { name: 'Find a recent chore', exact: true });
     await search.getByRole('textbox', { name: 'Search recent chores', exact: true }).fill('Native reuse chore');
     await search.getByRole('button', { name: 'Search', exact: true }).click();
+    await settle(search);
     await expect(native).toHaveURL(url => url.searchParams.get('q') === 'Native reuse chore' && url.searchParams.get('date') === '2099-12-06');
     const result = native.getByRole('article').filter({ has: native.getByRole('heading', { name: 'Native reuse chore', exact: true }) });
     await result.getByRole('link', { name: 'Use this chore', exact: true }).click();
+    await settle(result);
     const form = native.getByRole('form', { name: 'Assign Native reuse chore again' });
     await form.getByRole('checkbox', { name: 'Reuse Kid Two' }).uncheck();
     await form.getByRole('checkbox', { name: 'Reuse Kid Three' }).uncheck();
@@ -216,6 +223,7 @@ test('a search edit and selection survive delayed hydration', async ({ page }) =
     await page.keyboard.insertText('Water plants');
     await expect(query).toHaveValue('Water plants');
     await search.getByRole('button', { name: 'Search', exact: true }).click();
+    await settle(search);
     await expect(page).toHaveURL(url => url.searchParams.get('q') === 'Water plants' && url.searchParams.get('date') === '2099-12-13');
     await expect(main.getByRole('heading', { name: 'Water plants', exact: true })).toBeVisible();
   } finally {
@@ -246,7 +254,7 @@ test('reuse edits and child selections survive delayed hydration', async ({ page
     await title.focus();
     await title.evaluate((input: HTMLInputElement) => input.select());
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await delayed.keyboard.insertText('After reuse hydration');
     await expect(form.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Hydrated reuse description');
     await expect(form.getByLabel('Date', { exact: true })).toHaveValue('2099-12-14');

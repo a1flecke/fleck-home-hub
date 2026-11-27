@@ -1,4 +1,5 @@
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 const ORIGIN = 'http://127.0.0.1:4173';
 
@@ -75,9 +76,10 @@ test('parent imports a .ics file on mobile, edits details, and events stay priva
 
     const page = await parentContext.newPage();
     await page.goto(`/calendar?date=${holidayDate}&view=week`);
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
 
     await page.getByRole('link', { name: 'Import calendar (.ics)', exact: true }).click();
+    await settle(page);
     await expect(page).toHaveURL(new RegExp(`/calendar/import\\?date=${holidayDate}&view=week$`));
     await expect(page.getByRole('heading', { name: 'Import calendar (.ics)' })).toBeVisible();
 
@@ -87,7 +89,7 @@ test('parent imports a .ics file on mobile, edits details, and events stay priva
       buffer: Buffer.from(ics, 'utf8')
     });
     await page.getByRole('button', { name: 'Review events' }).click();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
 
     await expect(page.getByRole('heading', { name: /Review 3 events from school-schedule\.ics/ })).toBeVisible();
     await expect(page.getByText('2 to import · 1 skipped')).toBeVisible();
@@ -222,7 +224,7 @@ test('pre-hydration edits, active selection, checkboxes, and open disclosures su
     await signInApi(context, 'parent@example.test', 'synthetic-parent-password');
     const page = await context.newPage();
     await page.goto(`/calendar/import?date=${date}&view=day`);
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
 
     // Gate module hydration for the POST ?/review response document
     await page.route('**/src/routes/calendar/import/+page.svelte*', async route => {
@@ -249,7 +251,7 @@ test('pre-hydration edits, active selection, checkboxes, and open disclosures su
     await titleInput.evaluate((input: HTMLInputElement) => input.select());
 
     release();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
 
     await page.keyboard.insertText(replacedTitle);
     await expect(titleInput).toHaveValue(replacedTitle);
@@ -306,10 +308,10 @@ test('two independent parent sessions detect concurrent duplicate imports and pr
 
     for (const p of [pageA, pageB]) {
       await p.goto(`/calendar/import?date=${date}&view=day`);
-      await p.waitForLoadState('networkidle');
+      await hydrated(p);
       await p.getByLabel(/Or paste iCalendar text/).fill(ics);
       await p.getByRole('button', { name: 'Review events' }).click();
-      await p.waitForLoadState('networkidle');
+      await hydrated(p);
     }
 
     // Session B confirms first
@@ -322,7 +324,7 @@ test('two independent parent sessions detect concurrent duplicate imports and pr
     await cardA.getByText('Details, repeat schedule, and participants').click();
     await cardA.getByLabel('Location (optional)').fill('East Pool');
     await pageA.getByRole('button', { name: 'Import selected events' }).click();
-    await pageA.waitForLoadState('networkidle');
+    await hydrated(pageA);
 
     await expect(pageA.getByRole('alert')).toContainText('The calendar changed');
     await expect(cardA).toContainText('Already imported:');
