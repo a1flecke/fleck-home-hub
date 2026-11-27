@@ -1,6 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
+  import { viewHeading } from '../../../lib/calendar/navigation';
   import Disclosure from '../../calendar/Disclosure.svelte';
   import ItemRow from './ItemRow.svelte';
   import type { PageData } from './$types';
@@ -45,6 +46,20 @@
   {#if form?.message}<p role="alert" class="mt-4 rounded-xl bg-amber-100 p-3">{form.message}</p>{/if}
 
   {#if data.role === 'parent'}
+    <section aria-label="Calendar event" class="mt-4 rounded-xl bg-teal-50 p-4">
+      <p class="font-bold text-teal-950">Calendar event</p>
+      {#if data.eventLink}
+        <p class="mt-1 break-words">{data.eventLink.title} · {viewHeading(data.eventLink.date, 'day')}</p>
+        {#if data.eventLink.stale}
+          <p class="mt-1 text-sm">This date was cancelled or moved. Your checklist is still here.</p>
+        {:else}
+          <a class="inline-flex min-h-11 items-center font-semibold text-teal-800 underline" href={resolve(`/calendar?date=${data.eventLink.date}&view=day`)}>Open in calendar</a>
+        {/if}
+      {/if}
+      {#if !data.list.archived || data.eventLink}
+        <a class="inline-flex min-h-11 items-center font-semibold text-teal-800 underline" href={resolve('/lists/[id]/event', { id: data.list.id })}>{data.eventLink ? 'Change or remove calendar link' : 'Link to calendar event'}</a>
+      {/if}
+    </section>
     <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1">
       <a class="inline-flex min-h-11 items-center font-semibold text-teal-800 underline" href={resolve('/lists/copy/[source]/[id]', { source: 'list', id: data.list.id })}>Use this list again</a>
       <form method="POST" action="?/saveTemplate">
