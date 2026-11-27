@@ -1,23 +1,28 @@
 import { expect, test, type Page } from '@playwright/test';
+import { freshHousehold, signInAs } from './support/households';
 import { settle } from './support/navigation';
 
-// Read-only journeys: they search the reuse household's seeded chores and never mutate them.
-// Other specs add chores whose titles start with "Clean bedroom", so match the seeded heading exactly.
-const origin = 'http://127.0.0.1:4173';
+// e2e-isolation: fresh-households
+// Each test searches its own household's chores, so the cleared list is exactly what it seeded.
 
 const cleanBedroom = (page: Page) => page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Clean bedroom', exact: true }) });
 
-// The cleared list is paged by recency and other specs add chores to this household, so assert what
-// is always true of the destination (an empty search and at least one result) rather than which
-// seeded chore is on its first page. The outgoing page shows "Showing 0 of 0".
+/** The cleared destination: an empty search box listing both of this household's chores. */
 async function expectClearedList(page: Page) {
   await expect(page.getByLabel('Search recent chores')).toHaveValue('');
-  await expect(page.getByText(/^Showing [1-9]\d* of \d+ recent chores\.$/)).toBeVisible();
+  await expect(page.getByText('Showing 2 of 2 recent chores.', { exact: true })).toBeVisible();
+  await expect(cleanBedroom(page)).toBeVisible();
 }
 
 async function signIn(page: Page) {
-  const response = await page.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'reuse-parent@example.test', password: 'synthetic-reuse-parent-password' } });
-  expect(response.status()).toBe(200);
+  const household = await freshHousehold({
+    members: [{ name: 'Settle Parent', role: 'parent' }, { name: 'Settle Kid', role: 'kid' }],
+    chores: [
+      { key: 'clean', assignee: 'Settle Kid', title: 'Clean bedroom', description: 'Vacuum and dust', dueDate: '2099-01-15', rewardCents: 200 },
+      { key: 'plants', assignee: 'Settle Kid', title: 'Water plants', dueDate: '2099-01-16', rewardCents: 100 }
+    ]
+  });
+  await signInAs(page, household.members['Settle Parent']);
 }
 
 /** Holds the next unfiltered recent-chores data request until `release()` is called. */
