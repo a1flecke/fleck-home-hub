@@ -23,12 +23,7 @@
     <h2 class="text-xl font-bold">Pair a new display</h2>
     <form method="POST" action={`?/create&household=${encodeURIComponent(data.householdId)}`} class="mt-3 grid gap-3">
       <label class="grid gap-2 font-semibold">Display name
-        <!-- No reactive value attribute unless restoring after a rejected submission: it would overwrite text typed before hydration. -->
-        {#if form && 'label' in form && form.label}
-          <input name="label" required maxlength="60" value={form.label} placeholder="Kitchen screen" class="rounded-xl border border-slate-400 px-4 py-3" />
-        {:else}
-          <input name="label" required maxlength="60" placeholder="Kitchen screen" class="rounded-xl border border-slate-400 px-4 py-3" />
-        {/if}
+        <input name="label" required maxlength="60" defaultValue={form && 'label' in form && typeof form.label === 'string' ? form.label : ''} placeholder="Kitchen screen" class="rounded-xl border border-slate-400 px-4 py-3" />
       </label>
       <button class="rounded-xl bg-teal-700 px-4 py-3 font-semibold text-white">Create pairing code</button>
     </form>

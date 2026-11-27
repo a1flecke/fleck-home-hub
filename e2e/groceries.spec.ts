@@ -1827,3 +1827,38 @@ test('starting an edit during an in-flight refresh keeps the original version an
     await expect(live.getByRole('article').filter({ hasText: name })).toContainText('6');
   } finally { releaseData(); await liveContext.close(); }
 });
+
+for (const javaScriptEnabled of [true, false]) {
+  test(`changing the item name after a duplicate warning submits without checking duplicate confirmation (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
+    const stamp = `${javaScriptEnabled ? 'js' : 'nojs'}-${Date.now()}`;
+    const existing = `Synthetic dup apples ${stamp}`;
+    const different = `Synthetic dup bananas ${stamp}`;
+    await signInAsGroceryParent(page, 'a');
+    await page.goto('/groceries');
+    const setupAdd = page.getByRole('form', { name: 'Add grocery item' });
+    await setupAdd.getByLabel('Item', { exact: true }).fill(existing);
+    await setupAdd.getByRole('button', { name: 'Add item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: existing })).toBeVisible();
+
+    const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+    try {
+      const view = await context.newPage();
+      await view.goto('/groceries');
+      const add = view.getByRole('form', { name: 'Add grocery item' });
+      await add.getByLabel('Item', { exact: true }).fill(existing);
+      await add.getByRole('button', { name: 'Add item' }).click();
+      await expect(view.getByRole('status').filter({ hasText: 'matching item is already on the list' })).toBeVisible();
+      await expect(add.getByLabel('Add another anyway')).toBeVisible();
+
+      // Re-submitting the duplicate unchecked is still rejected by the server.
+      await add.getByRole('button', { name: 'Add item' }).click();
+      await expect(view.getByRole('status').filter({ hasText: 'matching item is already on the list' })).toBeVisible();
+
+      // Changing the item to a different name must submit cleanly without checking the duplicate box.
+      await add.getByLabel('Item', { exact: true }).fill(different);
+      if (javaScriptEnabled) await expect(add.getByLabel('Add another anyway')).toHaveCount(0);
+      await add.getByRole('button', { name: 'Add item' }).click();
+      await expect(view.getByRole('article').filter({ hasText: different })).toBeVisible();
+    } finally { await context.close(); }
+  });
+}

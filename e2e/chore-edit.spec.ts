@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { hydrated } from './support/navigation';
+import { hydrated, settle } from './support/navigation';
 import { pageModule } from './support/modules';
 
 const origin = 'http://127.0.0.1:4173';
@@ -219,4 +219,35 @@ test('edit form edits, disclosure and active selection survive delayed hydration
       title: 'After edit hydration', description: 'Typed edit before hydration', dueDate: '2099-04-06', assignee: siblingId!
     });
   } finally { release(); await context.close(); }
+});
+
+test('editing a chore to another week and child navigates to its new context, and jump-to-date preserves filters', async ({ page }, testInfo) => {
+  await signIn(page);
+  const title = `Context move chore ${testInfo.repeatEachIndex} ${Date.now()}`;
+  await createChore(page, title, '2099-06-10', 'Week Kid');
+
+  await page.getByRole('link', { name: /^Week Kid \(/ }).click();
+  await settle(page);
+  await page.getByRole('link', { name: /^To do \(/ }).click();
+  await settle(page);
+  await expect(page).toHaveURL(/child=/);
+  await expect(page).toHaveURL(/status=todo/);
+
+  const jumpForm = page.getByRole('form', { name: 'Jump to a chore week' });
+  await jumpForm.getByLabel('Jump to a date').fill('2099-06-11');
+  await jumpForm.getByRole('button', { name: 'Show week' }).click();
+  await settle(page);
+  await expect(page).toHaveURL(/child=/);
+  await expect(page).toHaveURL(/status=todo/);
+
+  const article = day(page, '2099-06-10').getByRole('article', { name: `${title} for Week Kid` });
+  await article.getByText('Edit chore', { exact: true }).click();
+  const edit = article.getByRole('form', { name: `Edit ${title}` });
+  await edit.getByRole('combobox', { name: 'Assigned child', exact: true }).selectOption({ label: 'Week Sibling' });
+  await edit.getByLabel('Due date', { exact: true }).fill('2099-06-18');
+  await edit.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByRole('status')).toContainText('Chore updated');
+  await expect(page).toHaveURL(/week=2099-06-14/);
+  await expect(page).toHaveURL(/status=todo/);
+  await expect(day(page, '2099-06-18').getByRole('article', { name: `${title} for Week Sibling` })).toBeVisible();
 });

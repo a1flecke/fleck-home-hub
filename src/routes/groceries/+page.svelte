@@ -4,7 +4,7 @@
   import { onMount, untrack } from 'svelte';
   import Disclosure from '../calendar/Disclosure.svelte';
   import { groupGroceryItems, type GroceryGroupName } from '../../lib/grocery/grouping';
-  import { boughtClearBatch } from '../../lib/grocery/domain';
+  import { boughtClearBatch, sameGroceryName } from '../../lib/grocery/domain';
   import {
     classifyGroceryRefreshResponse,
     GROCERY_DATA_PATH,
@@ -28,6 +28,8 @@
   let refreshFailed = $state(false);
   let authorizationLost = $state(false);
   let addDirty = $state(false);
+  let addDraftName = $state<string | null>(null);
+  let showDuplicateConfirm = $derived(Boolean(form?.duplicate && (addDraftName === null || sameGroceryName(addDraftName, form?.item?.name ?? ''))));
   let dirtyEdits = $state<string[]>([]);
   let openEdits = $state<string[]>([]);
   let removedWhileEditing = $state<string[]>([]);
@@ -132,10 +134,19 @@
     items = [...items, { id: edit.id, name: edit.name, quantity: edit.quantity, unit: edit.unit, completed: edit.completed, version: edit.version }];
   });
 
+  let lastForm = untrack(() => form);
+  $effect(() => {
+    if (form === lastForm) return;
+    lastForm = form;
+    addDraftName = null;
+  });
+
   function addFormChanged(event: Event) {
     const formElement = event.currentTarget as HTMLFormElement;
     const values = new FormData(formElement);
-    addDirty = groceryAddDraftExists({ ...draft(formElement), allowDuplicate: values.get('allowDuplicate') === 'yes' });
+    const current = draft(formElement);
+    addDraftName = current.name;
+    addDirty = groceryAddDraftExists({ ...current, allowDuplicate: values.get('allowDuplicate') === 'yes' });
     manualNotice = '';
   }
 
@@ -272,8 +283,10 @@
     }
     const addForm = document.querySelector<HTMLFormElement>('form[action="?/add"]');
     if (addForm) {
+      const current = draft(addForm);
+      addDraftName = current.name;
       const addValues = new FormData(addForm);
-      if (groceryAddDraftExists({ ...draft(addForm), allowDuplicate: addValues.get('allowDuplicate') === 'yes' })) {
+      if (groceryAddDraftExists({ ...current, allowDuplicate: addValues.get('allowDuplicate') === 'yes' })) {
         addDirty = true;
       }
     }
@@ -397,7 +410,7 @@
   {#if form?.clear && !form.clear.ok}<p role="alert" class="mt-4 rounded-xl bg-amber-50 p-4">{form.clear.message}</p>{/if}
   <form method="POST" action="?/add" aria-label="Add grocery item" oninput={addFormChanged} onchange={addFormChanged} class="mt-6 grid gap-3 rounded-2xl bg-white p-5 shadow-sm">
     <GroceryFields initial={form?.item ?? { name: '', quantity: '', unit: '' }} />
-    {#if form?.duplicate}<label><input type="checkbox" name="allowDuplicate" value="yes" required /> Add another anyway</label>{/if}
+    {#if showDuplicateConfirm}<label><input type="checkbox" name="allowDuplicate" value="yes" /> Add another anyway</label>{/if}
     <button class="rounded-xl bg-teal-700 px-4 py-3 font-bold text-white">Add item</button>
   </form>
   <section aria-labelledby="to-buy-heading" class="mt-6">

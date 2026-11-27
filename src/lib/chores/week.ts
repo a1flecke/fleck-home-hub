@@ -53,3 +53,24 @@ export function choreWeekLabel(start: string): string {
   }
   return `${startLabel} – ${last.getUTCDate()}, ${last.getUTCFullYear()}`;
 }
+
+export function choreWeekReturnUrl(
+  current: URLSearchParams,
+  notice: string,
+  target?: { dueDate: string; assigneeId: string }
+): string {
+  const params = new URLSearchParams();
+  if (target) {
+    params.set('week', choreWeekStart(target.dueDate));
+    params.set('date', target.dueDate);
+    if (current.get('child')) params.set('child', target.assigneeId);
+    if (current.get('status') === 'todo') params.set('status', 'todo');
+  } else {
+    for (const key of ['week', 'date', 'child', 'status']) {
+      const value = current.get(key);
+      if (value) params.set(key, value);
+    }
+  }
+  params.set('notice', notice);
+  return `/chores/week?${params.toString()}`;
+}

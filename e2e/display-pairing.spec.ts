@@ -1,5 +1,6 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
-import { settle } from './support/navigation';
+import { pageModule } from './support/modules';
+import { hydrated, settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -386,4 +387,43 @@ test('a parent in two households chooses what the selected household shares', as
     const forged = await parent.page.request.post('/display/settings?/share&household=synthetic-display-household', { form: { kind: 'event', id: 'x', visible: 'yes' }, headers: { origin }, maxRedirects: 0 });
     expect(forged.status()).toBe(403);
   } finally { await display?.context.close(); await parent.context.close(); await owner.context.close(); }
+});
+
+test('restored display name after validation error preserves edits and selection across hydration', async ({ browser }) => {
+  const stamp = Date.now();
+  const corrected = `Hallway screen ${stamp}`;
+  const parent = await signedIn(browser, 'parent@example.test', 'synthetic-parent-password', 'Hello, Sample Parent');
+  const gate = Promise.withResolvers<void>();
+  const requested = Promise.withResolvers<void>();
+  const displaysModule = pageModule('settings/displays');
+  let delayNext = false;
+  try {
+    await parent.page.route(displaysModule, async route => {
+      if (delayNext) {
+        requested.resolve();
+        await gate.promise;
+      }
+      await route.continue();
+    });
+    await parent.page.goto('/settings/displays');
+    await parent.page.getByLabel('Display name').fill('   ');
+    delayNext = true;
+    await parent.page.getByRole('button', { name: 'Create pairing code' }).click({ noWaitAfter: true });
+    await requested.promise;
+    await expect(parent.page.getByRole('status')).toContainText('1 to 60 characters');
+    const nameInput = parent.page.getByLabel('Display name');
+    await expect(nameInput).toHaveValue('   ');
+    await nameInput.focus();
+    await nameInput.evaluate((input: HTMLInputElement) => input.select());
+    gate.resolve();
+    await hydrated(parent.page);
+    await parent.page.unroute(displaysModule);
+    await parent.page.keyboard.insertText(corrected);
+    await expect(nameInput).toHaveValue(corrected);
+    await parent.page.getByRole('button', { name: 'Create pairing code' }).click();
+    await expect(parent.page.getByRole('region', { name: 'New pairing code' }).getByRole('heading', { name: `Pairing code for ${corrected}` })).toBeVisible();
+  } finally {
+    gate.resolve();
+    await parent.context.close();
+  }
 });
