@@ -20,11 +20,15 @@ it.each(['test', 'e2e'])('%s starts without generated SvelteKit configuration', 
     writeFileSync(join(root, 'src/routes/+page.svelte'), '<h1>Synthetic fixture</h1>');
     mkdirSync(join(root, 'tests'));
     mkdirSync(join(root, 'e2e'));
+    // The e2e script builds the app before Playwright; that is covered by `mise run build`, not
+    // here, so the cold-start check skips the build (E2E_SERVER=dev) while running the same chain.
+    mkdirSync(join(root, 'scripts'));
+    copyFileSync('scripts/e2e-prepare.mjs', join(root, 'scripts/e2e-prepare.mjs'));
     writeFileSync(join(root, 'tests/synthetic.test.ts'), "import { expect, it } from 'vitest'; it('loads TypeScript', () => expect(true).toBe(true));");
     writeFileSync(join(root, 'playwright.config.ts'), "import { defineConfig } from '@playwright/test'; export default defineConfig({ testDir: './e2e' });");
     writeFileSync(join(root, 'e2e/synthetic.spec.ts'), "import { test } from '@playwright/test'; test('discovery only', () => {});");
     expect(existsSync(join(root, 'node_modules/$app'))).toBe(false);
-    const result = spawnSync('pnpm', ['run', task, ...(task === 'e2e' ? ['--list'] : [])], { cwd: root, encoding: 'utf8', timeout: 20000 });
+    const result = spawnSync('pnpm', ['run', task, ...(task === 'e2e' ? ['--list'] : [])], { cwd: root, encoding: 'utf8', timeout: 20000, env: { ...process.env, E2E_SERVER: 'dev' } });
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
     expect(existsSync(join(root, 'node_modules/$app/tsconfig.json'))).toBe(true);
