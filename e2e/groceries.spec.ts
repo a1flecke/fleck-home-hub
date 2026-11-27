@@ -1,11 +1,26 @@
 import { expect, test, type Page } from '@playwright/test';
+import { freshHousehold, signInAs, type SeededMember } from './support/households';
 import { hydrated, settle } from './support/navigation';
 import { pageModule } from './support/modules';
 
-async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password') {
+// e2e-isolation: fresh-households
+// Every test shops in its own household, so list-wide counts, bought items and clears never
+// depend on another test or on a repetition of this one.
+
+/** A parent and a child, plus a disabled member for rejection checks. */
+function groceryHousehold() {
+  return freshHousehold({ members: [
+    { name: 'Sample Parent', role: 'parent' },
+    { name: 'Sample Kid', role: 'kid' },
+    { name: 'Disabled Grocery Member', role: 'kid', disabled: true }
+  ] });
+}
+
+/** Signs in through the form, as a family member would. */
+async function signIn(page: Page, member: SeededMember) {
   await page.goto('/sign-in');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
+  await page.getByLabel('Email').fill(member.email);
+  await page.getByLabel('Password').fill(member.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page.getByRole('heading', { name: /Hello, |My Day/ })).toBeVisible();
 }
@@ -15,16 +30,11 @@ async function showBought(page: Page) {
   if (!(await bought.evaluate(element => (element as HTMLDetailsElement).open))) await bought.locator(':scope > summary').click();
 }
 
-async function signInAsGroceryParent(page: Page, key = 'a') {
-  await signIn(page, `grocery-parent-${key}@example.test`, `synthetic-grocery-parent-${key}-password`);
-}
 
 test('a household member adds and completes an item', async ({ page }) => {
+  const household = await groceryHousehold();
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
@@ -40,11 +50,9 @@ test('a household member adds and completes an item', async ({ page }) => {
 });
 
 test('a parent selects meal ingredients and confirms an existing item', async ({ page }) => {
+  const household = await groceryHousehold();
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/meals?date=2099-06-01');
   await page.getByText('Add a meal', { exact: true }).click();
@@ -84,15 +92,13 @@ test('a parent selects meal ingredients and confirms an existing item', async ({
 });
 
 test('a parent reviews parsed quantities, edits one item, skips another and resolves a duplicate', async ({ page }, testInfo) => {
+  const household = await groceryHousehold();
   const stamp = Date.now();
   const onion = `synthetic review onion ${stamp}`;
   const beans = `synthetic black beans ${stamp}`;
   const basil = `Fresh synthetic basil ${stamp}`;
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
 
   await page.goto('/groceries');
@@ -142,13 +148,11 @@ test('a parent reviews parsed quantities, edits one item, skips another and reso
 });
 
 test('reviewed ingredient edits work without JavaScript', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const stamp = Date.now();
   const beans = `synthetic native beans ${stamp}`;
   const basil = `Fresh synthetic native basil ${stamp}`;
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/meals?date=2099-09-02');
   await page.getByText('Add a meal', { exact: true }).click();
@@ -179,12 +183,10 @@ test('reviewed ingredient edits work without JavaScript', async ({ page, browser
 });
 
 test('review edits survive delayed hydration', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const stamp = Date.now();
   const beans = `synthetic delayed beans ${stamp}`;
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/meals?date=2099-09-03');
   await page.getByText('Add a meal', { exact: true }).click();
@@ -230,13 +232,11 @@ test('review edits survive delayed hydration', async ({ page, browser }) => {
 });
 
 for (const javaScriptEnabled of [true, false]) test(`reviewed ingredient validation preserves edits (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const stamp = Date.now();
   const onion = `synthetic validated onion ${stamp}`;
   const date = '2099-09-04';
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto(`/meals?date=${date}`);
   await page.getByText('Add a meal', { exact: true }).click();
@@ -273,13 +273,11 @@ for (const javaScriptEnabled of [true, false]) test(`reviewed ingredient validat
 });
 
 test('a grocery change during review asks for an explicit duplicate decision', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const stamp = Date.now();
   const beans = `synthetic race beans ${stamp}`;
   const date = '2099-09-05';
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto(`/meals?date=${date}`);
   await page.getByText('Add a meal', { exact: true }).click();
@@ -320,15 +318,13 @@ test('a grocery change during review asks for an explicit duplicate decision', a
 });
 
 test('a shared meal becomes a household grocery task without exposing private notes', async ({ page, browser }, testInfo) => {
+  const household = await groceryHousehold();
   const title = `Family grocery dinner ${testInfo.repeatEachIndex}`;
   const selected = `2 bags family lentils ${testInfo.repeatEachIndex}`;
   const unselected = `1 family carrot ${testInfo.repeatEachIndex}`;
   const note = `Private dinner note ${testInfo.repeatEachIndex}`;
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/meals?date=2099-06-02');
   await page.getByText('Add a meal', { exact: true }).click();
@@ -354,10 +350,7 @@ test('a shared meal becomes a household grocery task without exposing private no
   const context = await browser.newContext({ viewport: { width: 375, height: 812 } });
   try {
     const kid = await context.newPage();
-    await kid.goto('/sign-in');
-    await kid.getByLabel('Email').fill('kid@example.test');
-    await kid.getByLabel('Password').fill('synthetic-kid-password');
-    await kid.getByRole('button', { name: 'Sign in' }).click();
+    await signIn(kid, household.members['Sample Kid']);
     await expect(kid.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
     await kid.goto('/meals?date=2099-06-02');
     await expect(kid.getByRole('article').filter({ hasText: title })).toContainText(selected);
@@ -376,10 +369,8 @@ test('a shared meal becomes a household grocery task without exposing private no
 });
 
 test('meal ingredient selections survive delayed hydration and submit the selected lines', async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/meals?date=2099-07-01');
   await page.getByText('Add a meal', { exact: true }).click();
@@ -418,10 +409,8 @@ test('meal ingredient selections survive delayed hydration and submit the select
 });
 
 test('grocery edits survive delayed hydration and are submitted', async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const context = await browser.newContext({ storageState: await page.context().storageState() });
   let release!: () => void, requested!: () => void;
@@ -444,10 +433,8 @@ test('grocery edits survive delayed hydration and are submitted', async ({ page,
 });
 
 test('a prefilled grocery edit and open disclosure survive delayed hydration', async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
@@ -480,11 +467,9 @@ test('a prefilled grocery edit and open disclosure survive delayed hydration', a
 });
 
 test('grocery routes enforce sessions and origin checks', async ({ page }) => {
+  const household = await groceryHousehold();
   expect((await page.request.get('/groceries', { maxRedirects: 0 })).status()).toBe(303);
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('kid@example.test');
-  await page.getByLabel('Password').fill('synthetic-kid-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Kid']);
   await expect(page.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
   const response = await page.request.post('/groceries?/add', { form: { name: 'Synthetic blocked', quantity: '1', unit: '' }, headers: { origin: 'https://other.example.test' } });
   expect(response.status()).toBe(403);
@@ -497,8 +482,9 @@ test('grocery routes enforce sessions and origin checks', async ({ page }) => {
 });
 
 test('the grocery data endpoint requires a session and never crosses households', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic endpoint oats ${Date.now()}`;
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
   await add.getByLabel('Item', { exact: true }).fill(name);
@@ -518,8 +504,7 @@ test('the grocery data endpoint requires a session and never crosses households'
 
   const kidContext = await browser.newContext();
   try {
-    const login = await kidContext.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'kid@example.test', password: 'synthetic-kid-password' } });
-    expect(login.status()).toBe(200);
+    await signInAs(kidContext, household.members['Sample Kid']);
     const response = await kidContext.request.get(`${origin}/groceries/data`);
     expect(response.status()).toBe(200);
     expect(response.headers()['cache-control']).toContain('no-store');
@@ -531,8 +516,8 @@ test('the grocery data endpoint requires a session and never crosses households'
 
   const otherContext = await browser.newContext();
   try {
-    const login = await otherContext.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'other-parent@example.test', password: 'synthetic-other-parent-password' } });
-    expect(login.status()).toBe(200);
+    const elsewhere = await freshHousehold({ members: [{ name: 'Other Parent', role: 'parent' }] });
+    await signInAs(otherContext, elsewhere.members['Other Parent']);
     const response = await otherContext.request.get(`${origin}/groceries/data`);
     expect(response.status()).toBe(200);
     expect(response.headers()['cache-control']).toContain('no-store');
@@ -542,11 +527,12 @@ test('the grocery data endpoint requires a session and never crosses households'
 });
 
 test('a disabled household member is denied grocery data instead of looking like a temporary outage', async ({ browser }) => {
+  const household = await groceryHousehold();
   const origin = 'http://127.0.0.1:4173';
   const context = await browser.newContext();
   try {
-    const login = await context.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' } });
-    expect(login.status()).toBe(401);
+    // signInAs expects the 401 a disabled member's sign-in gets.
+    await signInAs(context, household.members['Disabled Grocery Member']);
     const response = await context.request.get(`${origin}/groceries/data`);
     expect(response.status()).toBe(401);
     expect(response.headers()['cache-control']).toContain('no-store');
@@ -556,10 +542,8 @@ test('a disabled household member is denied grocery data instead of looking like
 });
 
 for (const javaScriptEnabled of [true, false]) test(`invalid grocery item can be corrected (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState() });
   try {
@@ -581,10 +565,8 @@ for (const javaScriptEnabled of [true, false]) test(`invalid grocery item can be
 });
 
 test('a stale edit does not overwrite another household session', async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
@@ -614,8 +596,9 @@ test('a stale edit does not overwrite another household session', async ({ page,
 });
 
 test('a visible grocery list receives additions, completions and removals from another session', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = 'Synthetic live rye';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -652,10 +635,11 @@ test('a visible grocery list receives additions, completions and removals from a
 });
 
 test('automatic updates pause for add and edit drafts and resume when editing ends', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const base = 'Synthetic live pears';
   const oranges = 'Synthetic live oranges';
   const kiwis = 'Synthetic live kiwis';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -714,8 +698,9 @@ test('automatic updates pause for add and edit drafts and resume when editing en
 });
 
 test('live updates stop while the tab is hidden and refresh when it becomes visible', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = 'Synthetic hidden plums';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   await page.addInitScript(() => {
     const state = window as unknown as { __groceryHidden?: boolean; __setGroceryHidden?: (hidden: boolean) => void };
     Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => state.__groceryHidden ? 'hidden' : 'visible' });
@@ -747,7 +732,8 @@ test('live updates stop while the tab is hidden and refresh when it becomes visi
 });
 
 test('leaving the page disposes the live refresh timer', async ({ page }) => {
-  await signIn(page);
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await page.clock.install();
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
@@ -763,7 +749,8 @@ test('leaving the page disposes the live refresh timer', async ({ page }) => {
 });
 
 test('live refresh does not start another request while one is still running', async ({ page }) => {
-  await signIn(page);
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await page.clock.install();
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
@@ -791,8 +778,9 @@ test('live refresh does not start another request while one is still running', a
 });
 
 test('an edit typed during a slow refresh survives the arriving server data', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const base = 'Synthetic live oat bread';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -839,9 +827,10 @@ test('an edit typed during a slow refresh survives the arriving server data', as
 });
 
 test('an unreachable server while the browser is online keeps the current list and recovers', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const base = 'Synthetic outage beans';
   const remote = 'Synthetic outage rice';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -877,9 +866,10 @@ test('an unreachable server while the browser is online keeps the current list a
 });
 
 test('a temporary 503 keeps the current list and recovers on the next refresh', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const base = 'Synthetic 503 oats';
   const remote = 'Synthetic 503 plums';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -915,7 +905,8 @@ test('a temporary 503 keeps the current list and recovers on the next refresh', 
 });
 
 test('a refresh that exceeds its time limit keeps the current list', async ({ page }) => {
-  await signIn(page);
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await page.clock.install();
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
@@ -939,9 +930,10 @@ test('a refresh that exceeds its time limit keeps the current list', async ({ pa
 });
 
 test('repeated failed refreshes keep the list without reloading and recover once', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const base = 'Synthetic repeated outage beans';
   const remote = 'Synthetic repeated outage rice';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -982,8 +974,9 @@ test('repeated failed refreshes keep the list without reloading and recover once
 });
 
 test('a remote removal of an open but unedited item explains the conflict before saving', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const base = 'Synthetic clean conflict beans';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -1014,8 +1007,9 @@ test('a remote removal of an open but unedited item explains the conflict before
 });
 
 test('a remote removal keeps the open edit draft and explains the conflict', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const base = 'Synthetic conflicted beans';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -1046,7 +1040,8 @@ test('a remote removal keeps the open edit draft and explains the conflict', asy
 });
 
 test('a forbidden refresh clears the list and stops protected updates', async ({ page }) => {
-  await signIn(page);
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await page.clock.install();
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
@@ -1069,8 +1064,9 @@ test('a forbidden refresh clears the list and stops protected updates', async ({
 });
 
 test('losing access does not restore an item retained for a failed edit', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic access leak oats ${Date.now()}`;
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState() });
   try {
     await page.clock.install();
@@ -1116,8 +1112,9 @@ test('losing access does not restore an item retained for a failed edit', async 
 });
 
 test('a closed failed edit does not restore a remotely removed item', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic closed recovery oats ${Date.now()}`;
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState() });
   try {
     await page.clock.install();
@@ -1159,9 +1156,10 @@ test('a closed failed edit does not restore a remotely removed item', async ({ p
 });
 
 test('a reopened failed edit keeps updates paused until corrected', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic recovery reopen oats ${Date.now()}`;
   const remote = `Synthetic recovery reopen rice ${Date.now()}`;
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState() });
   try {
     await page.clock.install();
@@ -1206,7 +1204,8 @@ test('a reopened failed edit keeps updates paused until corrected', async ({ pag
 });
 
 test('a manual refresh while the browser reports offline shows the outage state', async ({ page }) => {
-  await signIn(page);
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await page.addInitScript(() => {
     Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
   });
@@ -1220,8 +1219,9 @@ test('a manual refresh while the browser reports offline shows the outage state'
 });
 
 test('the Refresh list link performs a full reload after access is lost', async ({ page }) => {
+  const household = await groceryHousehold();
   const item = 'Synthetic access fallback oats';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   await page.clock.install();
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
@@ -1245,7 +1245,8 @@ test('the Refresh list link performs a full reload after access is lost', async 
 });
 
 test('an HTML sign-in response is treated as an expired session', async ({ page }) => {
-  await signIn(page);
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await page.clock.install();
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
@@ -1256,9 +1257,10 @@ test('an HTML sign-in response is treated as an expired session', async ({ page 
 });
 
 test('a failed refresh keeps the current list visible and recovers automatically', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const base = 'Synthetic recovery beans';
   const remote = 'Synthetic recovery rice';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -1289,7 +1291,8 @@ test('a failed refresh keeps the current list visible and recovers automatically
 });
 
 test('an expired session returns to sign in instead of showing a stale live list', async ({ page }) => {
-  await signIn(page);
+  const household = await groceryHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await page.clock.install();
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
@@ -1300,8 +1303,9 @@ test('an expired session returns to sign in instead of showing a stale live list
 });
 
 test('automatic updates can be paused and resumed', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = 'Synthetic paused lentils';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -1325,10 +1329,11 @@ test('automatic updates can be paused and resumed', async ({ page, browser }) =>
 });
 
 test('a refresh keeps the reading position and focus stable', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const base = 'Synthetic scroll lentils';
   const remote = 'Synthetic scroll rice';
   const later = 'Synthetic scroll oats';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   await page.setViewportSize({ width: 375, height: 300 });
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 300 } });
   try {
@@ -1365,9 +1370,10 @@ test('a refresh keeps the reading position and focus stable', async ({ page, bro
 });
 
 test('validation recovery keeps entered values and pauses refresh until corrected', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const remote = 'Synthetic recovery squash';
   const corrected = 'Synthetic corrected squash';
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   const otherContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     await page.clock.install();
@@ -1399,11 +1405,12 @@ test('validation recovery keeps entered values and pauses refresh until correcte
 });
 
 test('a parent separates shopping items, reviews Bought, and clears reviewed rows', async ({ page }) => {
+  const household = await groceryHousehold();
   const stamp = Date.now();
   const apples = `Synthetic shopping apples ${stamp}`;
   const bread = `Synthetic shopping bread ${stamp}`;
   await page.setViewportSize({ width: 375, height: 812 });
-  await signInAsGroceryParent(page);
+  await signIn(page, household.members['Sample Parent']);
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
   for (const item of [{ name: apples, quantity: '2', unit: 'bags' }, { name: bread, quantity: '1', unit: 'loaf' }]) {
@@ -1456,8 +1463,9 @@ test('a parent separates shopping items, reviews Bought, and clears reviewed row
 });
 
 test('a child sees no bulk clear and a direct child or disabled-member request is rejected', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic child bought ${Date.now()}`;
-  await signIn(page, 'grocery-parent-kid@example.test', 'synthetic-grocery-parent-kid-password');
+  await signIn(page, household.members['Sample Kid']);
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
   await add.getByLabel('Item', { exact: true }).fill(name);
@@ -1476,11 +1484,8 @@ test('a child sees no bulk clear and a direct child or disabled-member request i
 
   const disabledContext = await browser.newContext();
   try {
-    const login = await disabledContext.request.post(`${origin}/api/auth/sign-in/email`, {
-      headers: { origin },
-      data: { email: 'disabled-grocery@example.test', password: 'synthetic-disabled-grocery-password' }
-    });
-    expect(login.status()).toBe(401);
+    // signInAs expects the 401 a disabled member's sign-in gets.
+    await signInAs(disabledContext, household.members['Disabled Grocery Member']);
     const response = await disabledContext.request.post(`${origin}/groceries?/clearBought`, {
       form: { id: 'synthetic-forged', version: '1' },
       headers: { origin, accept: 'application/json', 'x-sveltekit-action': 'true' }
@@ -1490,11 +1495,12 @@ test('a child sees no bulk clear and a direct child or disabled-member request i
 });
 
 test('a concurrent bought change rejects the whole clear and a later addition survives', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const stamp = Date.now();
   const first = `Synthetic race first ${stamp}`;
   const second = `Synthetic race second ${stamp}`;
   const later = `Synthetic race later ${stamp}`;
-  await signInAsGroceryParent(page, 'c');
+  await signIn(page, household.members['Sample Parent']);
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
   for (const name of [first, second]) {
@@ -1552,9 +1558,10 @@ test('a concurrent bought change rejects the whole clear and a later addition su
 });
 
 test('a failed edit inside Bought stays visible and recoverable', async ({ page }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic bought failed edit ${Date.now()}`;
   const corrected = `${name} corrected`;
-  await signInAsGroceryParent(page);
+  await signIn(page, household.members['Sample Parent']);
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
   await add.getByLabel('Item', { exact: true }).fill(name);
@@ -1579,8 +1586,9 @@ test('a failed edit inside Bought stays visible and recoverable', async ({ page 
 });
 
 test('a background completion change does not move an open edit form', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic pinned edit ${Date.now()}`;
-  await signInAsGroceryParent(page);
+  await signIn(page, household.members['Sample Parent']);
   await page.clock.install();
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
@@ -1617,8 +1625,9 @@ test('a background completion change does not move an open edit form', async ({ 
 });
 
 test('a remote clear keeps an open edit until saving hits the stale-version conflict', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic clear edit conflict ${Date.now()}`;
-  await signInAsGroceryParent(page, 'd');
+  await signIn(page, household.members['Sample Parent']);
   await page.clock.install();
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
@@ -1655,10 +1664,11 @@ test('a remote clear keeps an open edit until saving hits the stale-version conf
 });
 
 test('clearing bought items requires native confirmation and works without JavaScript', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const stamp = Date.now();
   const apples = `Synthetic native clear apples ${stamp}`;
   const bread = `Synthetic native clear bread ${stamp}`;
-  await signInAsGroceryParent(page, 'e');
+  await signIn(page, household.members['Sample Parent']);
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
   for (const name of [apples, bread]) {
@@ -1687,10 +1697,11 @@ test('clearing bought items requires native confirmation and works without JavaS
 });
 
 test('a Bought section opened before hydration stays usable', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const stamp = Date.now();
   const apples = `Synthetic hydrated clear apples ${stamp}`;
   const bread = `Synthetic hydrated clear bread ${stamp}`;
-  await signInAsGroceryParent(page, 'f');
+  await signIn(page, household.members['Sample Parent']);
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
   for (const name of [apples, bread]) {
@@ -1725,8 +1736,9 @@ test('a Bought section opened before hydration stays usable', async ({ page, bro
 });
 
 test('an edit made before hydration pauses live refresh and preserves the original version for conflict detection', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic prehydration edit ${Date.now()}`;
-  await signInAsGroceryParent(page, 'a');
+  await signIn(page, household.members['Sample Parent']);
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
   await add.getByLabel('Item', { exact: true }).fill(name);
@@ -1771,8 +1783,9 @@ test('an edit made before hydration pauses live refresh and preserves the origin
 });
 
 test('starting an edit during an in-flight refresh keeps the original version and rejects stale saves', async ({ page, browser }) => {
+  const household = await groceryHousehold();
   const name = `Synthetic inflight edit ${Date.now()}`;
-  await signInAsGroceryParent(page, 'a');
+  await signIn(page, household.members['Sample Parent']);
   await page.goto('/groceries');
   const add = page.getByRole('form', { name: 'Add grocery item' });
   await add.getByLabel('Item', { exact: true }).fill(name);
@@ -1830,10 +1843,11 @@ test('starting an edit during an in-flight refresh keeps the original version an
 
 for (const javaScriptEnabled of [true, false]) {
   test(`changing the item name after a duplicate warning submits without checking duplicate confirmation (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
+    const household = await groceryHousehold();
     const stamp = `${javaScriptEnabled ? 'js' : 'nojs'}-${Date.now()}`;
     const existing = `Synthetic dup apples ${stamp}`;
     const different = `Synthetic dup bananas ${stamp}`;
-    await signInAsGroceryParent(page, 'a');
+    await signIn(page, household.members['Sample Parent']);
     await page.goto('/groceries');
     const setupAdd = page.getByRole('form', { name: 'Add grocery item' });
     await setupAdd.getByLabel('Item', { exact: true }).fill(existing);
