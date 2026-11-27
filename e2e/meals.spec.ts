@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { e2eServerMode, pageModule } from './support/modules';
 
 test('parent dashboard shows today’s meals and child dashboard does not expose them', async ({ page, browser }, testInfo) => {
   const linked = `Family supper linked ${testInfo.repeatEachIndex}`;
@@ -199,7 +200,7 @@ test('meal form edits and disclosure survive delayed hydration', async ({ page, 
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/meals/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('meals'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/meals?date=2099-03-01', { waitUntil: 'commit' });
     await blocked;
     await delayed.getByText('Add a meal', { exact: true }).click();
@@ -359,7 +360,7 @@ test('recipe link paste form preserves edits through delayed hydration', async (
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/meals/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('meals'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/meals?date=2099-07-01', { waitUntil: 'commit' });
     await blocked;
     await delayed.getByText('Add meal from recipe link', { exact: true }).click();
@@ -384,7 +385,7 @@ test('shared recipe draft form preserves edits through delayed hydration', async
   const gate = new Promise<void>(resolve => { release = resolve; });
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
-    await page.route('**/src/routes/meals/share/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await page.route(pageModule('meals/share'), async route => { requested(); await gate; await route.continue(); });
     await page.evaluate(({ url, title }) => {
       const form = document.createElement('form');
       form.method = 'POST';
@@ -419,7 +420,14 @@ test('shared recipe draft form preserves edits through delayed hydration', async
 test('share target requires a parent and never writes a meal before confirmation', async ({ page, browser, request }) => {
   const recipeUrl = 'https://emeals.com/recipes/synthetic-shared-target';
   const title = `Synthetic shared target ${Date.now()}`;
-  const anonymous = await request.post('/meals/share', { form: { url: recipeUrl }, maxRedirects: 0 });
+  // A share from the installed app is a same-origin POST, so send the app's origin.
+  const appOrigin = 'http://127.0.0.1:4173';
+  if (e2eServerMode === 'build') {
+    // A production build rejects cross-site and origin-less form POSTs before the action runs.
+    const originless = await request.post('/meals/share', { form: { url: recipeUrl }, maxRedirects: 0 });
+    expect(originless.status()).toBe(403);
+  }
+  const anonymous = await request.post('/meals/share', { form: { url: recipeUrl }, headers: { origin: appOrigin }, maxRedirects: 0 });
   const anonymousBody = await anonymous.text();
   expect(anonymousBody).not.toContain('Save recipe meal');
   if (anonymous.status() === 303) expect(anonymous.headers()['location']).toMatch(/\/sign-in$/);
@@ -439,8 +447,10 @@ test('share target requires a parent and never writes a meal before confirmation
   expect(acceptedAction.data).toContain(recipeUrl);
   expect(await (await page.request.get('/meals')).text()).not.toContain(title);
 
+  // An origin-less POST only renders the review page under vite dev; a production build rejects it
+  // before the action runs. Either way nothing is written (asserted below).
   const foreign = await page.request.post('/meals/share', { form: { url: recipeUrl, title } });
-  expect(foreign.status()).toBe(200);
+  expect(foreign.status()).toBe(e2eServerMode === 'build' ? 403 : 200);
   const foreignOrigin = await page.request.post('/meals/share', { form: { url: recipeUrl, title }, headers: { origin: 'https://other.example.test' } });
   expect(foreignOrigin.status()).toBe(403);
 

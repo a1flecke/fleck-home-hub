@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password', heading = 'Hello, Sample Parent') {
   await page.goto('/sign-in');
@@ -183,7 +184,7 @@ test('shop the week works without JavaScript and rejects children and cross-orig
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await delayedContext.newPage();
-    await delayed.route('**/src/routes/meals/shop/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('meals/shop'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/meals/shop?week=2100-02-21', { waitUntil: 'commit' });
     await blocked;
     const checkbox = delayed.getByLabel('3 hydration pears');
@@ -210,7 +211,7 @@ test('week review edits survive delayed hydration and are submitted', async ({ p
   let requests = 0;
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/meals/shop/+page.svelte*', async route => {
+    await delayed.route(pageModule('meals/shop'), async route => {
       requests += 1;
       if (requests === 1) firstRequest();
       if (requests === 2) secondRequest();

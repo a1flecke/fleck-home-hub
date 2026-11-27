@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { freshHousehold, signInAs } from './support/households';
 import { settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 async function signInParent(page: Page) {
   await page.goto('/sign-in');
@@ -127,7 +128,7 @@ test('recovery keeps edits through delayed hydration and a rejected submission',
   });
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
-  const module = '**/src/routes/chores/recovery/+page.svelte*';
+  const module = pageModule('chores/recovery');
   await page.route(module, async route => { await gate; await route.continue(); });
   try {
     const requested = page.waitForRequest(module, { timeout: 5000 });

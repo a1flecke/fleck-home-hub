@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 function articleByTitle(page: Page, title: string) {
   return page.getByRole('article').filter({ has: page.getByRole('heading', { name: title, exact: true }) });
@@ -149,7 +150,7 @@ test('pre-hydration event edits survive hydration and are saved', async ({ page,
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/calendar/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await delayed.route(pageModule('calendar'), async route => { blocked(); await gate; await route.continue(); });
     await delayed.goto('/calendar?date=2099-07-01&view=day', { waitUntil: 'commit' });
     await requested;
     const article = articleByTitle(delayed, title);
@@ -203,7 +204,7 @@ test('calendar view and inbox owner selections survive delayed hydration', async
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/calendar/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await delayed.route(pageModule('calendar'), async route => { blocked(); await gate; await route.continue(); });
     await delayed.goto('/calendar?date=2099-08-01&view=day', { waitUntil: 'commit' }); await requested;
     const view = delayed.locator('form[method="GET"] select[name="view"]');
     await view.selectOption('month');

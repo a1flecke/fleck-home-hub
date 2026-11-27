@@ -11,4 +11,6 @@ console.log(`e2e-repeat: ${specs.length} isolated specs, two repetitions each`);
 const run = (args) => spawnSync('pnpm', ['exec', ...args], { stdio: 'inherit' }).status ?? 1;
 const sync = run(['svelte-kit', 'sync']);
 if (sync !== 0) process.exit(sync);
+const prepared = spawnSync('node', ['scripts/e2e-prepare.mjs'], { stdio: 'inherit' }).status ?? 1;
+if (prepared !== 0) process.exit(prepared);
 process.exit(run(['playwright', 'test', ...specs, '--repeat-each=2', ...process.argv.slice(2)]));

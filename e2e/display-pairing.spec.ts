@@ -306,7 +306,10 @@ test('display management rejects children, cross-origin requests and invalid nam
     const anonymous = await (await browser.newContext()).request.get('/settings/displays', { maxRedirects: 0 });
     expect(anonymous.status()).toBe(303);
     const crossOrigin = await parent.page.request.post('/settings/displays?/create', { form: { label: 'Cross origin screen' }, headers: { origin: 'https://attacker.example.test' } });
-    expect(await crossOrigin.text()).toContain('403');
+    // Rejected with 403 by SvelteKit's CSRF check in a production build, or by the action itself
+    // under vite dev; either way no display is created (asserted below).
+    expect(crossOrigin.status()).toBe(403);
+    expect(await crossOrigin.text()).not.toContain('"type":"success"');
     await parent.page.goto('/settings/displays');
     await parent.page.getByLabel('Display name').fill('   ');
     await parent.page.getByRole('button', { name: 'Create pairing code' }).click();

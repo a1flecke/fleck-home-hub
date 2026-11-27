@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
 import { settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 const origin = 'http://127.0.0.1:4173';
 const first = '2099-05-04';
@@ -160,7 +161,7 @@ for (const javaScriptEnabled of [true, false]) {
   });
 }
 
-async function early(page: Page, url: string, glob: string, edit: () => Promise<void>) {
+async function early(page: Page, url: string, glob: string | RegExp, edit: () => Promise<void>) {
   let release!: () => void, requested!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const arrived = new Promise<void>(resolve => { requested = resolve; });
@@ -185,8 +186,8 @@ async function early(page: Page, url: string, glob: string, edit: () => Promise<
 test('early checklist, event, and date choices survive hydration and submit in their original calendar context', async ({ page }) => {
   const tag = randomUUID().slice(0, 6);
   const trip = `Early trip ${tag}`, packing = `Early packing ${tag}`, change = `Another trip ${tag}`;
-  const prepModule = '**/src/routes/lists/preparation/**/+page.svelte*';
-  const linkModule = '**/src/routes/lists/*/event/+page.svelte*';
+  const prepModule = pageModule('lists/preparation/**');
+  const linkModule = pageModule('lists/*/event');
   await signIn(page);
   await createEvent(page, trip, first);
   await createEvent(page, change, next);

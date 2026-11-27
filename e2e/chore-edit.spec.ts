@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated } from './support/navigation';
+import { pageModule } from './support/modules';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -194,7 +195,7 @@ test('edit form edits, disclosure and active selection survive delayed hydration
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/chores/week/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('chores/week'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/chores/week?date=2099-04-06', { waitUntil: 'commit' });
     await blocked;
     const article = delayed.getByRole('article', { name: 'Week hydration chore for Week Kid' });

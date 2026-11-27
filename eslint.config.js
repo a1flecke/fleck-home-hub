@@ -4,7 +4,7 @@ import svelte from 'eslint-plugin-svelte';
 import globals from 'globals';
 
 export default ts.config(
-  { ignores: ['node_modules/**', '.svelte-kit/**', 'build/**', 'test-results/**', 'playwright-report/**', '.synthetic-sign-in-limit-*/**', '.claude/worktrees/**'] },
+  { ignores: ['node_modules/**', '.svelte-kit/**', 'build/**', '.e2e-build/**', 'test-results/**', 'playwright-report/**', '.synthetic-sign-in-limit-*/**', '.claude/worktrees/**'] },
   js.configs.recommended,
   ...ts.configs.recommended,
   ...svelte.configs['flat/recommended'],

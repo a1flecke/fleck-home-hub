@@ -1,6 +1,7 @@
 import { expect, test, type Page, type Route } from '@playwright/test';
 import { freshHousehold, signInAs, type SeededHousehold, type SeededMember } from './support/households';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 // e2e-isolation: fresh-households
 // Every test builds its own reuse household, so exact balances and reused titles hold on repeat.
@@ -231,7 +232,7 @@ test('a search edit and selection survive delayed hydration', async ({ page }) =
   let requested!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const blocked = new Promise<void>(resolve => { requested = resolve; });
-  const moduleUrl = '**/src/routes/chores/week/again/+page.svelte*';
+  const moduleUrl = pageModule('chores/week/again');
   const delay = async (route: Route) => { requested(); await gate; await route.continue(); };
   await page.route(moduleUrl, delay);
   try {
@@ -268,7 +269,7 @@ test('reuse edits and child selections survive delayed hydration', async ({ page
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/chores/week/again/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('chores/week/again'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto(`/chores/week/again?date=2099-12-13&source=${encodeURIComponent(household.chores.hydration)}`, { waitUntil: 'commit' });
     await blocked;
     const form = delayed.getByRole('form', { name: 'Assign Hydration reuse chore again' });
