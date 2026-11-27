@@ -1,5 +1,6 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
+  import { onMount } from 'svelte';
   import ChildAssigneeChoice from './ChildAssigneeChoice.svelte';
   import ReuseDescriptionField from './ReuseDescriptionField.svelte';
   import type { PageData } from './$types';
@@ -9,6 +10,8 @@
   type ReusePreview = { sourceId: string; sourceUpdatedAt: string; rows: ReuseRow[] };
   type FormResult = { message?: string; reuseError?: ReuseFields; reuseDraft?: ReuseFields; reusePreview?: ReusePreview };
   let { data, form }: { data: PageData; form: FormResult | null } = $props();
+  let hydrated = $state(false);
+  onMount(() => { hydrated = true; });
   let reuseError = $derived(form?.reuseError);
   let reuseDraft = $derived(form?.reuseDraft);
   let reusePreview = $derived(form?.reusePreview);
@@ -45,7 +48,7 @@
   }
 </script>
 <svelte:head><title>Assign a chore again · Fleck Home Hub</title></svelte:head>
-<main class="mx-auto max-w-4xl px-5 py-8">
+<main data-hydrated={hydrated} class="mx-auto max-w-4xl px-5 py-8">
   <a href={resolve(`/chores/week?week=${data.focusDate}`)} class="text-teal-700">Back to the chore week</a>
   <h1 class="mt-6 text-3xl font-bold">Assign a chore again</h1>
   <p class="mt-2">Reuse a real household chore, then create separate to-do assignments for one or several children.</p>
@@ -54,7 +57,11 @@
   {#if !data.source}
     <form method="GET" action={resolve('/chores/week/again')} class="mt-6 flex flex-wrap items-end gap-3" aria-label="Find a recent chore">
       <input type="hidden" name="date" value={data.focusDate} />
-      <label>Search recent chores<input name="q" maxlength="80" defaultValue={data.query} class="mt-1 block w-full rounded-lg border p-3" /></label>
+      <label>Search recent chores
+        {#key data.query}
+          <input name="q" maxlength="80" defaultValue={data.query} class="mt-1 block w-full rounded-lg border p-3" />
+        {/key}
+      </label>
       <button class="rounded-xl border border-teal-700 px-4 py-3">Search</button>
     </form>
     <p class="mt-4 text-sm">Showing {data.items.length} of {data.total} recent chores.</p>

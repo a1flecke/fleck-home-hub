@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type Route } from '@playwright/test';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -30,17 +30,24 @@ test('a parent reuses a chore for several children, each works independently, an
   await expect(page.getByRole('article', { name: 'Earnings for Reuse Kid Two' }).getByText(/^Verified earnings owed:/)).toHaveText('Verified earnings owed: $0.00');
   await expect(page.getByRole('article', { name: 'Earnings for Reuse Kid Three' }).getByText(/^Verified earnings owed:/)).toHaveText('Verified earnings owed: $0.00');
 
-  await page.goto(`/chores/week/again?date=${today}`);
-  await page.getByLabel('Search recent chores').fill('no such household chore');
-  await page.getByRole('button', { name: 'Search' }).click();
-  await expect(page.getByRole('heading', { name: 'No chores match this search' })).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Clear search' })).toBeVisible();
-  await page.getByRole('link', { name: 'Clear search' }).click();
+  const searchPage = `/chores/week/again?date=${today}`;
+  await page.goto(searchPage);
+  const search = page.getByRole('form', { name: 'Find a recent chore', exact: true });
+  const query = search.getByRole('textbox', { name: 'Search recent chores', exact: true });
+  const submit = search.getByRole('button', { name: 'Search', exact: true });
+  await query.fill('no such household chore');
+  await submit.click();
+  await expect(page.getByRole('heading', { name: 'No chores match this search', exact: true })).toBeVisible();
+  await page.getByRole('link', { name: 'Clear search', exact: true }).click();
+  await expect(page).toHaveURL(origin + searchPage);
+  await expect(query).toHaveValue('');
 
-  await page.getByLabel('Search recent chores').fill('Clean bedroom');
-  await page.getByRole('button', { name: 'Search' }).click();
-  const result = page.getByRole('article').filter({ hasText: 'Clean bedroom' });
-  await result.getByRole('link', { name: 'Use this chore' }).click();
+  const sourceTitle = 'Clean bedroom';
+  await query.fill(sourceTitle);
+  await submit.click();
+  await expect(page).toHaveURL(url => url.searchParams.get('q') === sourceTitle && url.searchParams.get('date') === today);
+  const result = page.getByRole('article').filter({ has: page.getByRole('heading', { name: sourceTitle, exact: true }) });
+  await result.getByRole('link', { name: 'Use this chore', exact: true }).click();
   const form = page.getByRole('form', { name: 'Assign Clean bedroom again' });
   await expect(form.getByLabel('Chore title', { exact: true })).toHaveValue('Clean bedroom');
   await expect(form.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Vacuum and dust');
@@ -165,7 +172,13 @@ test('reuse works without JavaScript', async ({ page, browser }) => {
   const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
   try {
     const native = await context.newPage();
-    await native.goto('/chores/week/again?date=2099-12-06&source=reuse-source-native');
+    await native.goto('/chores/week/again?date=2099-12-06');
+    const search = native.getByRole('form', { name: 'Find a recent chore', exact: true });
+    await search.getByRole('textbox', { name: 'Search recent chores', exact: true }).fill('Native reuse chore');
+    await search.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(native).toHaveURL(url => url.searchParams.get('q') === 'Native reuse chore' && url.searchParams.get('date') === '2099-12-06');
+    const result = native.getByRole('article').filter({ has: native.getByRole('heading', { name: 'Native reuse chore', exact: true }) });
+    await result.getByRole('link', { name: 'Use this chore', exact: true }).click();
     const form = native.getByRole('form', { name: 'Assign Native reuse chore again' });
     await form.getByRole('checkbox', { name: 'Reuse Kid Two' }).uncheck();
     await form.getByRole('checkbox', { name: 'Reuse Kid Three' }).uncheck();
@@ -177,6 +190,38 @@ test('reuse works without JavaScript', async ({ page, browser }) => {
     await expect(native.getByRole('status').filter({ hasText: '1 chore was assigned' })).toBeVisible();
     await expect(native.getByRole('region', { name: 'Chores for 2099-12-06', exact: true }).getByRole('article', { name: 'Native reuse chore for Reuse Kid One' })).toBeVisible();
   } finally { await context.close(); }
+});
+
+test('a search edit and selection survive delayed hydration', async ({ page }) => {
+  await signIn(page);
+  let release!: () => void;
+  let requested!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const blocked = new Promise<void>(resolve => { requested = resolve; });
+  const moduleUrl = '**/src/routes/chores/week/again/+page.svelte*';
+  const delay = async (route: Route) => { requested(); await gate; await route.continue(); };
+  await page.route(moduleUrl, delay);
+  try {
+    await page.goto('/chores/week/again?date=2099-12-13&q=Clean+bedroom', { waitUntil: 'commit' });
+    await blocked;
+    const main = page.getByRole('main');
+    const search = main.getByRole('form', { name: 'Find a recent chore', exact: true });
+    const query = search.getByRole('textbox', { name: 'Search recent chores', exact: true });
+    await expect(main).toHaveAttribute('data-hydrated', 'false');
+    await query.fill('Water the plants');
+    await query.selectText();
+    release();
+    await expect(main).toHaveAttribute('data-hydrated', 'true');
+    await expect(query).toBeFocused();
+    await page.keyboard.insertText('Water plants');
+    await expect(query).toHaveValue('Water plants');
+    await search.getByRole('button', { name: 'Search', exact: true }).click();
+    await expect(page).toHaveURL(url => url.searchParams.get('q') === 'Water plants' && url.searchParams.get('date') === '2099-12-13');
+    await expect(main.getByRole('heading', { name: 'Water plants', exact: true })).toBeVisible();
+  } finally {
+    release();
+    await page.unroute(moduleUrl, delay);
+  }
 });
 
 test('reuse edits and child selections survive delayed hydration', async ({ page, browser }) => {
