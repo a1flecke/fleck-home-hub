@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { pageModule } from './support/modules';
 import { hydrated, settle } from './support/navigation';
 
 test('sign-in cannot submit before hydration', async ({ browser }) => {
@@ -14,8 +15,8 @@ test('sign-in preserves credentials typed before hydration and signs in', async 
   let release!: () => void, requested!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const blocked = new Promise<void>(resolve => { requested = resolve; });
-  const pageModule = '**/src/routes/sign-in/+page.svelte*';
-  await page.route(pageModule, async route => { requested(); await gate; await route.continue(); });
+  const signInModule = pageModule('sign-in');
+  await page.route(signInModule, async route => { requested(); await gate; await route.continue(); });
   try {
     await page.goto('/sign-in', { waitUntil: 'commit' });
     await blocked;
@@ -32,7 +33,7 @@ test('sign-in preserves credentials typed before hydration and signs in', async 
     await expect(page.getByText('Parent dashboard')).toBeVisible({ timeout: 5000 });
   } finally {
     release();
-    await page.unroute(pageModule);
+    await page.unroute(signInModule);
   }
 });
 

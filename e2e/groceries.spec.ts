@@ -1741,7 +1741,7 @@ test('an edit made before hydration pauses live refresh and preserves the origin
   try {
     const delayed = await delayedContext.newPage();
     await delayed.clock.install();
-    await delayed.route('**/src/routes/groceries/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('groceries'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/groceries', { waitUntil: 'commit' });
     await blocked;
     const item = delayed.getByRole('article').filter({ hasText: name });
