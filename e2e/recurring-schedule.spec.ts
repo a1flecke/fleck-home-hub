@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -168,7 +169,7 @@ test('schedule edits and repeat-day selections survive delayed hydration', async
     await title.focus();
     await title.evaluate((input: HTMLInputElement) => input.select());
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await delayed.keyboard.insertText('After schedule hydration');
     await expect(article(delayed, 'sched-hydration').locator('details').first()).toHaveAttribute('open', '');
     await expect(edit.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Hydrated schedule description');

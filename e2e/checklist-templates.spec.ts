@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -67,8 +68,10 @@ for (const javaScriptEnabled of [true, false]) {
 
       await page.goto('/lists');
       await page.getByRole('link', { name: 'Choose a template', exact: true }).click();
+      await settle(page);
       const choice = page.getByRole('article', { name: template, exact: true });
       await choice.getByRole('link', { name: 'Use this template', exact: true }).click();
+      await settle(choice);
       const preview = page.getByRole('region', { name: 'Preview', exact: true });
       await expect(preview.getByRole('listitem')).toHaveText(contents.split('\n'));
       const copy = page.getByRole('form', { name: 'Create a fresh list', exact: true });
@@ -97,15 +100,18 @@ for (const javaScriptEnabled of [true, false]) {
 
       await page.goto('/lists/templates');
       await choice.getByRole('link', { name: 'Use this template', exact: true }).click();
+      await settle(choice);
       await expect(preview.getByRole('listitem')).toHaveText(contents.split('\n'));
       await page.goto(listUrl);
       await expect(page.getByText('1 of 5 items ready', { exact: true })).toBeVisible();
       await page.getByRole('link', { name: 'Use this list again', exact: true }).click();
+      await settle(page);
       await expect(preview.getByRole('listitem')).toHaveText(['Coats', 'Toothbrushes', 'Chargers', 'Cards', 'Water bottles']);
       await expect(copy.getByLabel('Share with family')).not.toBeChecked();
 
       await page.goto('/lists/templates');
       await choice.getByRole('link', { name: 'Edit template', exact: true }).click();
+      await settle(choice);
       await page.getByText('Remove template', { exact: true }).click();
       await page.getByRole('button', { name: 'Remove this template', exact: true }).click();
       await expect(page.getByRole('heading', { name: 'List templates', exact: true })).toBeVisible();
@@ -134,8 +140,10 @@ test('private templates and preview data stay within active parent households', 
   const choice = page.getByRole('article', { name: title, exact: true });
   await expect(choice).toContainText(description);
   await choice.getByRole('link', { name: 'Edit template', exact: true }).click();
+  await settle(choice);
   const submitted = await fields(edit);
   await page.getByRole('link', { name: 'Use this template', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('region', { name: 'Preview', exact: true })).toContainText(item);
   const copyUrl = new URL(page.url());
   const submittedCopy = await fields(page.getByRole('form', { name: 'Create a fresh list', exact: true }));
@@ -190,6 +198,7 @@ test('stale previews survive rejection and an identical HTTP retry creates only 
   await createSource(page, title);
   const editUrl = await saveTemplate(page, title);
   await page.getByRole('link', { name: 'Use this template', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('region', { name: 'Preview', exact: true })).toContainText(title);
   const previewUrl = page.url();
   const copy = page.getByRole('form', { name: 'Create a fresh list', exact: true });
@@ -213,6 +222,7 @@ test('stale previews survive rejection and an identical HTTP retry creates only 
       expect(await fields(copy)).toEqual(initial);
     }
     await page.getByRole('link', { name: 'Reload preview', exact: true }).click();
+    await settle(page);
     await expect(page.getByRole('region', { name: 'Preview', exact: true }).getByRole('listitem')).toHaveText(['Jackets', 'Chargers']);
     await copy.getByLabel('List name').fill(initial.name);
     const payload = await fields(copy);

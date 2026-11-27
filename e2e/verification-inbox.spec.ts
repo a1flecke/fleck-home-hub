@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -25,16 +26,21 @@ test('parent reviews grouped submissions, validates rework, and verifies once', 
   await page.screenshot({ path: testInfo.outputPath('verify-inbox-mobile.png'), fullPage: true });
 
   await page.getByRole('link', { name: 'Next page' }).first().click();
+  await settle(page);
   await expect(page.getByText('Page 2 of 2').first()).toBeVisible();
   await expect(page.getByRole('article')).toHaveCount(5);
   await expect(page.getByRole('article').filter({ hasText: 'Verification sibling 01' })).toBeVisible();
   await page.getByRole('link', { name: 'Previous page' }).first().click();
+  await settle(page);
   await page.getByRole('link', { name: 'Verification Kid (15)' }).click();
+  await settle(page);
   await expect(page).toHaveURL(/child=/);
   await expect(page.getByRole('article')).toHaveCount(15);
   await page.getByRole('link', { name: 'Verification Empty (0)' }).click();
+  await settle(page);
   await expect(page.getByText('No completed chores are waiting for review.')).toBeVisible();
   await page.getByRole('link', { name: 'All children (25)' }).click();
+  await settle(page);
   await expect(page.getByRole('article')).toHaveCount(20);
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.screenshot({ path: testInfo.outputPath('verify-inbox-desktop.png'), fullPage: true });
@@ -137,7 +143,7 @@ test('rework reason survives delayed hydration and appears in submitted data', a
     const reason = article.getByLabel(/Reason for returning work/);
     await reason.fill('Dirty reason typed before hydration');
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(reason).toHaveValue('Dirty reason typed before hydration');
     expect(await article.locator('form[action^="?/review"]').evaluate(element => Object.fromEntries(new FormData(element as HTMLFormElement)))).toMatchObject({ id: 'verify-sibling-09', reason: 'Dirty reason typed before hydration' });
   } finally { release(); await context.close(); }

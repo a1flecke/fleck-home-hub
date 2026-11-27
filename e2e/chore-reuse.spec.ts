@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -14,9 +15,11 @@ async function chooseSource(page: Page, title: string) {
   await page.goto('/chores/week/again?date=2099-10-04');
   await page.getByLabel('Search recent chores').fill(title);
   await page.getByRole('button', { name: 'Search' }).click();
+  await settle(page);
   const result = page.getByRole('article').filter({ hasText: title });
   await expect(result).toBeVisible();
   await result.getByRole('link', { name: 'Use this chore' }).click();
+  await settle(result);
   await expect(page.getByRole('region', { name: 'Selected chore' })).toContainText(title);
 }
 
@@ -33,14 +36,18 @@ test('a parent reuses a chore for several children, each works independently, an
   await page.goto(`/chores/week/again?date=${today}`);
   await page.getByLabel('Search recent chores').fill('no such household chore');
   await page.getByRole('button', { name: 'Search' }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'No chores match this search' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Clear search' })).toBeVisible();
   await page.getByRole('link', { name: 'Clear search' }).click();
+  await settle(page);
 
   await page.getByLabel('Search recent chores').fill('Clean bedroom');
   await page.getByRole('button', { name: 'Search' }).click();
+  await settle(page);
   const result = page.getByRole('article').filter({ hasText: 'Clean bedroom' });
   await result.getByRole('link', { name: 'Use this chore' }).click();
+  await settle(result);
   const form = page.getByRole('form', { name: 'Assign Clean bedroom again' });
   await expect(form.getByLabel('Chore title', { exact: true })).toHaveValue('Clean bedroom');
   await expect(form.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Vacuum and dust');
@@ -201,7 +208,7 @@ test('reuse edits and child selections survive delayed hydration', async ({ page
     await title.focus();
     await title.evaluate((input: HTMLInputElement) => input.select());
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await delayed.keyboard.insertText('After reuse hydration');
     await expect(form.getByRole('textbox', { name: 'Description (optional)', exact: true })).toHaveValue('Hydrated reuse description');
     await expect(form.getByLabel('Date', { exact: true })).toHaveValue('2099-12-14');

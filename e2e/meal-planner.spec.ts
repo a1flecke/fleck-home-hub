@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { settle } from './support/navigation';
 
 async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password') {
   await page.goto('/sign-in');
@@ -26,6 +27,7 @@ test('a parent plans, adds, moves and removes meals across a seven-day week', as
   await expect(day(page, weekDate).getByText('No meals planned for this day yet.')).toBeVisible();
 
   await page.getByRole('link', { name: `Plan a meal for ${weekDate}`, exact: true }).click();
+  await settle(page);
   const add = page.getByRole('form', { name: 'Add meal', exact: true });
   await expect(add.getByLabel('Date', { exact: true })).toHaveValue(weekDate);
   await add.getByLabel('Meal name').fill(first);
@@ -36,6 +38,7 @@ test('a parent plans, adds, moves and removes meals across a seven-day week', as
   await expect(day(page, weekDate).getByRole('article').filter({ hasText: first })).toBeVisible();
 
   await day(page, weekDate).getByRole('link', { name: `Add another meal for ${weekDate}`, exact: true }).click();
+  await settle(page);
   const addAnother = page.getByRole('form', { name: 'Add meal', exact: true });
   await expect(addAnother.getByLabel('Date', { exact: true })).toHaveValue(weekDate);
   await addAnother.getByLabel('Meal name').fill(second);
@@ -68,8 +71,10 @@ test('a parent plans, adds, moves and removes meals across a seven-day week', as
   await expect(day(page, weekDate).getByText('No meals planned for this day yet.')).toBeVisible();
 
   await page.getByRole('link', { name: 'Next week', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Meals for 2099-10-11' })).toBeVisible();
   await page.getByRole('link', { name: 'Previous week', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: `Meals for ${weekDate}` })).toBeVisible();
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.screenshot({ path: testInfo.outputPath('meal-week-desktop.png'), fullPage: true });
@@ -128,6 +133,7 @@ test('a child sees only shared meals in the weekly view and anonymous requests a
   await expect(day(page, weekDate).getByRole('article').filter({ hasText: privateMeal })).toBeVisible();
 
   await page.getByRole('link', { name: `Add another meal for ${weekDate}`, exact: true }).click();
+  await settle(page);
   const sharedForm = page.getByRole('form', { name: 'Add meal', exact: true });
   await sharedForm.getByLabel('Meal name').fill(shared);
   await sharedForm.getByLabel('Ingredients').fill('1 shared planner apple');

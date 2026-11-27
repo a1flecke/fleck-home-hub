@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 test('parent dashboard shows today’s meals and child dashboard does not expose them', async ({ page, browser }, testInfo) => {
   const linked = `Family supper linked ${testInfo.repeatEachIndex}`;
@@ -110,6 +111,7 @@ test('a parent plans a meal and explicitly shares its ingredients on the display
     body: '<h1>Synthetic recipe destination</h1>'
   }));
   await dinner.getByRole('article').filter({ hasText: title }).getByRole('link', { name: 'View recipe' }).click();
+  await settle(dinner);
   await expect(page).toHaveURL('https://example.test/synthetic-recipe');
   await expect(page.getByRole('heading', { name: 'Synthetic recipe destination' })).toBeVisible();
   await page.goBack();
@@ -210,7 +212,7 @@ test('meal form edits and disclosure survive delayed hydration', async ({ page, 
     const name = form.getByLabel('Meal name');
     await name.focus();
     await name.evaluate((input: HTMLInputElement) => input.select());
-    release(); await delayed.waitForLoadState('networkidle');
+    release(); await hydrated(delayed);
     await delayed.keyboard.insertText('Synthetic early dinner');
     await expect(form).toBeVisible();
     expect(await form.evaluate(element => Object.fromEntries(new FormData(element as HTMLFormElement)))).toMatchObject({ title: 'Synthetic early dinner', date: '2099-03-01', time: '18:30', servings: '4', ingredients: '2 apples', shared: 'on' });
@@ -364,7 +366,7 @@ test('recipe link paste form preserves edits through delayed hydration', async (
     const linkForm = delayed.getByRole('form', { name: 'Add meal from recipe link' });
     await linkForm.getByLabel('Recipe link').fill(recipeUrl);
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(linkForm.getByLabel('Recipe link')).toHaveValue(recipeUrl);
   } finally { release(); await context.close(); }
 });
@@ -408,7 +410,7 @@ test('shared recipe draft form preserves edits through delayed hydration', async
     await name.focus();
     await name.evaluate((input: HTMLInputElement) => input.select());
     release();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
     await page.keyboard.insertText('Synthetic shared draft edited');
     expect(await draft.evaluate(element => Object.fromEntries(new FormData(element as HTMLFormElement)))).toMatchObject({ title: 'Synthetic shared draft edited', time: '19:00', servings: '3', ingredients: '1 synthetic squash', shared: 'on', recipeUrl });
   } finally { release(); }

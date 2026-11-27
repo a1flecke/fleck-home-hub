@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password') {
   await page.goto('/sign-in');
@@ -220,7 +221,7 @@ test('review edits survive delayed hydration', async ({ page, browser }) => {
     await line.getByLabel('Quantity').fill('5');
     await line.getByLabel('Unit').fill('cans');
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     expect(await review.evaluate(element => Object.fromEntries(new FormData(element.querySelector('form') as HTMLFormElement)))).toMatchObject({ 'name-0': beans, 'quantity-0': '5', 'unit-0': 'cans' });
     await review.getByRole('button', { name: 'Add reviewed items' }).click();
     await expect(delayed.getByRole('article').filter({ hasText: beans })).toContainText('5 cans');
@@ -399,7 +400,7 @@ test('meal ingredient selections survive delayed hydration and submit the select
     await meal.getByText('Add ingredients to groceries', { exact: true }).click();
     const ingredients = meal.getByRole('form', { name: 'Add ingredients for Synthetic early ingredient meal' });
     await ingredients.getByLabel('2 cups synthetic early rice').check();
-    release(); await delayed.waitForLoadState('networkidle');
+    release(); await hydrated(delayed);
     await expect(delayed.getByLabel('Jump to a date')).toHaveValue('2099-07-02');
     expect(await delayed.getByLabel('Jump to a date').evaluate(element => new FormData((element as HTMLInputElement).form!).get('date'))).toBe('2099-07-02');
     await expect(ingredients).toBeVisible();
@@ -434,7 +435,7 @@ test('grocery edits survive delayed hydration and are submitted', async ({ page,
     await add.getByLabel('Item', { exact: true }).fill('Synthetic early pears');
     await add.getByLabel('Quantity', { exact: true }).fill('3');
     await add.getByLabel('Unit', { exact: true }).fill('bags');
-    release(); await delayed.waitForLoadState('networkidle');
+    release(); await hydrated(delayed);
     expect(await add.evaluate(element => Object.fromEntries(new FormData(element as HTMLFormElement)))).toMatchObject({ name: 'Synthetic early pears', quantity: '3', unit: 'bags' });
     await add.getByRole('button', { name: 'Add item' }).click();
     await expect(delayed.getByRole('article').filter({ hasText: 'Synthetic early pears' })).toContainText('3 bags');
@@ -468,7 +469,7 @@ test('a prefilled grocery edit and open disclosure survive delayed hydration', a
     const quantity = edit.getByLabel('Quantity', { exact: true });
     await quantity.focus();
     await quantity.evaluate((input: HTMLInputElement) => input.select());
-    release(); await delayed.waitForLoadState('networkidle');
+    release(); await hydrated(delayed);
     await delayed.keyboard.insertText('3');
     await expect(edit).toBeVisible();
     expect(await edit.evaluate(element => Object.fromEntries(new FormData(element as HTMLFormElement)))).toMatchObject({ name: 'Synthetic prefilled rice', quantity: '3', unit: 'bags' });
@@ -631,6 +632,7 @@ test('a visible grocery list receives additions, completions and removals from a
     await expect(item).toHaveCount(0);
     await page.evaluate(() => { (window as unknown as { __manualRefreshMarker?: boolean }).__manualRefreshMarker = true; });
     await page.getByRole('link', { name: 'Refresh list' }).click();
+    await settle(page);
     await expect(item).toContainText('2 loaves');
     expect(await page.evaluate(() => (window as unknown as { __manualRefreshMarker?: boolean }).__manualRefreshMarker)).toBe(true);
 
@@ -675,6 +677,7 @@ test('automatic updates pause for add and edit drafts and resume when editing en
     await add.getByLabel('Item', { exact: true }).fill('Synthetic draft plums');
     await add.getByLabel('Quantity', { exact: true }).fill('4');
     await page.getByRole('link', { name: 'Refresh list' }).click();
+    await settle(page);
     await expect(page.getByRole('status').filter({ hasText: 'Finish or clear your changes before refreshing.' })).toBeVisible();
     await page.clock.runFor(25_000);
     await expect(page.getByRole('article').filter({ hasText: oranges })).toHaveCount(0);
@@ -698,6 +701,7 @@ test('automatic updates pause for add and edit drafts and resume when editing en
     await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('7');
     await expect(edit).toBeVisible();
     await page.getByRole('link', { name: 'Refresh list' }).click();
+    await settle(page);
     await expect(page.getByRole('status').filter({ hasText: 'Finish or clear your changes before refreshing.' })).toBeVisible();
 
     await baseItem.getByText('Edit item', { exact: true }).click();
@@ -749,8 +753,9 @@ test('leaving the page disposes the live refresh timer', async ({ page }) => {
   let dataRequests = 0;
   page.on('request', request => { if (request.url().includes('/groceries/data')) dataRequests++; });
   await page.getByRole('link', { name: 'Back to home' }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
-  await page.waitForLoadState('networkidle');
+  await hydrated(page);
   const requestsAfterNavigation = dataRequests;
   await page.clock.runFor(75_000);
   expect(dataRequests).toBe(requestsAfterNavigation);
@@ -1207,6 +1212,7 @@ test('a manual refresh while the browser reports offline shows the outage state'
   await page.goto('/groceries');
   await expect(page.getByText('Live updates on.')).toBeVisible();
   await page.getByRole('link', { name: 'Refresh list' }).click();
+  await settle(page);
   await expect(page.getByRole('status').filter({ hasText: 'Unable to refresh right now.' })).toBeVisible();
   await expect(page.getByRole('status').filter({ hasText: 'You appear to be offline.' })).toBeVisible();
   await expect(page.getByText('Live updates on.')).toHaveCount(0);
@@ -1231,6 +1237,7 @@ test('the Refresh list link performs a full reload after access is lost', async 
   await page.evaluate(() => { (window as unknown as { __accessFallbackMarker?: boolean }).__accessFallbackMarker = true; });
 
   await page.getByRole('link', { name: 'Refresh list' }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Grocery list' })).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: item })).toBeVisible();
   expect(await page.evaluate(() => (window as unknown as { __accessFallbackMarker?: boolean }).__accessFallbackMarker)).toBeUndefined();
@@ -1530,11 +1537,13 @@ test('a concurrent bought change rejects the whole clear and a later addition su
     await expect(page.getByRole('status').filter({ hasText: 'Cleared 1 bought item.' })).toBeVisible();
 
     await other.getByRole('link', { name: 'Refresh list' }).click();
+    await settle(other);
     await showBought(other);
     await expect(other.getByRole('article').filter({ hasText: later })).toContainText('Bought');
     await expect(other.getByRole('article').filter({ hasText: second })).toHaveCount(0);
 
     await page.getByRole('link', { name: 'Refresh list' }).click();
+    await settle(page);
     await showBought(page);
     await expect(page.getByRole('article').filter({ hasText: later })).toContainText('Bought');
     await expect(page.getByRole('article').filter({ hasText: second })).toHaveCount(0);
@@ -1704,7 +1713,7 @@ test('a Bought section opened before hydration stays usable', async ({ page, bro
     await delayed.getByText('Clear bought items…', { exact: true }).click();
     await expect(delayed.getByRole('form', { name: 'Clear bought items' })).toBeVisible();
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     expect(await bought.evaluate(element => (element as HTMLDetailsElement).open)).toBe(true);
     const clear = delayed.getByRole('form', { name: 'Clear bought items' });
     await expect(clear).toBeVisible();

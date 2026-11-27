@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password', heading = 'Hello, Sample Parent') {
   await page.goto('/sign-in');
@@ -24,9 +25,9 @@ function day(page: Page, date: string) {
 }
 
 async function waitForHydration(page: Page) {
-  // Let module loading settle before editing bound textareas so Svelte hydration
-  // cannot reset the field between Playwright's select and insert steps.
-  await page.waitForLoadState('networkidle');
+  // Wait for hydration before editing bound textareas so Svelte hydration cannot
+  // reset the field between Playwright's select and insert steps.
+  await hydrated(page);
 }
 
 async function addMeal(page: Page, date: string, title: string, ingredients: string, options: { recipeUrl?: string; note?: string; shared?: boolean } = {}) {
@@ -71,6 +72,7 @@ test('a parent sees the next seven dinners, today’s details and direct plan li
   await expect(week).toContainText(/night.*need.*a plan\./);
   await page.screenshot({ path: testInfo.outputPath('dashboard-dinners-mobile.png'), fullPage: true });
   await week.getByRole('link', { name: `Plan dinner for ${empty}` }).click();
+  await settle(week);
   await expect(page.getByRole('heading', { name: `Meals for ${empty}` })).toBeVisible();
   const add = page.getByRole('form', { name: 'Add meal', exact: true });
   await expect(add).toBeVisible();
@@ -103,6 +105,7 @@ test('a child sees only shared dinners in a read-only week', async ({ page, brow
     await expect(child.getByRole('link', { name: 'Shop this week' })).toHaveCount(0);
     await child.screenshot({ path: testInfo.outputPath('kid-family-dinners-mobile.png'), fullPage: true });
     await family.getByRole('link', { name: 'See the full week' }).click();
+    await settle(family);
     await expect(child.getByRole('heading', { name: `Meals for ${today}` })).toBeVisible();
     await expect(day(child, today).getByRole('article').filter({ hasText: sharedTitle })).toBeVisible();
     await expect(child.getByText(privateTitle)).toHaveCount(0);
@@ -128,6 +131,7 @@ test('anonymous users are redirected and a parent completes plan, repeat, shop a
 
   await page.goto(`/meals/again?q=${encodeURIComponent(firstTitle)}`);
   await page.getByRole('link', { name: `Plan again: ${firstTitle}` }).click();
+  await settle(page);
   const adjust = page.getByRole('form', { name: 'Preview a meal plan' });
   await expect(adjust).toBeVisible();
   await waitForHydration(page);

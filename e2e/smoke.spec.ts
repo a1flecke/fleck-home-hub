@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { settle } from './support/navigation';
 
 test('sign-in cannot submit before hydration', async ({ browser }) => {
   const context = await browser.newContext({ javaScriptEnabled: false });
@@ -30,6 +31,7 @@ test('shared display and sign-in are usable on a narrow screen', async ({ page }
   await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
   await expect(page.getByText('This preview contains example data only.')).toBeVisible();
   await page.getByRole('link', { name: 'Sign in' }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
   await expect(page.getByLabel('Email')).toBeVisible();
   await expect(page.getByLabel('Password')).toBeVisible();
@@ -54,6 +56,7 @@ test('parent and child sessions enforce access at the API', async ({ page }) => 
   await page.getByRole('button', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
   await page.getByRole('link', { name: 'Sign in' }).click();
+  await settle(page);
   await page.getByLabel('Email').fill('kid@example.test');
   await page.getByLabel('Password').fill('synthetic-kid-password');
   await page.getByRole('button', { name: 'Sign in' }).click();
