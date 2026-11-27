@@ -40,6 +40,10 @@ run = "pnpm run test"
 description = "Run browser tests"
 run = "pnpm run e2e"
 
+[tasks.e2e-repeat]
+description = "Run the isolated browser specs twice to prove they are repeatable"
+run = "node scripts/e2e-repeat.mjs"
+
 [tasks.parity]
 description = "Check pnpm version parity"
 run = "node scripts/check-tool-versions.mjs"
