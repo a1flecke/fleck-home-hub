@@ -190,3 +190,12 @@ it('rejects expense domain dependencies on server infrastructure', async () => {
   });
   expect(result.stdout + result.stderr).toContain('error domain-independent:');
 });
+
+it('rejects calendar domain dependencies on server infrastructure', async () => {
+  const result = await check({
+    'src/lib/calendar/ics.ts': "import { value } from '../server/store'; export const result = value;",
+    'src/lib/server/store.ts': 'export const value = 1;'
+  });
+  expect(result.status).not.toBe(0);
+  expect(result.stdout + result.stderr).toContain('error domain-independent:');
+});

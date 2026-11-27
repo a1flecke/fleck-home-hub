@@ -27,11 +27,12 @@
   <a href={resolve('/dashboard')} class="text-teal-700">Back to My Day</a>
   <h1 class="mt-6 text-3xl font-bold">Family calendar</h1>
   <p class="mt-2">Times are shown in {data.timezone}.</p>
-  {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}{#if form.savedElsewhere} It is not in this view. <a href={resolve(`/calendar?date=${encodeURIComponent(form.savedElsewhere)}&view=${data.view}`)} class="font-semibold underline">Go to {viewHeading(form.savedElsewhere, 'day')}</a>{/if}</p>{/if}
+  {#if form?.message}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">{form.message}{#if form.savedElsewhere} It is not in this view. <a href={resolve(`/calendar?date=${encodeURIComponent(form.savedElsewhere)}&view=${data.view}`)} class="font-semibold underline">Go to {viewHeading(form.savedElsewhere, 'day')}</a>{/if}</p>{:else if data.importSummary}<p role="status" class="mt-4 rounded-xl bg-teal-50 p-4 text-teal-900">Imported {data.importSummary.added} {data.importSummary.added === 1 ? 'event' : 'events'}{data.importSummary.skipped ? ` (${data.importSummary.skipped} skipped)` : ''}.</p>{/if}
   <nav aria-label="Calendar navigation" class="mt-6 flex flex-wrap items-center gap-2">
     <a href={resolve(`/calendar?date=${encodeURIComponent(previousDate)}&view=${data.view}`)} rel="prev" aria-label={`Previous ${data.view}`} class="rounded-xl border border-teal-700 px-4 py-3">Previous</a>
     <a href={resolve(`/calendar?date=${encodeURIComponent(data.today)}&view=${data.view}`)} class="rounded-xl border border-teal-700 px-4 py-3">Today</a>
     <a href={resolve(`/calendar?date=${encodeURIComponent(nextDate)}&view=${data.view}`)} rel="next" aria-label={`Next ${data.view}`} class="rounded-xl border border-teal-700 px-4 py-3">Next</a>
+    {#if data.role === 'parent'}<a href={resolve(`/calendar/import?date=${encodeURIComponent(data.date)}&view=${data.view}`)} class="rounded-xl border border-teal-700 px-4 py-3 font-semibold text-teal-800">Import calendar (.ics)</a>{/if}
   </nav>
   <h2 class="mt-4 text-xl font-bold">{data.heading}</h2>
   <form method="GET" class="mt-6 flex flex-wrap items-end gap-3">
