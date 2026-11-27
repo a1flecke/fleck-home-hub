@@ -1,6 +1,7 @@
 import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { occurrenceDates } from '../chores/recurrence';
+import { listEvents } from './calendar';
 
 type Input = { name: string; description: string; targetDate: string; shared?: boolean };
 type List = { id: string; name: string; description: string | null; targetDate: string | null; shared: boolean; archived: boolean; version: number };
@@ -260,4 +261,111 @@ export function copyChecklist(db: Database.Database, actor: string, household: s
     insertChecklistItems(db, id, preview.items, 0);
     return id;
   }).immediate();
+}
+
+export type ChecklistOccurrence = { eventId: string; date: string };
+type ChecklistEventLink = ChecklistOccurrence & { token: string; title: string };
+export type PreparationProgress = { id: string; name: string; completed: number; total: number };
+
+function linkedOccurrence(db: Database.Database, household: string, id: string): ChecklistEventLink | null {
+  return db.prepare(`
+    SELECT a.event_id AS eventId, a.occurrence_date AS date, a.token, e.title
+    FROM family_checklist_event a
+    JOIN calendar_event e ON e.id = a.event_id AND e.household_id = a.household_id
+    WHERE a.household_id = ? AND a.checklist_id = ?
+  `).get(household, id) as ChecklistEventLink | undefined ?? null;
+}
+
+function isScheduled(db: Database.Database, actor: string, household: string, { eventId, date }: ChecklistOccurrence) {
+  return listEvents(db, actor, household, date, date).some(event => event.id === eventId);
+}
+
+export function getChecklistEventLink(db: Database.Database, actor: string, household: string, id: string) {
+  return db.transaction(() => {
+    const role = member(db, actor, household, true);
+    readList(db, household, id, role);
+    const link = linkedOccurrence(db, household, id);
+    return link && { ...link, stale: !isScheduled(db, actor, household, link) };
+  })();
+}
+
+export function listUnlinkedChecklists(db: Database.Database, actor: string, household: string) {
+  return db.transaction(() => {
+    member(db, actor, household, true);
+    return db.prepare(`
+      SELECT c.id, c.name, c.shared
+      FROM family_checklist c
+      LEFT JOIN family_checklist_event a ON a.checklist_id = c.id
+      WHERE c.household_id = ? AND c.archived = 0 AND a.checklist_id IS NULL
+      ORDER BY c.name COLLATE NOCASE, c.id
+    `).all(household) as { id: string; name: string; shared: number }[];
+  })();
+}
+
+function storeOccurrence(db: Database.Database, household: string, id: string, occurrence: ChecklistOccurrence) {
+  db.prepare(`
+    INSERT INTO family_checklist_event (checklist_id, household_id, event_id, occurrence_date, token)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(checklist_id) DO UPDATE SET
+      event_id = excluded.event_id, occurrence_date = excluded.occurrence_date, token = excluded.token
+  `).run(id, household, occurrence.eventId, occurrence.date, randomUUID());
+}
+
+export function setChecklistEventLink(db: Database.Database, actor: string, household: string, id: string, token: string, occurrence: ChecklistOccurrence | null): void {
+  db.transaction(() => {
+    const role = member(db, actor, household, true);
+    const list = readList(db, household, id, role);
+    const previous = linkedOccurrence(db, household, id);
+    if (occurrence && (list.archived || !isScheduled(db, actor, household, occurrence))) throw new ChecklistConflict('Event occurrence unavailable');
+    if (previous && occurrence?.eventId === previous.eventId && occurrence.date === previous.date) return;
+    if (!previous && !occurrence) return;
+    if ((previous?.token ?? '') !== token) throw new ChecklistConflict('Link changed');
+    if (occurrence) storeOccurrence(db, household, id, occurrence);
+    else db.prepare('DELETE FROM family_checklist_event WHERE household_id = ? AND checklist_id = ?').run(household, id);
+  }).immediate();
+}
+
+export function createPreparationChecklist(db: Database.Database, actor: string, household: string, occurrence: ChecklistOccurrence, input: Input, requestId: string): string {
+  const v = values(input), shared = input.shared ?? false;
+  checkRequestId(requestId);
+  const payload = fingerprint(['event', occurrence.eventId, occurrence.date, v, shared]);
+  return db.transaction(() => {
+    member(db, actor, household, true);
+    const existing = findCreateReceipt(db, actor, household, requestId);
+    if (existing) {
+      if (existing.fingerprint !== payload) throw new ChecklistConflict('Request already used');
+      return existing.id;
+    }
+    if (!isScheduled(db, actor, household, occurrence)) throw new ChecklistConflict('Event occurrence unavailable');
+    const id = insertChecklist(db, actor, household, v, requestId, shared, payload);
+    storeOccurrence(db, household, id, occurrence);
+    return id;
+  }).immediate();
+}
+
+/** Calendar-only projection. Display routes continue to use the existing calendar service. */
+export function listCalendarPreparation(db: Database.Database, actor: string, household: string, from: string, through: string) {
+  return db.transaction(() => {
+    const role = member(db, actor, household);
+    const events = listEvents(db, actor, household, from, through);
+    const rows = db.prepare(`
+      SELECT a.event_id AS eventId, a.occurrence_date AS date, c.id, c.name,
+        COALESCE(SUM(i.completed), 0) AS completed, COUNT(i.id) AS total
+      FROM family_checklist_event a
+      JOIN family_checklist c ON c.id = a.checklist_id AND c.household_id = a.household_id
+      LEFT JOIN family_checklist_item i ON i.checklist_id = c.id
+      WHERE a.household_id = ? AND a.occurrence_date BETWEEN ? AND ?
+        AND c.archived = 0 AND (? = 'parent' OR c.shared = 1)
+      GROUP BY a.event_id, a.occurrence_date, c.id
+      ORDER BY c.name COLLATE NOCASE, c.id
+    `).all(household, from, through, role) as (ChecklistOccurrence & PreparationProgress)[];
+    const byOccurrence = new Map<string, PreparationProgress[]>();
+    for (const { eventId, date, ...progress } of rows) {
+      const key = `${eventId}/${date}`;
+      const current = byOccurrence.get(key);
+      if (current) current.push(progress);
+      else byOccurrence.set(key, [progress]);
+    }
+    return events.map(event => ({ ...event, checklists: byOccurrence.get(`${event.id}/${event.date}`) ?? [] }));
+  })();
 }

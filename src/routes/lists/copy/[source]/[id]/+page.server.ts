@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { ChecklistConflict, copyChecklist, getChecklistCopySource } from '../../../../../lib/server/checklists';
-import { templateParent } from '../../../template-access.server';
+import { checklistParent } from '../../../parent-access.server';
 
 function sourceFrom({ source, id }: { source: string; id: string }): { kind: 'list' | 'template'; id: string } {
   if (source !== 'list' && source !== 'template') error(404, 'List source not found');
@@ -10,7 +10,7 @@ function sourceFrom({ source, id }: { source: string; id: string }): { kind: 'li
 }
 
 export const load: PageServerLoad = async ({ request, params }) => {
-  const { db, userId, householdId } = await templateParent(request);
+  const { db, userId, householdId } = await checklistParent(request);
   const source = sourceFrom(params);
   const preview = getChecklistCopySource(db, userId, householdId, source);
   return { source, preview, requestId: preview ? randomUUID() : null };
@@ -18,7 +18,7 @@ export const load: PageServerLoad = async ({ request, params }) => {
 
 export const actions = {
   create: async ({ request, params }) => {
-    const { db, userId, householdId } = await templateParent(request);
+    const { db, userId, householdId } = await checklistParent(request);
     const source = sourceFrom(params);
     const fields = await request.formData();
     const input = {

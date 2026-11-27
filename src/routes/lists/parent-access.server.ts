@@ -1,7 +1,7 @@
 import { error, redirect } from '@sveltejs/kit';
 import { requestAccess } from '../../lib/server/request-access';
 
-export async function templateParent(request: Request) {
+export async function checklistParent(request: Request) {
   const access = await requestAccess(request);
   if (access.status === 'anonymous') redirect(303, '/sign-in');
   if (access.status === 'unavailable') error(503, 'Identity service unavailable');

@@ -18,6 +18,7 @@
   let groups = $derived(groupByDate(data.start, data.end, data.events));
   let weeks = $derived(monthGrid(data.start, data.end, data.events));
   let hasEvents = $derived(data.events.length > 0);
+  let preparationContext = $derived(new URLSearchParams({ date: data.date, view: data.view }).toString());
   const action = (name: string) => `?/${name}&date=${data.date}&view=${data.view}`;
   const weekdayLabels = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 </script>
@@ -43,7 +44,7 @@
       {#if !hasEvents}<p>Nothing scheduled for this date.</p>{/if}
       <div class="grid gap-4">
         {#each data.events as event (`${event.id}-${event.date}`)}
-          <EventCard {event} members={data.members} role={data.role} error={eventError} {action} titleAs="h3" />
+          <EventCard {event} members={data.members} role={data.role} error={eventError} {action} {preparationContext} titleAs="h3" />
         {/each}
       </div>
     </div>
@@ -55,7 +56,7 @@
           {#if !group.events.length}<p class="mt-2 text-sm">No events.</p>{/if}
           <div class="mt-3 grid gap-4 md:grid-cols-2">
             {#each group.events as event (`${event.id}-${event.date}`)}
-              <EventCard {event} members={data.members} role={data.role} error={eventError} {action} titleAs="h4" />
+              <EventCard {event} members={data.members} role={data.role} error={eventError} {action} {preparationContext} titleAs="h4" />
             {/each}
           </div>
         </section>
