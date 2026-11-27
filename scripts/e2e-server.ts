@@ -89,6 +89,19 @@ for (const id of ['synthetic-display-first', 'synthetic-display-second']) db.pre
 // The second household's own parent, whose primary household it is, creates its records.
 const displaySecondParent = await auth.api.signUpEmail({ body: { name: 'Display Second Parent', email: 'display-second@example.test', password: 'synthetic-display-second-password' } });
 db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(displaySecondParent.user.id, 'synthetic-display-second', 'parent');
+// Checklist readiness journeys use a dedicated household for exact dashboard summaries.
+const prepHousehold = 'synthetic-prep-household';
+db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run(prepHousehold, 'Trip preparation household');
+db.prepare('INSERT INTO household_settings (household_id, timezone) VALUES (?, ?)').run(prepHousehold, 'America/Chicago');
+for (const [key, name, role] of [
+  ['prep-parent', 'Trip Parent', 'parent'],
+  ['prep-peer', 'Trip Co-parent', 'parent'],
+  ['prep-alex', 'Alex', 'kid'],
+  ['prep-riley', 'Riley', 'kid']
+]) {
+  const { user } = await auth.api.signUpEmail({ body: { name, email: `${key}@example.test`, password: `synthetic-${key}-password` } });
+  addMembership.run(user.id, prepHousehold, role);
+}
 // Dashboard calendar journeys: an isolated household in a non-host time zone.
 const calendarParent = await auth.api.signUpEmail({ body: { name: 'Calendar Parent', email: 'calendar-parent@example.test', password: 'synthetic-calendar-parent-password' } });
 const calendarKid = await auth.api.signUpEmail({ body: { name: 'Calendar Kid', email: 'calendar-kid@example.test', password: 'synthetic-calendar-kid-password' } });
