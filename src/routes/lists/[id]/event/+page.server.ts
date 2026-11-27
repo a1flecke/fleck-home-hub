@@ -2,7 +2,7 @@ import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { addCalendarDays, parseCalendarDate } from '../../../../lib/calendar/dates';
 import { localDate } from '../../../../lib/chores/recurrence';
-import { listEvents } from '../../../../lib/server/calendar';
+import { listUpcomingEvents } from '../../../../lib/server/calendar';
 import { getChecklist, getChecklistEventLink, setChecklistEventLink } from '../../../../lib/server/checklists';
 import { checklistParent } from '../../parent-access.server';
 
@@ -17,9 +17,7 @@ export const load: PageServerLoad = async ({ request, url, params }) => {
   try { parseCalendarDate(date); }
   catch { error(400, 'Invalid calendar date'); }
   const link = getChecklistEventLink(db, userId, householdId, params.id);
-  const events = list.archived ? [] : listEvents(db, userId, householdId, date, addCalendarDays(date, 13)).map(
-    ({ id, date, title, allDay, startTime, endTime }) => ({ id, date, title, allDay, startTime, endTime })
-  );
+  const events = list.archived ? [] : listUpcomingEvents(db, userId, householdId, date, addCalendarDays(date, 13));
   return { list: { id: list.id, name: list.name, archived: list.archived }, date, link, events };
 };
 

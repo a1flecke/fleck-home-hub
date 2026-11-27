@@ -29,3 +29,11 @@ export function summarizeReadiness(lists: readonly { completed: number; total: n
   );
   return { completed, total, outstanding: total - completed, ready: total > 0 && completed === total };
 }
+
+export function removedChecklistItemDraft<T extends { id: string }>(
+  items: readonly { id: string }[],
+  editItem: T | undefined
+): T | null {
+  if (!editItem) return null;
+  return items.some(item => item.id === editItem.id) ? null : editItem;
+}

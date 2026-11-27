@@ -1,7 +1,7 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
-  import { checklistFilters, matchesChecklistFilter } from '../../../lib/checklists/readiness';
+  import { checklistFilters, matchesChecklistFilter, removedChecklistItemDraft } from '../../../lib/checklists/readiness';
   import { viewHeading } from '../../../lib/calendar/navigation';
   import Disclosure from '../../calendar/Disclosure.svelte';
   import ItemRow from './ItemRow.svelte';
@@ -17,6 +17,7 @@
 
   let { data, form }: { data: PageData; form: FormResult | null } = $props();
   let readyCount = $derived(data.list.items.filter(item => item.completed).length);
+  let removedDraft = $derived(removedChecklistItemDraft(data.list.items, form?.editItem));
   let visibleItems = $derived(data.list.items.filter(item => item.id === form?.editItem?.id || matchesChecklistFilter(data.filter, item)));
   let ready = $derived(visibleItems.filter(item => item.completed));
   let todo = $derived(visibleItems.filter(item => !item.completed));
@@ -48,6 +49,35 @@
     {/if}
   </header>
   {#if form?.message}<p role="alert" class="mt-4 rounded-xl bg-amber-100 p-3">{form.message}</p>{/if}
+  {#if removedDraft}
+    {@const removedSelected = removedDraft.assignedTo ?? null}
+    {@const removedUnavailable = removedSelected !== null && !data.assignees.some(person => person.id === removedSelected)}
+    <section aria-label="Removed item draft" class="mt-4 rounded-2xl border border-amber-300 bg-white p-4 shadow-sm">
+      <h2 class="text-lg font-bold">Removed item draft</h2>
+      <p class="mt-1 text-sm text-slate-700">This item was removed in another session. Your unsaved draft is kept below, but saving will be rejected.</p>
+      <form method="POST" action={listAction('editItem')} aria-label="Edit removed item" class="mt-3 grid gap-2">
+        <input type="hidden" name="id" value={removedDraft.id} />
+        <input type="hidden" name="version" value={removedDraft.version} />
+        <label>
+          Item name
+          <input name="name" required maxlength="120" defaultValue={removedDraft.name} data-recovery-focus="" class="mt-1 block w-full rounded-lg border p-3" />
+        </label>
+        <label>
+          Assigned to
+          <select name="assignedTo" class="mt-1 block min-h-11 w-full rounded-lg border bg-white p-3">
+            <option value="" selected={removedSelected === null}>Unassigned</option>
+            {#if removedUnavailable}
+              <option value={removedSelected} selected>Unavailable member</option>
+            {/if}
+            {#each data.assignees as person (person.id)}
+              <option value={person.id} selected={person.id === removedSelected}>{person.name}</option>
+            {/each}
+          </select>
+        </label>
+        <button class="rounded-xl bg-teal-700 px-4 py-3 font-semibold text-white">Save item</button>
+      </form>
+    </section>
+  {/if}
 
   {#if data.role === 'parent'}
     <section aria-label="Calendar event" class="mt-4 rounded-xl bg-teal-50 p-4">
