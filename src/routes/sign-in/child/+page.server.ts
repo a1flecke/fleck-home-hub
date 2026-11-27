@@ -7,7 +7,9 @@ import { writeSessionCookies } from '../../../lib/server/session-cookies';
 export const actions = {
   default: async ({ request, cookies, setHeaders }) => {
     setHeaders({ 'cache-control': 'no-store' });
-    const { db, auth, origin } = getIdentityServices();
+    let services;
+    try { services = getIdentityServices(); } catch { return fail(503, { username: '', message: 'Sign-in is unavailable. Try again shortly.' }); }
+    const { db, auth, origin } = services;
     if (request.headers.get('origin') !== origin) return fail(403, { username: '', message: 'Open child sign-in from your home hub.' });
     const form = await request.formData();
     const username = String(form.get('username') ?? '').trim().slice(0, 32);

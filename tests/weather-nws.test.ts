@@ -451,4 +451,183 @@ describe('NWS weather provider', () => {
       description: 'Chance Rain Showers',
     });
   });
+
+  it('disables automatic redirects and omits credentials on NWS fetches', async () => {
+    const { fetch, calls } = fakeFetch([{ body: points }, { body: daily }, { body: hourly }]);
+
+    await createNwsWeatherProvider({ ...options, fetch }).read();
+
+    for (const call of calls) {
+      expect(call.init?.redirect).toBe('manual');
+      expect(call.init?.credentials).toBe('omit');
+    }
+  });
+
+  it('rejects cross-origin redirects without following them and cancels the response body', async () => {
+    const calls: string[] = [];
+    let cancelled = false;
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      const body = new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode('redirect body')); },
+        cancel() { cancelled = true; },
+      });
+      return new Response(body, { status: 302, headers: { location: 'https://evil.example/gridpoints/TOP/32,81/forecast' } });
+    }) as typeof fetch;
+
+    const error = await failure(createNwsWeatherProvider({ ...options, fetch: fetchImpl }).read());
+
+    expect(error.reason).toBe('invalid_response');
+    expect(calls).toEqual(['https://api.weather.gov/points/39.7456,-97.0892']);
+    expect(cancelled).toBe(true);
+  });
+
+  it('follows bounded same-origin NWS redirects while cancelling intermediate bodies and rejecting loops', async () => {
+    const calls: string[] = [];
+    let redirectBodyCancelled = false;
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url === 'https://api.weather.gov/points/39.7456,-97.0892') {
+        const body = new ReadableStream({
+          start(controller) { controller.enqueue(new TextEncoder().encode('moved')); },
+          cancel() { redirectBodyCancelled = true; },
+        });
+        return new Response(body, { status: 301, headers: { location: '/points/39.7456,-97.0892' } });
+      }
+      if (url.endsWith('/forecast/hourly')) return jsonResponse({ body: hourly });
+      if (url.endsWith('/forecast')) return jsonResponse({ body: daily });
+      return jsonResponse({ body: points });
+    }) as typeof fetch;
+
+    const loopErr = await failure(createNwsWeatherProvider({ ...options, fetch: fetchImpl }).read());
+    expect(loopErr.reason).toBe('invalid_response');
+    expect(redirectBodyCancelled).toBe(true);
+    expect(calls).toHaveLength(3);
+
+    const hopCalls: string[] = [];
+    let hopped = false;
+    const goodRedirectFetch = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      hopCalls.push(url);
+      if (!hopped && url.includes('/points/')) {
+        hopped = true;
+        return new Response('moved', { status: 301, headers: { location: 'https://api.weather.gov/points/39.75,-97.09' } });
+      }
+      if (url.endsWith('/forecast/hourly')) return jsonResponse({ body: hourly });
+      if (url.endsWith('/forecast')) return jsonResponse({ body: daily });
+      return jsonResponse({ body: points });
+    }) as typeof fetch;
+
+    const reading = await createNwsWeatherProvider({ ...options, fetch: goodRedirectFetch }).read();
+    expect(reading.today.highF).toBe(66);
+    expect(hopCalls[0]).toBe('https://api.weather.gov/points/39.7456,-97.0892');
+    expect(hopCalls[1]).toBe('https://api.weather.gov/points/39.75,-97.09');
+  });
+
+  it('cancels the response body on non-OK responses and rejects oversized JSON payloads', async () => {
+    let errorCancelled = false;
+    const errFetch = (async () => {
+      const body = new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode('server error')); },
+        cancel() { errorCancelled = true; },
+      });
+      return new Response(body, { status: 500 });
+    }) as typeof fetch;
+
+    const netErr = await failure(createNwsWeatherProvider({ ...options, fetch: errFetch }).read());
+    expect(netErr.reason).toBe('network');
+    expect(errorCancelled).toBe(true);
+
+    let streamCancelled = false;
+    const hugeFetch = (async () => {
+      const chunk = new Uint8Array(256 * 1024).fill(65);
+      let sent = 0;
+      const body = new ReadableStream({
+        pull(controller) {
+          if (sent < 4) {
+            sent += 1;
+            controller.enqueue(chunk);
+          } else {
+            controller.close();
+          }
+        },
+        cancel() { streamCancelled = true; },
+      });
+      return new Response(body, { status: 200, headers: { 'Content-Type': 'application/geo+json' } });
+    }) as typeof fetch;
+
+    const sizeErr = await failure(createNwsWeatherProvider({ ...options, fetch: hugeFetch }).read());
+    expect(sizeErr.reason).toBe('invalid_response');
+    expect(streamCancelled).toBe(true);
+  });
+
+  it('selects the active hourly period for now and drops expired-only hourly feeds', async () => {
+    const multiHourly = {
+      properties: {
+        periods: [
+          { startTime: '2026-11-01T07:00:00-06:00', endTime: '2026-11-01T08:00:00-06:00', temperature: 55, temperatureUnit: 'F', shortForecast: 'Old Hour' },
+          { startTime: '2026-11-01T08:00:00-06:00', endTime: '2026-11-01T09:00:00-06:00', temperature: 61, temperatureUnit: 'F', shortForecast: 'Current Hour' },
+          { startTime: '2026-11-01T09:00:00-06:00', endTime: '2026-11-01T10:00:00-06:00', temperature: 67, temperatureUnit: 'F', shortForecast: 'Next Hour' },
+        ],
+      },
+    };
+    const { fetch } = fakeFetch([{ body: points }, { body: daily }, { body: multiHourly }]);
+    const reading = await createNwsWeatherProvider({
+      ...options,
+      fetch,
+      // 14:30Z is 08:30-06:00 (inside the second hourly period).
+      now: () => new Date('2026-11-01T14:30:00Z'),
+    }).read();
+
+    expect(reading.current).toEqual({
+      temperatureF: 61,
+      description: 'Current Hour',
+      periodStart: '2026-11-01T08:00:00-06:00',
+    });
+
+    const expired = fakeFetch([{ body: points }, { body: daily }, { body: multiHourly }]);
+    const later = await createNwsWeatherProvider({
+      ...options,
+      fetch: expired.fetch,
+      // 18:00Z is 12:00-06:00 (after all hourly periods have ended).
+      now: () => new Date('2026-11-01T18:00:00Z'),
+    }).read();
+
+    expect(later.current).toBeNull();
+  });
+
+  it('converts UTC and non-local period startTime timestamps into the grid timeZone before matching today', async () => {
+    const { fetch } = fakeFetch([
+      { body: points },
+      {
+        body: {
+          properties: {
+            updateTime: '2026-11-02T01:00:00Z',
+            periods: [
+              // 2026-11-02T00:00:00Z is 2026-11-01 18:00 in America/Chicago (still Nov 1!).
+              { startTime: '2026-11-02T00:00:00Z', isDaytime: false, temperature: 54, temperatureUnit: 'F', shortForecast: 'Clear Tonight' },
+              // 2026-11-02T12:00:00Z is 2026-11-02 06:00 in America/Chicago (Nov 2).
+              { startTime: '2026-11-02T12:00:00Z', isDaytime: true, temperature: 72, temperatureUnit: 'F', shortForecast: 'Sunny Monday' },
+            ],
+          },
+        },
+      },
+      { body: hourly },
+    ]);
+
+    const reading = await createNwsWeatherProvider({
+      ...options,
+      fetch,
+      // 2026-11-02T02:00:00Z is 2026-11-01 20:00 in America/Chicago.
+      now: () => new Date('2026-11-02T02:00:00Z'),
+    }).read();
+
+    expect(reading.today).toEqual({
+      date: '2026-11-01',
+      highF: null,
+      lowF: 54,
+      description: 'Clear Tonight',
+    });
+  });
 });
