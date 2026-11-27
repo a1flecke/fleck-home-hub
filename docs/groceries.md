@@ -25,6 +25,8 @@ The action is deliberately explicit:
 - An empty selection is a safe no-op. A repeated submission cannot remove new or unrelated rows.
 - A successful clear reloads the authoritative server list and reports how many records were cleared. A conflict reports that the list changed, deletes nothing and asks the parent to refresh and review again.
 
+One clear removes at most 200 bought records, the limit the server enforces. When more than 200 are bought, the form says it will clear the first 200 of the total and how many stay bought; the parent clears again to remove the rest. Nothing beyond the reviewed rows is ever deleted.
+
 This is permanent deletion. The application does not keep an audit ledger for removed grocery items, so there is no undo or history. Clearing is never automatic; items are not removed by age, and no background job deletes bought records.
 
 ## Adding meal ingredients
