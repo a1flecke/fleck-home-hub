@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { createAuth, migrate, authorizeRequest, parentAction } from '../src/lib/server/identity';
 
@@ -33,7 +33,10 @@ describe('real identity boundary', () => {
     expect((await parentAction(auth, db, new Request(origin, { headers: forged }), 'home-a', origin)).status).toBe(403);
     expect((await parentAction(auth, db, new Request(origin, { headers: { cookie } }), 'home-a', origin)).status).toBe(403);
     expect(await authorizeRequest(auth, db, headers, 'home-a', 'manage')).toBe(true);
+    const getSessionSpy = vi.spyOn(auth.api, 'getSession');
     expect((await parentAction(auth, db, new Request(origin, { headers }), 'home-a', origin)).status).toBe(204);
+    expect(getSessionSpy).toHaveBeenCalledTimes(1);
+    getSessionSpy.mockRestore();
     expect((await parentAction(auth, db, new Request(origin, { headers }), 'home-b', origin)).status).toBe(403);
     expect(await authorizeRequest(auth, db, headers, 'home-b', 'read')).toBe(false);
     db.prepare("UPDATE membership SET role='kid' WHERE user_id=?").run(user.id);

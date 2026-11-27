@@ -1722,3 +1722,107 @@ test('a Bought section opened before hydration stays usable', async ({ page, bro
     await expect(delayed.getByRole('article').filter({ hasText: apples })).toContainText('To buy');
   } finally { release(); await context.close(); }
 });
+
+test('an edit made before hydration pauses live refresh and preserves the original version for conflict detection', async ({ page, browser }) => {
+  const name = `Synthetic prehydration edit ${Date.now()}`;
+  await signInAsGroceryParent(page, 'a');
+  await page.goto('/groceries');
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill(name);
+  await add.getByLabel('Quantity', { exact: true }).fill('1');
+  await add.getByRole('button', { name: 'Add item' }).click();
+  await expect(page.getByRole('article').filter({ hasText: name })).toContainText('1');
+
+  const delayedContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  let release!: () => void, requested!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  const blocked = new Promise<void>(resolve => { requested = resolve; });
+  try {
+    const delayed = await delayedContext.newPage();
+    await delayed.clock.install();
+    await delayed.route('**/src/routes/groceries/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.goto('/groceries', { waitUntil: 'commit' });
+    await blocked;
+    const item = delayed.getByRole('article').filter({ hasText: name });
+    await item.getByText('Edit item', { exact: true }).click();
+    const edit = item.getByRole('form', { name: `Edit ${name}` });
+    await edit.getByLabel('Quantity', { exact: true }).fill('9');
+    const initialVersion = await edit.locator('input[name="version"]').inputValue();
+    release();
+    await hydrated(delayed);
+    await expect(delayed.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
+
+    // Concurrent edit in the original session advances version on the server.
+    const otherItem = page.getByRole('article').filter({ hasText: name });
+    await otherItem.getByText('Edit item', { exact: true }).click();
+    const otherEdit = otherItem.getByRole('form', { name: `Edit ${name}` });
+    await otherEdit.getByLabel('Quantity', { exact: true }).fill('5');
+    await otherEdit.getByRole('button', { name: 'Save item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: name })).toContainText('5');
+
+    await delayed.clock.runFor(25_000);
+    expect(await edit.locator('input[name="version"]').inputValue()).toBe(initialVersion);
+    await edit.getByRole('button', { name: 'Save item' }).click();
+    await expect(delayed.getByRole('status').filter({ hasText: 'This item could not be saved.' })).toBeVisible();
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('9');
+    await expect(delayed.getByRole('article').filter({ hasText: name })).toContainText('5');
+  } finally { release(); await delayedContext.close(); }
+});
+
+test('starting an edit during an in-flight refresh keeps the original version and rejects stale saves', async ({ page, browser }) => {
+  const name = `Synthetic inflight edit ${Date.now()}`;
+  await signInAsGroceryParent(page, 'a');
+  await page.goto('/groceries');
+  const add = page.getByRole('form', { name: 'Add grocery item' });
+  await add.getByLabel('Item', { exact: true }).fill(name);
+  await add.getByLabel('Quantity', { exact: true }).fill('2');
+  await add.getByRole('button', { name: 'Add item' }).click();
+  await expect(page.getByRole('article').filter({ hasText: name })).toContainText('2');
+
+  const liveContext = await browser.newContext({ storageState: await page.context().storageState(), viewport: { width: 375, height: 812 } });
+  let releaseData!: () => void, dataRequested!: () => void;
+  const dataGate = new Promise<void>(resolve => { releaseData = resolve; });
+  const dataSeen = new Promise<void>(resolve => { dataRequested = resolve; });
+  try {
+    const live = await liveContext.newPage();
+    await live.clock.install();
+    await live.goto('/groceries');
+    await expect(live.getByText('Live updates on.')).toBeVisible();
+    const item = live.getByRole('article').filter({ hasText: name });
+    const edit = item.getByRole('form', { name: `Edit ${name}` });
+    const initialVersion = await item.locator('form[data-grocery-edit] input[name="version"]').inputValue();
+
+    // Another session updates the item to version + 1.
+    const otherItem = page.getByRole('article').filter({ hasText: name });
+    await otherItem.getByText('Edit item', { exact: true }).click();
+    const otherEdit = otherItem.getByRole('form', { name: `Edit ${name}` });
+    await otherEdit.getByLabel('Quantity', { exact: true }).fill('6');
+    await otherEdit.getByRole('button', { name: 'Save item' }).click();
+    await expect(page.getByRole('article').filter({ hasText: name })).toContainText('6');
+
+    await live.route('**/groceries/data', async route => {
+      dataRequested();
+      await dataGate;
+      await route.continue();
+    });
+
+    // Kick off the background poll while not editing, then start editing while fetch is in flight.
+    const arrived = live.waitForResponse(response => response.url().includes('/groceries/data') && response.status() === 200);
+    await live.clock.runFor(25_000);
+    await dataSeen;
+    await item.getByText('Edit item', { exact: true }).click();
+    await edit.getByLabel('Quantity', { exact: true }).fill('8');
+    releaseData();
+    await arrived;
+
+    await expect(live.getByRole('status').filter({ hasText: 'Updates paused while you edit.' })).toBeVisible();
+    await expect(live.getByRole('status').filter({ hasText: 'Unable to refresh right now.' })).toHaveCount(0);
+    await expect(item).toContainText('6');
+    expect(await edit.locator('input[name="version"]').inputValue()).toBe(initialVersion);
+
+    await edit.getByRole('button', { name: 'Save item' }).click();
+    await expect(live.getByRole('status').filter({ hasText: 'This item could not be saved.' })).toBeVisible();
+    await expect(edit.getByLabel('Quantity', { exact: true })).toHaveValue('8');
+    await expect(live.getByRole('article').filter({ hasText: name })).toContainText('6');
+  } finally { releaseData(); await liveContext.close(); }
+});

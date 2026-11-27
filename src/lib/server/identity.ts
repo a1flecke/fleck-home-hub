@@ -99,17 +99,21 @@ export async function migrate(database: Database.Database) {
   migrateDrizzle(drizzle(database), { migrationsFolder: 'drizzle' });
 }
 
+function authorizeUser(database: Database.Database, userId: string, householdId: string, action: 'read' | 'manage') {
+  const row = database.prepare('SELECT household_id AS householdId, role FROM active_membership WHERE user_id = ? AND household_id = ?').get(userId, householdId) as Principal | undefined;
+  return authorize(row ?? null, householdId, action);
+}
+
 export async function authorizeRequest(auth: ReturnType<typeof createAuth>, database: Database.Database, headers: Headers, householdId: string, action: 'read' | 'manage') {
   const session = await auth.api.getSession({ headers });
   if (!session) return false;
-  const row = database.prepare('SELECT household_id AS householdId, role FROM active_membership WHERE user_id = ? AND household_id = ?').get(session.user.id, householdId) as Principal | undefined;
-  return authorize(row ?? null, householdId, action);
+  return authorizeUser(database, session.user.id, householdId, action);
 }
 
 export async function parentAction(auth: ReturnType<typeof createAuth>, database: Database.Database, request: Request, householdId: string, trustedOrigin: string) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return new Response(null, { status: 401 });
   if (request.headers.get('origin') !== trustedOrigin) return new Response(null, { status: 403 });
-  if (!await authorizeRequest(auth, database, request.headers, householdId, 'manage')) return new Response(null, { status: 403 });
+  if (!authorizeUser(database, session.user.id, householdId, 'manage')) return new Response(null, { status: 403 });
   return new Response(null, { status: 204 });
 }
