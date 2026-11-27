@@ -78,6 +78,8 @@
   <p class="mt-3 text-lg font-semibold" aria-live="polite">{data.weekLabel}</p>
   <form method="GET" action={resolve('/chores/week')} class="mt-4 flex flex-wrap items-end gap-3" aria-label="Jump to a chore week">
     <label>Jump to a date<input name="date" type="date" required defaultValue={data.focusDate} class="mt-1 block rounded-lg border p-3" /></label>
+    {#if data.childId}<input type="hidden" name="child" value={data.childId} />{/if}
+    {#if data.status !== 'all'}<input type="hidden" name="status" value={data.status} />{/if}
     <button class="rounded-xl border border-teal-700 px-4 py-3">Show week</button>
   </form>
 

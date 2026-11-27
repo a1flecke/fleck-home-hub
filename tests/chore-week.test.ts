@@ -3,6 +3,7 @@ import {
   choreDayLabel,
   choreWeekDates,
   choreWeekLabel,
+  choreWeekReturnUrl,
   choreWeekStart,
   isChoreWeekDate,
   shiftChoreWeek
@@ -44,5 +45,22 @@ describe('household chore week', () => {
     expect(isChoreWeekDate('2026-02-28')).toBe(true);
     expect(isChoreWeekDate('2028-02-29')).toBe(true);
     expect(isChoreWeekDate('2026-02-29')).toBe(false);
+  });
+
+  it('routes edited and created chores to their new week/child context while preserving matching filters', () => {
+    const filtered = new URLSearchParams('week=2099-03-08&date=2099-03-12&child=kid-a&status=todo');
+    expect(choreWeekReturnUrl(filtered, 'updated', { dueDate: '2099-03-20', assigneeId: 'kid-b' }))
+      .toBe('/chores/week?week=2099-03-15&date=2099-03-20&child=kid-b&status=todo&notice=updated');
+
+    const unfiltered = new URLSearchParams('week=2099-03-08&date=2099-03-12');
+    expect(choreWeekReturnUrl(unfiltered, 'updated', { dueDate: '2099-03-20', assigneeId: 'kid-b' }))
+      .toBe('/chores/week?week=2099-03-15&date=2099-03-20&notice=updated');
+
+    const verifiedFilter = new URLSearchParams('week=2099-03-08&child=kid-a&status=verified');
+    expect(choreWeekReturnUrl(verifiedFilter, 'created', { dueDate: '2099-03-12', assigneeId: 'kid-a' }))
+      .toBe('/chores/week?week=2099-03-08&date=2099-03-12&child=kid-a&notice=created');
+
+    expect(choreWeekReturnUrl(filtered, 'cancelled'))
+      .toBe('/chores/week?week=2099-03-08&date=2099-03-12&child=kid-a&status=todo&notice=cancelled');
   });
 });

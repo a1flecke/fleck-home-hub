@@ -1,7 +1,7 @@
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { localDate } from '../../../lib/chores/recurrence';
-import { choreWeekDates, choreWeekLabel, choreWeekStart, isChoreWeekDate, shiftChoreWeek } from '../../../lib/chores/week';
+import { choreWeekDates, choreWeekLabel, choreWeekReturnUrl, choreWeekStart, isChoreWeekDate, shiftChoreWeek } from '../../../lib/chores/week';
 import { isChoreStatusFilter, loadChoreWeek } from '../../../lib/server/chore-week';
 import { cancelChore, ChoreChangeError, createChore, editChore } from '../../../lib/server/chores';
 import { generateOccurrences } from '../../../lib/server/recurring';
@@ -19,16 +19,6 @@ function requestedWeek(url: URL, today: string): string {
   const raw = url.searchParams.get('week') ?? url.searchParams.get('date') ?? today;
   if (!isChoreWeekDate(raw)) error(400, 'Choose a valid week or date.');
   return choreWeekStart(raw);
-}
-
-function returnTo(url: URL, notice: string): string {
-  const params = new URLSearchParams();
-  for (const key of ['week', 'date', 'child', 'status']) {
-    const value = url.searchParams.get(key);
-    if (value) params.set(key, value);
-  }
-  params.set('notice', notice);
-  return `/chores/week?${params.toString()}`;
 }
 
 export const load: PageServerLoad = async ({ request, url }) => {
@@ -78,7 +68,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
 };
 
 export const actions: Actions = {
-  create: async ({ request }) => {
+  create: async ({ request, url }) => {
     const { db, userId, householdId, origin } = await parent(request);
     if (request.headers.get('origin') !== origin) return fail(403, { message: 'Request not authorized.' });
     const form = await request.formData();
@@ -101,7 +91,7 @@ export const actions: Actions = {
     } catch {
       return fail(400, { message: 'Unable to add chore. Check the details and try again.', createError });
     }
-    redirect(303, `/chores/week?week=${choreWeekStart(dueDate)}&notice=created`);
+    redirect(303, choreWeekReturnUrl(url.searchParams, 'created', { dueDate, assigneeId: assignee }));
   },
   edit: async ({ request, url }) => {
     const { db, userId, householdId, origin } = await parent(request);
@@ -131,7 +121,7 @@ export const actions: Actions = {
       if (cause instanceof ChoreChangeError && cause.code === 'cancelled') return fail(409, { message: 'This chore was already cancelled.', editError });
       return fail(400, { message: 'Unable to change this chore. Check the details and try again.', editError });
     }
-    redirect(303, returnTo(url, 'updated'));
+    redirect(303, choreWeekReturnUrl(url.searchParams, 'updated', { dueDate, assigneeId: assignee }));
   },
   cancel: async ({ request, url }) => {
     const { db, userId, householdId, origin } = await parent(request);
@@ -149,6 +139,6 @@ export const actions: Actions = {
       if (cause instanceof ChoreChangeError && cause.code === 'cancelled') return fail(409, { message: 'This chore was already cancelled.', cancelError });
       return fail(400, { message: 'Unable to cancel this chore. Refresh the week and try again.', cancelError });
     }
-    redirect(303, returnTo(url, 'cancelled'));
+    redirect(303, choreWeekReturnUrl(url.searchParams, 'cancelled'));
   }
 };
