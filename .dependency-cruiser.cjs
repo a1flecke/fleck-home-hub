@@ -10,8 +10,8 @@ module.exports = {
     {
       name: 'domain-independent',
       severity: 'error',
-      from: { path: '^src/lib/(chores|earnings|grocery|expenses)/' },
-      to: { pathNot: '^src/lib/(chores|earnings|grocery|expenses)/' },
+      from: { path: '^src/lib/(chores|earnings|grocery|expenses|calendar)/' },
+      to: { pathNot: '^src/lib/(chores|earnings|grocery|expenses|calendar)/' },
     },
     {
       name: 'server-no-presentation',
