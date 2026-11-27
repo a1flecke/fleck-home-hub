@@ -11,22 +11,54 @@ import { fileURLToPath } from 'node:url';
 
 /** @typedef {{ id: string, status: 'PASS' | 'WARN' | 'FAIL' | 'UNKNOWN', message: string }} Check */
 
+/** @param {any} value */
+const isObject = value => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+
 /** @param {any} serve @param {string} origin @param {number} port @returns {Check[]} */
 export function evaluateServe(serve, origin, port) {
   /** @type {Check[]} */
   const checks = [];
   /** @param {string} id @param {Check['status']} status @param {string} message */
   const add = (id, status, message) => checks.push({ id, status, message });
-  if (!serve || typeof serve !== 'object' || Array.isArray(serve)) { add('serve-json', 'FAIL', 'serve status is not a JSON object; cannot evaluate'); return checks; }
+  if (!isObject(serve)) { add('serve-json', 'FAIL', 'serve status is not a JSON object; cannot evaluate'); return checks; }
   const url = new URL(origin);
-  const expectedKey = `${url.hostname}:${url.port || '443'}`;
+  const expectedPort = url.port || '443';
+  const expectedKey = `${url.hostname.toLowerCase()}:${expectedPort}`;
 
-  const funnel = Object.entries(serve.AllowFunnel ?? {}).filter(([, on]) => on).map(([host]) => host);
+  const foregroundEntries = isObject(serve.Foreground)
+    ? Object.values(serve.Foreground).filter(isObject)
+    : [];
+
+  const funnel = [
+    ...Object.entries(isObject(serve.AllowFunnel) ? serve.AllowFunnel : {}).filter(([, on]) => Boolean(on)).map(([host]) => host),
+    ...foregroundEntries.flatMap(fg =>
+      Object.entries(isObject(fg.AllowFunnel) ? fg.AllowFunnel : {}).filter(([, on]) => Boolean(on)).map(([host]) => `${host} (foreground)`)
+    )
+  ];
   if (funnel.length) add('funnel', 'FAIL', `Funnel is enabled (${funnel.join(', ')}): this exposes services to the public internet. Disable it before any pilot.`);
-  else add('funnel', 'PASS', 'no AllowFunnel entry is enabled in the Serve configuration');
+  else add('funnel', 'PASS', 'no AllowFunnel entry is enabled in the Serve or Foreground configuration');
 
-  const web = serve.Web && typeof serve.Web === 'object' ? serve.Web : {};
-  const entry = web[expectedKey];
+  const web = isObject(serve.Web) ? serve.Web : {};
+  const matchedWeb = Object.entries(web).find(([key]) => key.toLowerCase() === expectedKey);
+  const entry = matchedWeb?.[1];
+  const tcp = isObject(serve.TCP) ? serve.TCP : {};
+  const tcpEntry = isObject(tcp[expectedPort]) ? tcp[expectedPort] : undefined;
+  const fgTargetTcp = foregroundEntries
+    .map(fg => (isObject(fg.TCP) && isObject(fg.TCP[expectedPort]) ? fg.TCP[expectedPort] : undefined))
+    .filter(Boolean);
+
+  if (url.protocol !== 'https:') {
+    add('https', 'FAIL', 'AUTH_ORIGIN must use https:// for Tailscale Serve');
+  } else if (tcpEntry?.HTTP || fgTargetTcp.some(item => item?.HTTP || item?.TCPForward)) {
+    add('https', 'FAIL', `TCP port ${expectedPort} must terminate HTTPS only (no plaintext HTTP or TCPForward)`);
+  } else if (entry) {
+    if (tcpEntry?.HTTPS === true && !tcpEntry?.HTTP && !tcpEntry?.TCPForward) {
+      add('https', 'PASS', `TCP port ${expectedPort} terminates HTTPS only`);
+    } else {
+      add('https', 'FAIL', `TCP port ${expectedPort} must terminate HTTPS only (HTTPS: true without HTTP or TCPForward)`);
+    }
+  }
+
   if (!Object.keys(web).length) add('route', 'WARN', 'no Serve web route is configured yet (expected before the manual enable step)');
   else if (!entry) add('route', 'FAIL', `no route for ${expectedKey}; AUTH_ORIGIN and the Serve hostname must match exactly`);
   else {
@@ -38,9 +70,15 @@ export function evaluateServe(serve, origin, port) {
     if (!handlers.length || bad.length) add('route', 'FAIL', `route ${expectedKey} must proxy only to http://127.0.0.1:${port}; found ${handlers.length ? `${bad.length} other target(s) or non-proxy handler(s)` : 'no handlers'}`);
     else add('route', 'PASS', `${expectedKey} proxies to http://127.0.0.1:${port} only`);
   }
-  const others = Object.keys(web).filter(key => key !== expectedKey);
+  const others = [
+    ...Object.keys(web).filter(key => key.toLowerCase() !== expectedKey),
+    ...foregroundEntries.flatMap(fg => Object.keys(isObject(fg.Web) ? fg.Web : {}))
+  ];
   if (others.length) add('other-routes', 'WARN', `${others.length} other Serve route(s) exist and are not managed by this hub; leave them alone and review them yourself`);
-  const forwards = Object.entries(serve.TCP ?? {}).filter(([, value]) => /** @type {any} */ (value)?.TCPForward);
+  const forwards = [
+    ...Object.entries(tcp).filter(([, value]) => /** @type {any} */ (value)?.TCPForward),
+    ...foregroundEntries.flatMap(fg => Object.entries(isObject(fg.TCP) ? fg.TCP : {}).filter(([, value]) => /** @type {any} */ (value)?.TCPForward))
+  ];
   if (forwards.length) add('tcp', 'WARN', `${forwards.length} raw TCP forward(s) are configured; confirm each is intentional`);
   add('access', 'WARN', 'Tailscale ACLs, sharing and device reachability are not inspected here; verify who can reach this node in the admin console, and that application sign-in is still required');
   return checks;
@@ -54,7 +92,8 @@ export function evaluateStatus(status, origin) {
   checks.push({ id: 'backend', status: state === 'Running' ? 'PASS' : 'FAIL', message: state === 'Running' ? 'Tailscale backend reports Running' : 'Tailscale backend is not Running; the node is not on the tailnet' });
   const dns = String(status?.Self?.DNSName ?? '').replace(/\.$/, '');
   const host = new URL(origin).hostname;
-  checks.push({ id: 'dns-name', status: dns && dns === host ? 'PASS' : 'FAIL', message: dns === host ? 'this node\'s MagicDNS name matches AUTH_ORIGIN' : 'this node\'s MagicDNS name does not match AUTH_ORIGIN' });
+  const match = Boolean(dns) && dns.toLowerCase() === host.toLowerCase();
+  checks.push({ id: 'dns-name', status: match ? 'PASS' : 'FAIL', message: match ? 'this node\'s MagicDNS name matches AUTH_ORIGIN' : 'this node\'s MagicDNS name does not match AUTH_ORIGIN' });
   checks.push({ id: 'acl', status: 'UNKNOWN', message: 'access controls cannot be read from this document; review them in the Tailscale admin console' });
   return checks;
 }
