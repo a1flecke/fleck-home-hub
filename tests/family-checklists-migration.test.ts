@@ -21,7 +21,7 @@ it('adds checklist tables to the previous journal prefix without changing househ
     for (const entry of previous) copyFileSync('drizzle/' + entry.tag + '.sql', join(baselinePath, entry.tag + '.sql'));
     writeFileSync(join(baselinePath, 'meta/_journal.json'), JSON.stringify({ ...journal, entries: previous }));
     migrate(drizzle(db), { migrationsFolder: baselinePath });
-    const checklistTables = () => db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name GLOB 'family_checklist*' ORDER BY name").pluck().all();
+    const checklistTables = () => db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('family_checklist', 'family_checklist_add_request', 'family_checklist_item') ORDER BY name").pluck().all();
     expect(checklistTables()).toEqual([]);
     db.exec(`
       INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES ('parent', 'Synthetic', 'parent@example.test', 0, 0, 0);

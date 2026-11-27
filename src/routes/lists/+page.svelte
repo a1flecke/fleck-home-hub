@@ -19,6 +19,7 @@
   {#if data.role === 'parent'}
     <section class="mt-6 rounded-2xl bg-white p-5 shadow-sm">
       <h2 class="text-xl font-bold">Create a list</h2>
+      <a class="inline-flex min-h-11 items-center font-semibold text-teal-800 underline" href={resolve('/lists/templates')}>Choose a template</a>
       <form method="POST" action="?/create" aria-label="Create a family list" class="mt-4 grid gap-3">
         <input type="hidden" name="requestId" value={form?.requestId || data.requestId} />
         <label>List name<input bind:this={recoveredName} data-recovery-focus={form?.input ? '': undefined} name="name" required maxlength="120" defaultValue={form?.input?.name ?? ''} class="mt-1 block w-full rounded-lg border p-3" /></label>
