@@ -2,7 +2,7 @@
 // Generates, and optionally installs, a per-user LaunchAgent for Fleck Home Hub.
 // Everything is a dry run unless --apply is given. The plist contains paths
 // only: no credentials, no secrets in arguments.
-import { chmodSync, existsSync, lstatSync, mkdirSync, rmSync, statSync, accessSync, constants } from 'node:fs';
+import { chmodSync, lstatSync, mkdirSync, rmSync, statSync, accessSync, constants } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve, relative } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -84,6 +84,15 @@ export function planInstall(o) {
   return { plistPath, commands: [['launchctl', 'bootstrap', `gui/${o.uid}`, plistPath]] };
 }
 
+/** @param {string} path */
+function inspectPath(path) {
+  try { return { stat: lstatSync(path), missing: false }; }
+  catch (error) {
+    if (/** @type {NodeJS.ErrnoException} */ (error)?.code === 'ENOENT') return { stat: undefined, missing: true };
+    return { stat: undefined, missing: false };
+  }
+}
+
 /** @param {string} command @param {Options} o @param {{ apply: boolean, run: Runner }} io @returns {{ code: number, output: string }} */
 export function runCommand(command, o, io) {
   const target = `gui/${o.uid}/${o.label}`;
@@ -102,19 +111,65 @@ export function runCommand(command, o, io) {
     return { code: 0, output: `Dry run: nothing changed. With --apply this would ${command === 'install' ? `write ${plistPath} (mode 600, never overwriting) and ` : ''}run:\n  ${lines.join('\n  ')}\n` };
   }
   if (command === 'install') {
-    const stat = (() => { try { return lstatSync(o.envFile); } catch { return undefined; } })();
-    if (!stat || !stat.isFile() || (stat.mode & 0o077) !== 0) return { code: 1, output: 'Refusing: the private configuration file must be a regular, non-symlink file with mode 600\n' };
+    const envInfo = inspectPath(o.envFile);
+    if (!envInfo.stat || !envInfo.stat.isFile() || envInfo.stat.uid !== o.uid || (envInfo.stat.mode & 0o077) !== 0) {
+      return { code: 1, output: 'Refusing: the private configuration file must be a regular, non-symlink file owned by the current user with mode 600\n' };
+    }
+    const miseStat = (() => { try { return statSync(o.miseBin); } catch { return undefined; } })();
+    if (!miseStat || !miseStat.isFile()) return { code: 1, output: 'Refusing: mise is not executable at the given path\n' };
     try { accessSync(o.miseBin, constants.X_OK); } catch { return { code: 1, output: 'Refusing: mise is not executable at the given path\n' }; }
-    if (existsSync(plistPath)) return { code: 1, output: `Refusing: ${plistPath} already exists; run uninstall first\n` };
-    mkdirSync(o.logDir, { recursive: true, mode: 0o700 }); chmodSync(o.logDir, 0o700);
-    mkdirSync(dirname(plistPath), { recursive: true });
+    if (!inspectPath(plistPath).missing) return { code: 1, output: `Refusing: ${plistPath} already exists; run uninstall first\n` };
+    const existingLogDir = inspectPath(o.logDir);
+    if (!existingLogDir.missing) {
+      if (!existingLogDir.stat || !existingLogDir.stat.isDirectory() || existingLogDir.stat.uid !== o.uid) {
+        return { code: 1, output: 'Refusing: log directory must be a non-symlink directory owned by the current user\n' };
+      }
+    } else {
+      mkdirSync(o.logDir, { recursive: true, mode: 0o700 });
+      const createdLogDir = inspectPath(o.logDir);
+      if (!createdLogDir.stat || !createdLogDir.stat.isDirectory() || createdLogDir.stat.uid !== o.uid) {
+        return { code: 1, output: 'Refusing: log directory must be a non-symlink directory owned by the current user\n' };
+      }
+    }
+    chmodSync(o.logDir, 0o700);
+    const launchAgentsDir = dirname(plistPath);
+    const existingAgentsDir = inspectPath(launchAgentsDir);
+    if (!existingAgentsDir.missing) {
+      if (!existingAgentsDir.stat || !existingAgentsDir.stat.isDirectory() || existingAgentsDir.stat.uid !== o.uid) {
+        return { code: 1, output: 'Refusing: LaunchAgents directory must be a non-symlink directory owned by the current user\n' };
+      }
+    } else {
+      mkdirSync(launchAgentsDir, { recursive: true });
+    }
     publishPrivateFile(plistPath, renderPlist(o));
   }
+  if (command === 'uninstall') {
+    const plistInfo = inspectPath(plistPath);
+    if (!plistInfo.missing && (!plistInfo.stat || !plistInfo.stat.isFile() || plistInfo.stat.uid !== o.uid)) {
+      return { code: 1, output: `Refusing: ${plistPath} must be a regular, non-symlink file owned by the current user\n` };
+    }
+  }
+  let stdout = '';
   for (const [cmd, ...args] of planned[command]) {
     const result = io.run(cmd, args);
-    if (result.status !== 0) return { code: 1, output: `${command} failed: ${cmd} exited ${result.status}. ${command === 'uninstall' ? 'The plist was left in place.' : ''}\n` };
+    if (result.status !== 0) {
+      if (command === 'install') {
+        let removed = false;
+        try { rmSync(plistPath); removed = true; } catch { /* report below */ }
+        return { code: 1, output: `install failed: ${cmd} exited ${result.status}. ${removed ? `Removed ${plistPath}.` : `Could not remove ${plistPath}.`}\n` };
+      }
+      return { code: 1, output: `${command} failed: ${cmd} exited ${result.status}. ${command === 'uninstall' ? 'The plist was left in place.' : ''}\n` };
+    }
+    if (result.stdout) stdout += result.stdout;
   }
-  if (command === 'uninstall' && existsSync(plistPath)) rmSync(plistPath);
+  if (command === 'uninstall') {
+    const plistInfo = inspectPath(plistPath);
+    if (plistInfo.stat && plistInfo.stat.isFile() && plistInfo.stat.uid === o.uid) rmSync(plistPath);
+  }
+  if (command === 'status') {
+    const output = stdout ? (stdout.endsWith('\n') ? stdout : `${stdout}\n`) : 'status completed.\n';
+    return { code: 0, output };
+  }
   return { code: 0, output: `${command} completed.\n` };
 }
 
@@ -127,7 +182,7 @@ const realRunner = (command, args) => {
 function findMise() {
   for (const dir of (process.env.PATH ?? '').split(':')) {
     const candidate = join(dir, 'mise');
-    try { if (dir && isAbsolute(dir) && statSync(candidate).isFile()) return candidate; } catch { /* keep looking */ }
+    try { if (dir && isAbsolute(dir) && statSync(candidate).isFile()) { accessSync(candidate, constants.X_OK); return candidate; } } catch { /* keep looking */ }
   }
   return join(homedir(), '.local', 'bin', 'mise');
 }

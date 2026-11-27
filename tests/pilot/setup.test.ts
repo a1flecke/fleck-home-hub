@@ -105,20 +105,21 @@ it('uses the available ports and prints the URL before issuing a code', async ()
   expect(calls.some(call => call.includes('--if-needed'))).toBe(true);
 });
 
-it('resumes after launchd fails without replacing private configuration or the plist', async () => {
+it('resumes after launchd fails without replacing private configuration or an installed plist', async () => {
   failBootstrap = true;
   await expect(invoke()).rejects.toThrow(/LaunchAgent/);
   expect(output).toEqual([]);
   const savedConfig = readFileSync(configFile(), 'utf8');
-  const savedPlist = readFileSync(plist(), 'utf8');
+  expect(existsSync(plist())).toBe(false);
   failBootstrap = false;
   await invoke();
   expect(readFileSync(configFile(), 'utf8')).toBe(savedConfig);
-  expect(readFileSync(plist(), 'utf8')).toBe(savedPlist);
+  const savedPlist = readFileSync(plist(), 'utf8');
   expect(web[host + ':443']).toEqual(unrelated);
   output = [];
   calls = [];
   await invoke();
+  expect(readFileSync(plist(), 'utf8')).toBe(savedPlist);
   expect(calls.some(call => call.includes('build') || call.includes('bootstrap') || call[1] === 'serve' && call[2] === '--bg')).toBe(false);
 });
 
