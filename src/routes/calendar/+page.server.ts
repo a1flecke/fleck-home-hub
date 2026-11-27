@@ -4,21 +4,21 @@ import type { Actions, PageServerLoad } from './$types';
 import { getIdentityServices } from '../../lib/server/runtime';
 import { localDate, occurrenceDates } from '../../lib/chores/recurrence';
 import { parseView, viewHeading, viewRange } from '../../lib/calendar/navigation';
-import { addCalendarDays } from '../../lib/calendar/dates';
-import { addUnscheduled, archiveUnscheduled, cancelEvent, cancelOccurrence, createEvent, listEvents, listUnscheduled, scheduleUnscheduled, updateEvent, updateUnscheduled, type EventInput } from '../../lib/server/calendar';
+import { addUnscheduled, archiveUnscheduled, cancelEvent, cancelOccurrence, createEvent, findSavedEventElsewhere, listUnscheduled, scheduleUnscheduled, updateEvent, updateUnscheduled, type EventInput } from '../../lib/server/calendar';
 
 type Services = ReturnType<typeof getIdentityServices>;
 
 /**
  * Saving keeps the parent on the view they submitted from. When none of the saved event's
- * occurrences fall in that view, return its first date so the confirmation can link there.
+ * occurrences fall in that view, return its next date relative to the viewed range so the
+ * confirmation can link there.
  */
-function savedElsewhere(db: Services['db'], actor: string, household: string, url: URL, id: string, start: string): string | null {
+function savedElsewhere(db: Services['db'], actor: string, household: string, url: URL, id: string): string | null {
+  let range: { start: string; end: string } | null = null;
   try {
-    const range = viewRange(url.searchParams.get('date') ?? '', parseView(url.searchParams.get('view')));
-    if (listEvents(db, actor, household, range.start, range.end).some(event => event.id === id)) return null;
+    range = viewRange(url.searchParams.get('date') ?? '', parseView(url.searchParams.get('view')));
   } catch { /* No valid view in the action URL: fall through to the event's own dates. */ }
-  try { return listEvents(db, actor, household, start, addCalendarDays(start, 365)).find(event => event.id === id)?.date ?? null; }
+  try { return findSavedEventElsewhere(db, actor, household, id, range); }
   catch { return null; }
 }
 
@@ -71,7 +71,7 @@ export const actions = {
       else saved = createEvent(db, actor, householdId, input);
     }
     catch { return fail(400, { message: 'Unable to save event. Check the date, times and details and try again.', eventError: { id, inbox, input } }); }
-    return { message: 'Event saved.', savedElsewhere: savedElsewhere(db, actor, householdId, url, saved, input.date) };
+    return { message: 'Event saved.', savedElsewhere: savedElsewhere(db, actor, householdId, url, saved) };
   },
   cancel: async ({ request }) => {
     const { db, actor, householdId, origin, role } = await principal(request);

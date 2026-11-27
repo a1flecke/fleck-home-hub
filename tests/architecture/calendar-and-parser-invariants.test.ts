@@ -38,7 +38,7 @@ export function calendarInvariantsFindings(calendarSource: string, recurringSour
     findings.push('calendar.ts validate must check hasRecurrenceOccurrence so zero-occurrence recurring events are rejected');
   }
   const cancelOcc = extractFunction(calendarSource, 'cancelOccurrence');
-  if (!cancelOcc || !/SELECT\s+weekdays\s+FROM\s+calendar_event\b/i.test(cancelOcc) || !/!\s*event\.weekdays/.test(cancelOcc)) {
+  if (!cancelOcc || !/SELECT\s+[^'"]*?\bweekdays\b[^'"]*?\s+FROM\s+calendar_event\b/i.test(cancelOcc) || !/!\s*event\.weekdays/.test(cancelOcc)) {
     findings.push('calendar.ts cancelOccurrence must verify calendar_event.weekdays is non-null before inserting into calendar_exception');
   }
   const validateSeries = extractFunction(recurringSource, 'validateSeries');

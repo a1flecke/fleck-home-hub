@@ -12,6 +12,7 @@
     GROCERY_REFRESH_TIMEOUT_MS,
     groceryAddDraftExists,
     groceryDraftIsDirty,
+    initialGroceryState,
     parseGroceryItems,
     resolveEditFormVersion,
     shouldApplyGroceryRefresh,
@@ -30,18 +31,19 @@
   let addDirty = $state(false);
   let addDraftName = $state<string | null>(null);
   let showDuplicateConfirm = $derived(Boolean(form?.duplicate && (addDraftName === null || sameGroceryName(addDraftName, form?.item?.name ?? ''))));
+  const initial = untrack(() => initialGroceryState(data.items, form?.edit));
   let dirtyEdits = $state<string[]>([]);
-  let openEdits = $state<string[]>([]);
-  let removedWhileEditing = $state<string[]>([]);
+  let openEdits = $state<string[]>(initial.openEdits);
+  let removedWhileEditing = $state<string[]>(initial.removedWhileEditing);
   let autoPaused = $state(false);
   let manualNotice = $state('');
   let editRounds = $state<Record<string, number>>({});
-  let pinnedGroups = $state<Record<string, GroceryGroupName>>({});
-  let editSnapshots = $state<Record<string, GroceryEditVersion>>({});
+  let pinnedGroups = $state<Record<string, GroceryGroupName>>(initial.pinnedGroups);
+  let editSnapshots = $state<Record<string, GroceryEditVersion>>(initial.editSnapshots);
   let failedBoughtEdit = $derived(Boolean(form?.edit?.completed));
   let recoveryOpen = $derived(Boolean(form?.edit && openEdits.includes(form.edit.id)));
   let editingPaused = $derived(addDirty || dirtyEdits.length > 0 || recoveryOpen);
-  let items = $state<Item[]>(untrack(() => data.items));
+  let items = $state<Item[]>(initial.items);
   let groups = $derived(groupGroceryItems(items, pinnedGroups));
   let clearing = $derived(boughtClearBatch(groups.bought));
   let inFlight = false;

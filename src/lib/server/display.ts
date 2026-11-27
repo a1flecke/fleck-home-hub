@@ -31,7 +31,7 @@ export function setDisplayVisibility(db: Database.Database, actor: string, house
  */
 function sharedProjection(db: Database.Database, household: string, today: string, end: string) {
   const sharedEvents = new Set((db.prepare('SELECT event_id FROM display_event WHERE household_id = ?').all(household) as { event_id: string }[]).map(row => row.event_id));
-  const events = householdEventOccurrences(db, household, today, end)
+  const events = householdEventOccurrences(db, household, today, end, { includeParticipants: false })
     .filter(event => sharedEvents.has(event.id)).map(({ id, title, date, startTime, endTime, allDay }) => ({ id, title, date, startTime, endTime, allDay }));
   const visibleChores = `FROM chore c LEFT JOIN recurring_occurrence o ON o.chore_id = c.id LEFT JOIN recurring_series r ON r.id = o.series_id WHERE c.household_id = ? AND c.due_date = ? AND c.cancelled_at IS NULL AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date) AND NOT (r.state IS NOT NULL AND r.state != 'active' AND c.status = 'todo' AND o.scheduled_date >= COALESCE(r.paused_on, ?))`;
   const chores = db.prepare(`SELECT c.id, c.title, c.status ${visibleChores} AND EXISTS (SELECT 1 FROM display_chore d WHERE d.chore_id = c.id AND d.household_id = c.household_id) ORDER BY c.title`).all(household, today, today) as { id: string; title: string; status: string }[];
