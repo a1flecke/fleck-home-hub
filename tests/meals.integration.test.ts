@@ -3,6 +3,7 @@ import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import { createMeal, listMealWeek, listMeals, mealCopySource, moveMeal, recentMeals, removeMeal, updateMeal } from '../src/lib/server/meals';
 import { displayData } from '../src/lib/server/display';
+import { parseRecipeLink } from '../src/lib/meals/recipe-link';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate as migrateDrizzle } from 'drizzle-orm/better-sqlite3/migrator';
 import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
@@ -249,4 +250,27 @@ it('upgrades the previous schema without losing household membership and is repe
     expect(db.prepare('SELECT role FROM membership WHERE user_id = ?').get('parent')).toEqual({ role: 'parent' });
     expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'meal'").get()).toEqual({ name: 'meal' });
   } finally { db.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+it('accepts only recipe links the meal pages can display', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run('parent', 'parent', 'parent@example.test');
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'home');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    const base = { title: 'Soup', date: '2026-11-01', ingredients: '1 onion', shared: false };
+    // Each of these used to be saved, then hidden by parseRecipeLink on every meal surface.
+    for (const recipeUrl of ['https://example.test/', 'https://example.test', 'https://example.test/?recipe=soup', 'https://example.test:8443/recipes/soup']) {
+      expect(() => createMeal(db, 'parent', 'home', { ...base, recipeUrl }), recipeUrl).toThrow('Invalid recipe URL');
+      expect(parseRecipeLink(recipeUrl), recipeUrl).toBeNull();
+    }
+    for (const recipeUrl of ['https://example.test/recipes/soup', 'https://example.test/recipe?id=soup', 'https://emeals.com/recipes/synthetic-bowls']) {
+      const id = createMeal(db, 'parent', 'home', { ...base, recipeUrl });
+      expect(parseRecipeLink(recipeUrl), recipeUrl).not.toBeNull();
+      expect(listMeals(db, 'parent', 'home', '2026-11-01').find(meal => meal.id === id)?.recipeUrl).toBe(recipeUrl);
+    }
+    const id = createMeal(db, 'parent', 'home', { ...base, recipeUrl: 'https://example.test/recipes/soup' });
+    expect(() => updateMeal(db, 'parent', 'home', id, { ...base, recipeUrl: 'https://example.test/' })).toThrow('Invalid recipe URL');
+  } finally { db.close(); }
 });

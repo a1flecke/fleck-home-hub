@@ -65,3 +65,5 @@ A parent can disable one member of one household. The row stays, with `disabled_
 ### Displays and disabling
 
 Disabling a parent also revokes the pairing codes they created and every display they paired, in the same transaction; other parents' displays are unaffected. A display is not a member and has no role. See [display](display.md) and [ADR 0004](adr/0004-restricted-display-sessions.md).
+
+Parent settings pages (household, displays, children, onboarding and the shared-display settings) all default to the same household when no `?household=` is given: the first household where the signed-in user is an active parent, ordered by name and then id. A kid membership in another household never becomes, or blocks, that default. An explicit `?household=` must name a household where the user is an active parent; anything else is refused with 403.

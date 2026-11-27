@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from 'vitest';
 import Database from 'better-sqlite3';
 import { migrate } from '../src/lib/server/identity';
 import { addGrocery, changeGrocery, listGroceries } from '../src/lib/server/groceries';
+import { boughtClearBatch, MAX_BOUGHT_CLEAR_ROWS } from '../src/lib/grocery/domain';
 import { getIdentityServices } from '../src/lib/server/runtime';
 import { actions } from '../src/routes/groceries/+page.server';
 
@@ -132,5 +133,31 @@ it('rejects malformed, duplicated and oversized clear submissions before writing
     expect(await (actions.clearBought as ClearAction)({ request: oversized })).toMatchObject({ status: 413 });
 
     expect(listGroceries(db, 'parent', 'home')).toMatchObject([{ id: bread.id, completed: true }]);
+  } finally { db.close(); }
+});
+
+it('clears a bought list over the request limit in successive batches without touching other rows', async () => {
+  const db = await setup();
+  try {
+    const keep = addGrocery(db, 'parent', 'home', { name: 'Synthetic still needed', quantity: '', unit: '' });
+    const all = Array.from({ length: MAX_BOUGHT_CLEAR_ROWS + 50 }, (_, index) => bought(db, 'parent', 'home', `Synthetic batch item ${index}`));
+    useSession(db, 'parent');
+
+    const { batch, remaining } = boughtClearBatch(all);
+    expect(batch).toHaveLength(MAX_BOUGHT_CLEAR_ROWS);
+    expect(remaining).toBe(50);
+    // The whole list in one request is what used to make a long bought list impossible to clear.
+    expect(await submit(selectionFields(all))).toMatchObject({ status: 400 });
+    expect(listGroceries(db, 'kid', 'home')).toHaveLength(all.length + 1);
+
+    expect(await submit(selectionFields(batch))).toEqual({ clear: { ok: true, cleared: MAX_BOUGHT_CLEAR_ROWS } });
+    const left = listGroceries(db, 'kid', 'home');
+    expect(left.filter(item => item.completed)).toHaveLength(50);
+    expect(left.some(item => item.id === keep)).toBe(true);
+
+    const next = boughtClearBatch(all.slice(batch.length));
+    expect(next.remaining).toBe(0);
+    expect(await submit(selectionFields(next.batch))).toEqual({ clear: { ok: true, cleared: 50 } });
+    expect(listGroceries(db, 'kid', 'home')).toMatchObject([{ id: keep, completed: false }]);
   } finally { db.close(); }
 });

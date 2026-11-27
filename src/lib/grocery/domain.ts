@@ -1,5 +1,17 @@
 import { parseIngredientLine } from './ingredient-parser';
 
+/** One clear request may remove at most this many reviewed bought rows. */
+export const MAX_BOUGHT_CLEAR_ROWS = 200;
+
+/**
+ * Splits the bought list into the rows one clear request may carry and a count of those left for
+ * the next request. The server rejects a larger selection, so the form must never submit one.
+ */
+export function boughtClearBatch<T>(bought: readonly T[], max: number = MAX_BOUGHT_CLEAR_ROWS): { batch: T[]; remaining: number } {
+  const batch = bought.slice(0, max);
+  return { batch, remaining: bought.length - batch.length };
+}
+
 function normalize(value: string): string {
   return value
     .normalize('NFKC')
