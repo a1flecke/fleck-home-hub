@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { MAX_BULK_INPUT_CHARS, MAX_BULK_LINES, bulkActions, type BulkDecision } from '../grocery/bulk';
-import { ingredientLines, matchesActiveGrocery, probableGroceryMatch, sameGroceryName } from '../grocery/domain';
+import { ingredientLines, matchesActiveGrocery, MAX_BOUGHT_CLEAR_ROWS, probableGroceryMatch, sameGroceryName } from '../grocery/domain';
 import {
   familyIngredientKey,
   ingredientActions,
@@ -23,8 +23,8 @@ type Item = ItemInput & { id: string; completed: boolean; version: number };
 type MealIngredientRef = { key: string; line: string; source: IngredientSource; group: string | null };
 export type BoughtSelection = { id: string; version: number };
 
-/** One request may review at most this many bought rows before clearing. */
-export const MAX_BOUGHT_CLEAR_ROWS = 200;
+/** One request may review at most this many bought rows before clearing (see grocery/domain). */
+export { MAX_BOUGHT_CLEAR_ROWS };
 /** One week may review or confirm at most this many selected ingredient lines. */
 export const MAX_WEEK_INGREDIENT_LINES = 150;
 /** A retry key is an opaque client value with a bounded length. */
