@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { summarizeReadiness } from '../../lib/checklists/readiness';
   import { resolve } from '$app/paths';
   import type { PreparationProgress } from '../../lib/server/checklists';
   import Disclosure from './Disclosure.svelte';
@@ -17,6 +18,7 @@
     preparationContext: string;
     titleAs?: 'h3' | 'h4';
   } = $props();
+  let readiness = $derived(summarizeReadiness(event.checklists));
   let preparationParams = $derived({ eventId: encodeURIComponent(event.id), occurrence: event.date });
 </script>
 <article class="rounded-2xl bg-white p-5 shadow-sm">
@@ -28,11 +30,15 @@
   {#if event.checklists.length || role === 'parent'}
     <section aria-label="Preparation" class="mt-4 rounded-xl bg-teal-50 p-3">
       <p class="font-bold text-teal-950">Preparation</p>
+      {#if readiness.total}
+        <p class="mt-1 text-sm font-semibold">Ready: {readiness.completed} of {readiness.total} items</p>
+        <p class="text-sm text-slate-700">{readiness.ready ? 'Everything is ready!' : `${readiness.outstanding} ${readiness.outstanding === 1 ? 'thing' : 'things'} still to do`}</p>
+      {/if}
       {#if event.checklists.length}
         <ul class="mt-1 divide-y divide-teal-200">
           {#each event.checklists as list (list.id)}
             <li class="py-2">
-              <a class="inline-flex min-h-8 items-center break-words font-semibold text-teal-800 underline" href={resolve('/lists/[id]', { id: list.id })}>{list.name}</a>
+              <a class="inline-flex min-h-11 items-center break-words font-semibold text-teal-800 underline" href={resolve('/lists/[id]', { id: list.id })}>{list.name}</a>
               <p class="text-sm text-slate-700">{list.completed} of {list.total} items ready</p>
             </li>
           {/each}

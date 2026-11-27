@@ -7,6 +7,7 @@
   import { viewHeading } from '../../lib/calendar/navigation';
   import { addCalendarDays } from '../../lib/calendar/dates';
   import { eventTimeLabel, groupByDate, sortOccurrences } from '../../lib/calendar/presentation';
+  import GettingReady from './GettingReady.svelte';
   import KidDay from './KidDay.svelte';
   import type { PageData } from './$types';
   type PayoutError = { child: string; amount: string; date: string; note: string; requestId: string };
@@ -74,6 +75,7 @@
       <p class="mt-1">Your family’s hub is ready. Use the links above to plan your day, or start with a chore below.</p>
     </section>
   {/if}
+  <GettingReady preparations={data.preparations} />
   <section aria-labelledby="coming-up-heading" class="mt-6 rounded-2xl bg-white p-5 shadow-sm">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
       <h2 id="coming-up-heading" class="text-xl font-bold">Coming up</h2>
