@@ -1,13 +1,26 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
 import { pageModule } from './support/modules';
+import { freshHousehold, type SeededMember } from './support/households';
 
-async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password', heading = 'Hello, Sample Parent') {
+// e2e-isolation: fresh-households
+// Every test shops for its own household's week, so meals, groceries and duplicates never collide
+// with another test or a repetition of this one.
+
+/** A parent, a second parent and a child; names match the headings the tests assert. */
+function shoppingHousehold() {
+  return freshHousehold({ members: [
+    { name: 'Sample Parent', role: 'parent' }, { name: 'Multi Parent', role: 'parent' }, { name: 'Sample Kid', role: 'kid' }
+  ] });
+}
+
+/** Signs in through the form and waits for that member's home page. */
+async function signIn(page: Page, member: SeededMember) {
   await page.goto('/sign-in');
-  await page.getByLabel('Email').fill(email);
-  await page.getByLabel('Password').fill(password);
+  await page.getByLabel('Email').fill(member.email);
+  await page.getByLabel('Password').fill(member.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
-  await expect(page.getByRole('heading', { name: heading })).toBeVisible();
+  await expect(page.getByRole('heading', { name: member.role === 'parent' ? `Hello, ${member.name}` : `${member.name}'s My Day` })).toBeVisible();
 }
 
 function day(page: Page, date: string) {
@@ -39,12 +52,13 @@ async function addRecipeMeal(page: Page, date: string, title: string, recipeUrl:
 }
 
 test('a parent shops a planned week, reviews duplicates and provider ingredients, and keeps the meals', async ({ page }, testInfo) => {
+  const household = await shoppingHousehold();
   const stamp = Date.now();
   const pasta = `Shop pasta ${stamp}`;
   const bowls = `Shop bowls ${stamp}`;
   const provider = `Shop provider ${stamp}`;
   await page.setViewportSize({ width: 375, height: 812 });
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   await page.goto('/groceries');
   const initialAdd = page.getByRole('form', { name: 'Add grocery item' });
   await initialAdd.getByLabel('Item', { exact: true }).fill('shop onion');
@@ -110,9 +124,10 @@ test('a parent shops a planned week, reviews duplicates and provider ingredients
 });
 
 test('a second parent changing the list forces an explicit duplicate decision', async ({ page, browser }, testInfo) => {
+  const household = await shoppingHousehold();
   const stamp = Date.now();
   const title = `Conflict dinner ${stamp}`;
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   await addMeal(page, '2100-02-15', title, '2 cups conflict flour');
   await page.goto('/meals/shop?week=2100-02-14');
   const selection = page.getByRole('form', { name: 'Select ingredients for the week' });
@@ -124,7 +139,7 @@ test('a second parent changing the list forces an explicit duplicate decision', 
   const secondContext = await browser.newContext();
   try {
     const second = await secondContext.newPage();
-    await signIn(second, 'multi-parent@example.test', 'synthetic-multi-parent-password', 'Hello, Multi Parent');
+    await signIn(second, household.members['Multi Parent']);
     await second.goto('/groceries');
     const add = second.getByRole('form', { name: 'Add grocery item' });
     await add.getByLabel('Item', { exact: true }).fill('conflict flour');
@@ -148,16 +163,17 @@ test('a second parent changing the list forces an explicit duplicate decision', 
 });
 
 test('shop the week works without JavaScript and rejects children and cross-origin requests', async ({ page, browser }) => {
+  const household = await shoppingHousehold();
   const stamp = Date.now();
   const title = `Native shop dinner ${stamp}`;
   expect((await page.request.get('/meals/shop', { maxRedirects: 0 })).status()).toBe(303);
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   await addMeal(page, '2100-02-22', title, '3 hydration pears');
 
   const kidContext = await browser.newContext();
   try {
     const kid = await kidContext.newPage();
-    await signIn(kid, 'kid@example.test', 'synthetic-kid-password', "Sample Kid's My Day");
+    await signIn(kid, household.members['Sample Kid']);
     expect((await kid.request.get('/meals/shop', { maxRedirects: 0 })).status()).toBe(403);
     const denied = await kid.request.post('/meals/shop?/review', { form: { week: '2100-02-21' }, headers: { origin: 'http://127.0.0.1:4173' } });
     expect(denied.status()).toBe(403);
@@ -197,10 +213,11 @@ test('shop the week works without JavaScript and rejects children and cross-orig
 });
 
 test('week review edits survive delayed hydration and are submitted', async ({ page, browser }) => {
+  const household = await shoppingHousehold();
   const stamp = Date.now();
   const title = `Hydration review dinner ${stamp}`;
   const ingredient = `2 cups hydration review beans ${stamp}`;
-  await signIn(page);
+  await signIn(page, household.members['Sample Parent']);
   await addMeal(page, '2100-02-28', title, ingredient);
 
   const context = await browser.newContext({ storageState: await page.context().storageState() });
