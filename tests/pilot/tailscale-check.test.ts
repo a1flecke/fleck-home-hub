@@ -23,6 +23,42 @@ describe('serve configuration', () => {
   it('fails when Funnel is enabled for any host', () => {
     expect(find(evaluateServe({ ...good, AllowFunnel: { 'hub.tail1234.ts.net:443': true } }, origin, 3000), 'funnel')?.status).toBe('FAIL');
   });
+  it('fails when Funnel is enabled in Foreground Serve configuration', () => {
+    const fgFunnel = {
+      ...good,
+      Foreground: {
+        'session-1': {
+          AllowFunnel: { 'hub.tail1234.ts.net:443': true }
+        }
+      }
+    };
+    const checks = evaluateServe(fgFunnel, origin, 3000);
+    expect(find(checks, 'funnel')?.status).toBe('FAIL');
+  });
+  it('warns when Foreground Serve defines extra web routes or TCP forwards', () => {
+    const fgExtra = {
+      ...good,
+      Foreground: {
+        'session-1': {
+          Web: { 'other.tail1234.ts.net:8443': { Handlers: { '/': { Proxy: 'http://127.0.0.1:9000' } } } },
+          TCP: { '22': { TCPForward: '127.0.0.1:22' } }
+        }
+      }
+    };
+    const checks = evaluateServe(fgExtra, origin, 3000);
+    expect(find(checks, 'other-routes')?.status).toBe('WARN');
+    expect(find(checks, 'tcp')?.status).toBe('WARN');
+  });
+  it('fails when AUTH_ORIGIN is not https or the target TCP port is not HTTPS-only', () => {
+    expect(find(evaluateServe(good, 'http://hub.tail1234.ts.net', 3000), 'https')?.status).toBe('FAIL');
+    const httpTcp = { ...good, TCP: { '443': { HTTP: true } } };
+    expect(find(evaluateServe(httpTcp, origin, 3000), 'https')?.status).toBe('FAIL');
+    const missingTcp = { Web: good.Web };
+    expect(find(evaluateServe(missingTcp, origin, 3000), 'https')?.status).toBe('FAIL');
+    const forwardedTcp = { ...good, TCP: { '443': { HTTPS: true, TCPForward: '127.0.0.1:3000' } } };
+    expect(find(evaluateServe(forwardedTcp, origin, 3000), 'https')?.status).toBe('FAIL');
+    expect(find(evaluateServe(good, origin, 3000), 'https')?.status).toBe('PASS');
+  });
   it('fails a proxy target that is not the loopback port, and a host that differs from AUTH_ORIGIN', () => {
     const wrongTarget = { ...good, Web: { 'hub.tail1234.ts.net:443': { Handlers: { '/': { Proxy: 'http://192.168.1.9:3000' } } } } };
     expect(find(evaluateServe(wrongTarget, origin, 3000), 'route')?.status).toBe('FAIL');
@@ -53,6 +89,9 @@ describe('status document', () => {
     expect(find(checks, 'acl')?.status).toBe('UNKNOWN');
     expect(find(evaluateStatus({ BackendState: 'Stopped', Self: { DNSName: 'hub.tail1234.ts.net.' } }, origin), 'backend')?.status).toBe('FAIL');
     expect(find(evaluateStatus({ BackendState: 'Running', Self: { DNSName: 'someone-else.ts.net.' } }, origin), 'dns-name')?.status).toBe('FAIL');
+    expect(find(evaluateStatus({ BackendState: 'Running', Self: { DNSName: 'Hub.Tail1234.ts.net.' } }, origin), 'dns-name')?.status).toBe('PASS');
+    const missingDns = find(evaluateStatus({ BackendState: 'Running', Self: {} }, origin), 'dns-name');
+    expect(missingDns?.status).toBe('FAIL');
   });
 });
 

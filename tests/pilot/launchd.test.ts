@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, statSync, readdirSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync, statSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -7,9 +7,10 @@ import { renderPlist, validateOptions, planInstall, runCommand, DEFAULT_LABEL } 
 import { parseEnvFile } from '../../scripts/pilot/envfile.mjs';
 
 const SECRET = 'synthetic-launchd-secret-value-0123456789-SENTINEL';
+const testUid = process.getuid?.() ?? 501;
 let dir = '';
 let repo = '';
-const opts = () => ({ repoRoot: repo, envFile: join(dir, 'cfg', 'hub.conf'), miseBin: join(dir, 'bin', 'mise'), logDir: join(dir, 'logs'), label: DEFAULT_LABEL, home: dir, uid: 501 });
+const opts = () => ({ repoRoot: repo, envFile: join(dir, 'cfg', 'hub.conf'), miseBin: join(dir, 'bin', 'mise'), logDir: join(dir, 'logs'), label: DEFAULT_LABEL, home: dir, uid: testUid });
 function snapshot(root: string): string[] {
   return readdirSync(root, { recursive: true }).map(String).sort().map(name => `${name} ${statSync(join(root, name)).mode & 0o777}`);
 }
@@ -80,7 +81,7 @@ describe('opt-in install planning (no launchctl in tests)', () => {
     const before = snapshot(dir);
     const plan = planInstall(opts());
     expect(plan.plistPath).toBe(join(dir, 'Library', 'LaunchAgents', `${DEFAULT_LABEL}.plist`));
-    expect(plan.commands).toEqual([['launchctl', 'bootstrap', 'gui/501', plan.plistPath]]);
+    expect(plan.commands).toEqual([['launchctl', 'bootstrap', `gui/${testUid}`, plan.plistPath]]);
     expect(calls).toEqual([]);
     expect(snapshot(dir)).toEqual(before);
   });
@@ -92,7 +93,7 @@ describe('opt-in install planning (no launchctl in tests)', () => {
     const plist = join(dir, 'Library', 'LaunchAgents', `${DEFAULT_LABEL}.plist`);
     expect(statSync(plist).mode & 0o777).toBe(0o600);
     expect(statSync(join(dir, 'logs')).mode & 0o777).toBe(0o700);
-    expect(calls).toEqual([['launchctl', 'bootstrap', 'gui/501', plist]]);
+    expect(calls).toEqual([['launchctl', 'bootstrap', `gui/${testUid}`, plist]]);
     expect(readFileSync(plist, 'utf8')).not.toContain(SECRET);
     const again = runCommand('install', opts(), { apply: true, run });
     expect(again.code).not.toBe(0);
@@ -111,7 +112,7 @@ describe('opt-in install planning (no launchctl in tests)', () => {
   });
   it('uninstall, restart and status print commands unless applied', () => {
     const run = () => { throw new Error('must not run'); };
-    const target = `gui/501/${DEFAULT_LABEL}`;
+    const target = `gui/${testUid}/${DEFAULT_LABEL}`;
     expect(runCommand('uninstall', opts(), { apply: false, run }).output).toContain(`launchctl bootout ${target}`);
     expect(runCommand('restart', opts(), { apply: false, run }).output).toContain(`launchctl kickstart -k ${target}`);
     expect(runCommand('status', opts(), { apply: false, run }).output).toContain(`launchctl print ${target}`);
@@ -126,12 +127,69 @@ describe('opt-in install planning (no launchctl in tests)', () => {
     const ok = runCommand('uninstall', opts(), { apply: true, run: () => ({ status: 0, stdout: '' }) });
     expect(ok.code).toBe(0);
     expect(existsSync(plist)).toBe(false);
-    expect(calls[0]).toEqual(['launchctl', 'bootout', `gui/501/${DEFAULT_LABEL}`]);
+    expect(calls[0]).toEqual(['launchctl', 'bootout', `gui/${testUid}/${DEFAULT_LABEL}`]);
+  });
+  it('status --apply returns launchctl print output instead of discarding it', () => {
+    const out = runCommand('status', opts(), {
+      apply: true,
+      run: () => ({ status: 0, stdout: 'state = running\npid = 4242\n' })
+    });
+    expect(out.code).toBe(0);
+    expect(out.output).toContain('state = running');
+    expect(out.output).toContain('pid = 4242');
+  });
+  it('removes the newly written plist when install bootstrap fails so retrying install succeeds', () => {
+    const plist = join(dir, 'Library', 'LaunchAgents', `${DEFAULT_LABEL}.plist`);
+    const failed = runCommand('install', opts(), {
+      apply: true,
+      run: () => ({ status: 5, stdout: '' })
+    });
+    expect(failed.code).toBe(1);
+    expect(() => lstatSync(plist)).toThrow();
+    const retry = runCommand('install', opts(), {
+      apply: true,
+      run: () => ({ status: 0, stdout: '' })
+    });
+    expect(retry.code).toBe(0);
+    expect(statSync(plist).isFile()).toBe(true);
+  });
+  it('refuses wrong uid, directory mise, broken plist symlinks, and symlinked log directories', () => {
+    const run = () => { throw new Error('must not run'); };
+    expect(runCommand('install', { ...opts(), uid: testUid + 1 }, { apply: true, run }).code).toBe(1);
+
+    const miseDir = join(dir, 'bin', 'mise-dir');
+    mkdirSync(miseDir, { mode: 0o755 });
+    expect(runCommand('install', { ...opts(), miseBin: miseDir }, { apply: true, run }).code).toBe(1);
+
+    const targetDir = join(dir, 'outside-target');
+    mkdirSync(targetDir, { mode: 0o755 });
+    const symlinkLogs = join(dir, 'symlink-logs');
+    symlinkSync(targetDir, symlinkLogs);
+    expect(runCommand('install', { ...opts(), logDir: symlinkLogs }, { apply: true, run }).code).toBe(1);
+    expect(statSync(targetDir).mode & 0o777).toBe(0o755);
+
+    const agentsDir = join(dir, 'Library', 'LaunchAgents');
+    mkdirSync(agentsDir, { recursive: true });
+    const plist = join(agentsDir, `${DEFAULT_LABEL}.plist`);
+    symlinkSync(join(dir, 'nonexistent-target.plist'), plist);
+    expect(runCommand('install', opts(), { apply: true, run }).code).toBe(1);
+    expect(runCommand('uninstall', opts(), { apply: true, run }).code).toBe(1);
+    expect(lstatSync(plist).isSymbolicLink()).toBe(true);
   });
   it('rejects unknown commands', () => { expect(runCommand('explode', opts(), { apply: true, run: () => ({ status: 0, stdout: '' }) }).code).toBe(64); });
 });
 
 describe('command line', () => {
+  it('findMise skips non-executable files earlier in PATH and selects the executable mise', () => {
+    const badBin = join(dir, 'bad-bin');
+    const goodBin = join(dir, 'good-bin');
+    mkdirSync(badBin); mkdirSync(goodBin);
+    writeFileSync(join(badBin, 'mise'), 'not executable\n', { mode: 0o644 });
+    writeFileSync(join(goodBin, 'mise'), '#!/bin/sh\n', { mode: 0o755 });
+    const result = spawnSync(process.execPath, [resolve('scripts/pilot/launchd.mjs'), 'preview', '--repo', repo, '--config-file', join(dir, 'cfg', 'hub.conf'), '--log-dir', join(dir, 'logs')], { encoding: 'utf8', env: { PATH: `${badBin}:${goodBin}:/usr/bin:/bin`, HOME: dir } });
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain(`<string>${join(goodBin, 'mise')}</string>`);
+  });
   it('previews by default and creates nothing', () => {
     const before = snapshot(dir);
     const result = spawnSync(process.execPath, [resolve('scripts/pilot/launchd.mjs'), 'preview', '--repo', repo, '--config-file', join(dir, 'cfg', 'hub.conf'), '--mise', join(dir, 'bin', 'mise'), '--log-dir', join(dir, 'logs')], { encoding: 'utf8', env: { PATH: '/usr/bin:/bin', HOME: dir } });
