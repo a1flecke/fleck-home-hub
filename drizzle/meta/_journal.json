@@ -26,6 +26,7 @@
     { "idx": 21, "version": "6", "when": 1795050000000, "tag": "0021_recurring_schedule_revision", "breakpoints": true },
     { "idx": 22, "version": "6", "when": 1795136400000, "tag": "0022_chore_reuse_batch", "breakpoints": true },
     { "idx": 23, "version": "6", "when": 1795222800000, "tag": "0023_family_checklists", "breakpoints": true },
-    { "idx": 24, "version": "6", "when": 1795309200000, "tag": "0024_recurring_schedule_versions", "breakpoints": true }
+    { "idx": 24, "version": "6", "when": 1795309200000, "tag": "0024_recurring_schedule_versions", "breakpoints": true },
+    { "idx": 25, "version": "6", "when": 1795395600000, "tag": "0025_checklist_templates", "breakpoints": true }
   ]
 }
