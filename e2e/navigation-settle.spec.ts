@@ -7,6 +7,14 @@ const origin = 'http://127.0.0.1:4173';
 
 const cleanBedroom = (page: Page) => page.getByRole('article').filter({ has: page.getByRole('heading', { name: 'Clean bedroom', exact: true }) });
 
+// The cleared list is paged by recency and other specs add chores to this household, so assert what
+// is always true of the destination (an empty search and at least one result) rather than which
+// seeded chore is on its first page. The outgoing page shows "Showing 0 of 0".
+async function expectClearedList(page: Page) {
+  await expect(page.getByLabel('Search recent chores')).toHaveValue('');
+  await expect(page.getByText(/^Showing [1-9]\d* of \d+ recent chores\.$/)).toBeVisible();
+}
+
 async function signIn(page: Page) {
   const response = await page.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'reuse-parent@example.test', password: 'synthetic-reuse-parent-password' } });
   expect(response.status()).toBe(200);
@@ -49,8 +57,7 @@ test('the navigation marker is loading as soon as a client-side link click retur
 
   release();
   await waiting;
-  await expect(page.getByLabel('Search recent chores')).toHaveValue('');
-  await expect(cleanBedroom(page)).toBeVisible();
+  await expectClearedList(page);
 });
 
 test('the chore-reuse search journey settles each navigation before acting, with a late cleared list', async ({ page }) => {
@@ -85,7 +92,7 @@ test('settle returns at once without JavaScript, where Playwright already waits 
     await page.getByRole('link', { name: 'Clear search' }).click();
     await settle(page);
     await expect(page.locator('html')).not.toHaveAttribute('data-navigation', /.*/);
-    await expect(cleanBedroom(page)).toBeVisible();
+    await expectClearedList(page);
   } finally { await context.close(); }
 });
 
