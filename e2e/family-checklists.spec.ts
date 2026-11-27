@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 async function signIn(page: Page, email: string, password: string) {
   const origin = 'http://127.0.0.1:4173';
@@ -13,6 +14,7 @@ test('a parent shares a packing list and a child marks an item ready', async ({ 
   await page.goto('/dashboard');
   await expect(page.getByRole('link', { name: 'Family lists', exact: true })).toBeVisible();
   await page.getByRole('link', { name: 'Family lists', exact: true }).click();
+  await settle(page);
   const create = page.getByRole('form', { name: 'Create a family list' });
   await create.getByLabel('List name').fill(title);
   await create.getByLabel('Share with family').check();
@@ -30,6 +32,7 @@ test('a parent shares a packing list and a child marks an item ready', async ({ 
     await signIn(child, 'kid@example.test', 'synthetic-kid-password');
     await child.goto('/dashboard');
     await child.getByRole('link', { name: 'Family lists', exact: true }).click();
+    await settle(child);
     await expect(child.getByRole('link', { name: title })).toBeVisible();
     await child.goto(listUrl);
     await child.getByRole('article', { name: 'Coats' }).getByRole('button', { name: 'Mark ready' }).click();
@@ -94,7 +97,7 @@ test('list details entered before hydration survive and are submitted', async ({
     await form.getByLabel('Description (optional)').fill('Packing notes before hydration');
     await form.getByLabel('Target date (optional)').fill('2099-12-25');
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(form.getByLabel('List name')).toHaveValue(title);
     await expect(form.getByLabel('Share with family')).toBeChecked();
     expect(await form.evaluate(element => Object.fromEntries(new FormData(element as HTMLFormElement)))).toMatchObject({ name: title, description: 'Packing notes before hydration', targetDate: '2099-12-25', shared: 'yes' });

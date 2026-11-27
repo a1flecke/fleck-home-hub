@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type BrowserContext, type Page } from '@playwright/test';
+import { settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -362,6 +363,7 @@ test('a parent in two households chooses what the selected household shares', as
 
     await parent.page.goto('/settings/displays?household=synthetic-display-second');
     await parent.page.getByRole('link', { name: 'Choose what to share' }).click();
+    await settle(parent.page);
     await expect(parent.page.getByRole('combobox', { name: 'Household', exact: true })).toHaveValue('synthetic-display-second');
     const item = parent.page.getByRole('region', { name: 'Choose what to share' }).getByRole('article').filter({ hasText: event });
     await item.getByRole('button', { name: 'Show on display' }).click();

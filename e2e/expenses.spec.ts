@@ -1,4 +1,5 @@
 import { expect, test, type Browser, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 async function signIn(page: Page, account = 'parent') {
   await page.goto('/sign-in');
@@ -92,7 +93,7 @@ test('monthly expenses survive delayed hydration and support skip, pause, resume
     await add.getByLabel('Notes').fill('Synthetic policy note');
     await add.getByLabel('Payee').fill('Synthetic provider');
     release();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
     await expect(add.getByLabel('Title')).toHaveValue(title);
     await expect(add.getByLabel('Frequency')).toHaveValue('monthly');
     await add.getByRole('button', { name: 'Save expense' }).click();
@@ -214,7 +215,7 @@ async function beforeExpenseHydration(page: Page, url: string, edit: () => Promi
     await edit();
     release();
     await page.waitForLoadState('load');
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
   } finally {
     release();
     await page.unroute(module);
@@ -230,6 +231,7 @@ test('the dashboard links to expenses for parents only', async ({ page }) => {
 test('a parent reaches expenses from the dashboard and retains a range set before hydration', async ({ page }) => {
   await signIn(page);
   await page.getByRole('link', { name: 'Expenses', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Expenses', exact: true })).toBeVisible();
   const filter = page.getByRole('form', { name: 'Expense date range' });
   const date = dateAfter(5);
@@ -238,6 +240,7 @@ test('a parent reaches expenses from the dashboard and retains a range set befor
     await filter.getByLabel('Range').selectOption('90');
   });
   await filter.getByRole('button', { name: 'Show expenses' }).click();
+  await settle(filter);
   await expect(page).toHaveURL('/expenses?date=' + date + '&days=90');
   await expect(filter.getByLabel('Start date')).toHaveValue(date);
   await expect(filter.getByLabel('Range')).toHaveValue('90');

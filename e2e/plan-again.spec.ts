@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { settle } from './support/navigation';
 
 async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password') {
   await page.goto('/sign-in');
@@ -35,13 +36,16 @@ test('a parent repeats a favorite dinner into a private, separately editable mea
   await addMeal(page, '2099-12-06', sourceTitle, '2 cups original beans\n1 original onion', { recipeUrl, notes: note, shared: true });
 
   await page.getByRole('link', { name: 'Plan it again from a recent meal', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Plan it again' })).toBeVisible();
   await page.getByLabel('Search past dinners').fill(sourceTitle);
   await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await settle(page);
   const sourceCard = page.getByRole('article').filter({ hasText: sourceTitle });
   await expect(sourceCard).toBeVisible();
   await expect(sourceCard).toContainText('Recipe source: eMeals');
   await sourceCard.getByRole('link', { name: `Plan again: ${sourceTitle}` }).click();
+  await settle(sourceCard);
 
   const adjust = page.getByRole('form', { name: 'Preview a meal plan' });
   await expect(adjust.getByLabel('Meal name')).toHaveValue(sourceTitle);
@@ -189,6 +193,7 @@ test('planning again works without JavaScript and rejects children and cross-ori
     const native = await context.newPage();
     await native.goto(`/meals/again?q=${encodeURIComponent(sourceTitle)}`);
     await native.getByRole('link', { name: `Plan again: ${sourceTitle}` }).click();
+    await settle(native);
     const adjust = native.getByRole('form', { name: 'Preview a meal plan' });
     await adjust.getByLabel('Meal name').fill(copyTitle);
     await adjust.getByLabel('New date').fill('2099-12-28');

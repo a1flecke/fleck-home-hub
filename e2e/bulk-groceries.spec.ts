@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 async function signInAsBulk(page: Page, key: string) {
   const origin = 'http://127.0.0.1:4173';
@@ -15,6 +16,7 @@ async function signInAsBulk(page: Page, key: string) {
 async function openBulk(page: Page) {
   await page.goto('/groceries');
   await page.getByRole('link', { name: 'Paste several items at once' }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Add several groceries' })).toBeVisible();
 }
 
@@ -53,6 +55,7 @@ test('a member pastes a list, corrects an uncertain line, skips a match and adds
   await expect(page.getByRole('article').filter({ hasText: milk })).toBeVisible();
 
   await page.getByRole('link', { name: 'Paste several items at once' }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Add several groceries' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('bulk-paste-mobile.png'), fullPage: true });
   const review = await pasteAndReview(page, [
@@ -193,7 +196,7 @@ test('pasted text and review edits survive delayed hydration and are submitted',
     const pasted = [`2 cups ${rice}`, `3 ${apples}`].join('\n');
     await delayed.getByLabel('Paste your list').fill(pasted);
     releaseFirst();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(delayed.getByLabel('Paste your list')).toHaveValue(pasted);
 
     await delayed.getByRole('button', { name: 'Review list' }).click();
@@ -203,7 +206,7 @@ test('pasted text and review edits survive delayed hydration and are submitted',
     await riceLine.getByLabel('Quantity').fill('4');
     await riceLine.getByLabel('Unit').fill('jars');
     releaseSecond();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     expect(await review.evaluate(element => Object.fromEntries(new FormData(element.querySelector('form') as HTMLFormElement)))).toMatchObject({
       'name-0': rice,
       'quantity-0': '4',
@@ -261,6 +264,7 @@ test('cancelling a reviewed list returns to the grocery list without saving', as
   await expect(lineGroup(review, `2 cups ${rice}`)).toBeVisible();
 
   await page.getByRole('link', { name: 'Cancel without saving' }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Grocery list' })).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: rice })).toHaveCount(0);
   await page.reload();

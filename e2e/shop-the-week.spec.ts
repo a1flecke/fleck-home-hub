@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password', heading = 'Hello, Sample Parent') {
   await page.goto('/sign-in');
@@ -56,6 +57,7 @@ test('a parent shops a planned week, reviews duplicates and provider ingredients
 
   await page.goto('/meals?week=2100-02-07');
   await page.getByRole('link', { name: 'Shop the week', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Shop the week' })).toBeVisible();
   await expect(page.getByText(/Feb 7.*13, 2100/)).toBeVisible();
   const selection = page.getByRole('form', { name: 'Select ingredients for the week' });
@@ -187,7 +189,7 @@ test('shop the week works without JavaScript and rejects children and cross-orig
     const checkbox = delayed.getByLabel('3 hydration pears');
     await checkbox.check();
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(delayed.getByLabel('3 hydration pears')).toBeChecked();
     expect(await delayed.getByRole('form', { name: 'Select ingredients for the week' }).evaluate(element => new FormData(element as HTMLFormElement).getAll('ingredient'))).toHaveLength(1);
   } finally { release(); await delayedContext.close(); }
@@ -226,7 +228,7 @@ test('week review edits survive delayed hydration and are submitted', async ({ p
     await line.getByLabel('Quantity').fill('5');
     await line.getByLabel('Unit').fill('cans');
     release();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     expect(await review.evaluate(element => Object.fromEntries(new FormData(element.querySelector('form') as HTMLFormElement)))).toMatchObject({ 'name-0': 'hydration review beans', 'quantity-0': '5', 'unit-0': 'cans', 'action-0': 'add' });
     await review.getByRole('button', { name: 'Add reviewed ingredients' }).click();
     await expect(delayed.getByRole('article').filter({ hasText: 'hydration review beans' })).toContainText('5 cans');

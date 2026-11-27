@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { expect, test, type Locator, type Page, type Route } from '@playwright/test';
+import { settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 const first = '2099-05-04';
@@ -60,6 +61,7 @@ for (const javaScriptEnabled of [true, false]) {
       await parent.goto(chosenView);
       const event = article(parent, trip);
       await event.getByRole('link', { name: 'Attach existing checklist', exact: true }).click();
+      await settle(event);
       const attach = parent.getByRole('form', { name: 'Attach existing checklist', exact: true });
       await attach.getByRole('combobox', { name: 'Checklist', exact: true }).selectOption({ label: `${packing} (shared)` });
       await attach.getByRole('button', { name: 'Attach checklist', exact: true }).click();
@@ -67,6 +69,7 @@ for (const javaScriptEnabled of [true, false]) {
       await expect(event.getByRole('link', { name: packing, exact: true })).toBeVisible();
 
       await event.getByRole('link', { name: 'Add preparation checklist', exact: true }).click();
+      await settle(event);
       const create = parent.getByRole('form', { name: 'Add preparation checklist', exact: true });
       const notes = 'Bring a cooler if it is warm';
       await create.getByLabel('List name').fill('   ');
@@ -98,6 +101,7 @@ for (const javaScriptEnabled of [true, false]) {
         for (const privateValue of [food, notes, foodPath.split('/').at(-1)!]) expect(text).not.toContain(privateValue);
       }
       await childEvent.getByRole('link', { name: packing, exact: true }).click();
+      await settle(childEvent);
       await child.getByRole('article', { name: 'Coats', exact: true }).getByRole('button', { name: 'Mark ready', exact: true }).click();
       await expect(child.getByText('1 of 2 items ready', { exact: true })).toBeVisible();
       await parent.goto(calendar(first));
@@ -111,6 +115,7 @@ for (const javaScriptEnabled of [true, false]) {
           await signIn(secondParent, 'multi-parent');
           await secondParent.goto(chosenView);
           await article(secondParent, trip).getByRole('link', { name: packing, exact: true }).click();
+          await settle(secondParent);
           await expect(secondParent.getByText('1 of 2 items ready', { exact: true })).toBeVisible();
         } finally { await secondContext.close(); }
       }
@@ -126,9 +131,11 @@ for (const javaScriptEnabled of [true, false]) {
       await expect(parent.getByRole('region', { name: 'Calendar event', exact: true })).toContainText('This date was cancelled or moved');
       await expect(parent.getByText('1 of 2 items ready', { exact: true })).toBeVisible();
       await parent.getByRole('link', { name: 'Change or remove calendar link', exact: true }).click();
+      await settle(parent);
       const search = parent.getByRole('form', { name: 'Find calendar events', exact: true });
       await search.getByLabel('Starting date').fill(next);
       await search.getByRole('button', { name: 'Show events', exact: true }).click();
+      await settle(search);
       await expect(parent).toHaveURL(new RegExp(`date=${next}`));
       const link = parent.getByRole('form', { name: 'Choose a calendar event', exact: true });
       const actual = await link.getByRole('option', { name: `${trip} · Monday, May 11, 2099 · All day`, exact: true }).getAttribute('value');
@@ -139,10 +146,13 @@ for (const javaScriptEnabled of [true, false]) {
       const current = parent.getByRole('region', { name: 'Calendar event', exact: true });
       await expect(current.getByRole('link', { name: 'Open in calendar', exact: true })).toBeVisible();
       await current.getByRole('link', { name: 'Open in calendar', exact: true }).click();
+      await settle(current);
       await expect(parent).toHaveURL(origin + calendar(next));
       await expect(event.getByRole('link', { name: packing, exact: true })).toBeVisible();
       await event.getByRole('link', { name: packing, exact: true }).click();
+      await settle(event);
       await current.getByRole('link', { name: 'Change or remove calendar link', exact: true }).click();
+      await settle(current);
       await parent.getByRole('form', { name: 'Remove calendar link', exact: true }).getByRole('button', { name: 'Remove calendar link', exact: true }).click();
       await expect(current.getByRole('link', { name: 'Link to calendar event', exact: true })).toBeVisible();
       await expect(parent.getByText('1 of 2 items ready', { exact: true })).toBeVisible();
@@ -184,6 +194,7 @@ test('early checklist, event, and date choices survive hydration and submit in t
   const cal = calendar(first, 'day');
   await page.goto(cal);
   await article(page, trip).getByRole('link', { name: 'Attach existing checklist', exact: true }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Event preparation', exact: true })).toBeVisible();
   const prep = page.url();
   const attach = page.getByRole('form', { name: 'Attach existing checklist', exact: true });
@@ -220,6 +231,7 @@ test('early checklist, event, and date choices survive hydration and submit in t
   });
   expect((await fields(search)).date).toBe(next);
   await search.getByRole('button', { name: 'Show events', exact: true }).click();
+  await settle(search);
   await expect(page).toHaveURL(new RegExp(`date=${next}`));
   const selectedView = page.url();
   const link = page.getByRole('form', { name: 'Choose a calendar event', exact: true });
@@ -249,6 +261,7 @@ test('paired display responses exclude checklist data even for an opted-in event
   const event = article(page, eventName);
   for (const name of [privateName, sharedName]) {
     await event.getByRole('link', { name: 'Add preparation checklist', exact: true }).click();
+    await settle(event);
     const create = page.getByRole('form', { name: 'Add preparation checklist', exact: true });
     await create.getByLabel('List name').fill(name);
     if (name === sharedName) await create.getByLabel('Share with family').check();

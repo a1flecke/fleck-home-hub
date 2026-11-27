@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4174';
 const setupCode = 'synthetic-setup-code-'.repeat(3).slice(0, 43);
@@ -27,7 +28,7 @@ async function beforeHydration(page: Page, path: '/setup' | '/onboarding', edit:
     await requested.promise;
     await edit();
     gate.resolve();
-    await page.waitForLoadState('networkidle');
+    await hydrated(page);
   } finally {
     gate.resolve();
     await page.unroute(module);
@@ -61,6 +62,7 @@ test('a family starts with a blank hub and reaches a real dashboard', async ({ b
       headers: { origin }, data: { name: 'Denied', email: 'denied@example.test', password: parentPassword }
     })).ok()).toBe(false);
     await setup.getByRole('link', { name: 'Set up our family' }).click();
+    await settle(setup);
     await setup.getByLabel('Family name').fill('Maple Family');
     await setup.getByLabel('Time zone').fill('America/Denver');
     await setup.getByRole('button', { name: 'Continue', exact: true }).click();
@@ -148,10 +150,12 @@ test('a family starts with a blank hub and reaches a real dashboard', async ({ b
     expect(session.session.token).toBeUndefined();
 
     await setup.getByRole('link', { name: 'Fleck Home Hub' }).click();
+    await settle(setup);
     await setup.getByRole('button', { name: 'Sign out' }).click();
     await expect(setup.getByRole('heading', { name: 'Welcome home' })).toBeVisible();
     await signInParent(page, 'avery@example.test');
     await page.getByRole('link', { name: 'Continue family setup' }).click();
+    await settle(page);
     await expect(page.getByRole('heading', { name: 'Add your children' })).toBeVisible();
     await page.reload();
     await expect(page.getByRole('article', { name: 'River' })).toBeVisible();
@@ -159,6 +163,7 @@ test('a family starts with a blank hub and reaches a real dashboard', async ({ b
     await page.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Try something together' })).toBeVisible();
     await page.getByRole('link', { name: 'Add groceries' }).click();
+    await settle(page);
     const grocery = page.getByRole('form', { name: 'Add grocery item' });
     await grocery.getByLabel('Item', { exact: true }).fill('Maple oatmeal');
     await grocery.getByRole('button', { name: 'Add item' }).click();
@@ -166,11 +171,13 @@ test('a family starts with a blank hub and reaches a real dashboard', async ({ b
 
     await page.goto(origin + '/dashboard');
     await page.getByRole('link', { name: 'Continue family setup' }).click();
+    await settle(page);
     await expect(page.getByRole('heading', { name: 'Try something together' })).toBeVisible();
     await page.getByRole('button', { name: 'Go to our dashboard' }).click();
     await expect(page.getByRole('heading', { name: 'Welcome home!' })).toBeVisible();
     await expect(page.getByRole('link', { name: 'Continue family setup' })).toHaveCount(0);
     await page.getByRole('link', { name: 'Groceries', exact: true }).click();
+    await settle(page);
     await expect(page.getByRole('article').filter({ hasText: 'Maple oatmeal' })).toBeVisible();
     await page.goto(origin + '/setup');
     await expect(page).toHaveURL(origin + '/sign-in');

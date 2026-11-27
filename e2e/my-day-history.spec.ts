@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { hydrated, settle } from './support/navigation';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -32,7 +33,7 @@ test('schedule and historical correction forms preserve edits made before hydrat
     await form.getByLabel('Monday').check();
     await form.getByLabel('Recurring reward in dollars').fill('3.50');
     releaseSeries();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(form.getByLabel('Recurring chore title')).toHaveValue('Synthetic hydrated schedule');
     await expect(form.getByLabel('Starts on')).toHaveValue('2099-02-01');
     await expect(form.getByLabel('Monday')).toBeChecked();
@@ -53,7 +54,7 @@ test('schedule and historical correction forms preserve edits made before hydrat
     await article.getByText('Correct this payment').click();
     await article.getByLabel('Correction reason').fill('Preserved correction reason');
     releasePayment();
-    await delayed.waitForLoadState('networkidle');
+    await hydrated(delayed);
     await expect(article.getByLabel('Correction reason')).toHaveValue('Preserved correction reason');
     expect(await article.locator('form[action^="?/reversePayout"]').evaluate(element => Object.fromEntries(new FormData(element as HTMLFormElement)))).toMatchObject({ reason: 'Preserved correction reason' });
   } finally { releasePayment(); await paymentContext.close(); }
@@ -80,21 +81,26 @@ test('parent pages through bounded chore and payment history and corrects an old
   await signIn(page, 'history-parent@example.test', 'synthetic-history-parent-password', 'Hello, History Parent');
   await expect(page.getByRole('link', { name: /3 submissions are waiting for review/ })).toBeVisible();
   await page.getByRole('link', { name: 'Chore history' }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: 'Family chore history' })).toBeVisible();
   await page.getByRole('link', { name: 'History Kid' }).click();
+  await settle(page);
   await expect(page).toHaveURL(/scope=verified&page=1&child=/);
   await expect(page.getByText('Showing 25 of 60 in this view.')).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'History sibling private chore' })).toHaveCount(0);
   await page.getByRole('link', { name: 'Waiting for review (3)' }).click();
+  await settle(page);
   await expect(page).toHaveURL(/scope=review&child=/);
   await expect(page.getByText('Showing 3 of 3 in this view.')).toBeVisible();
   await page.getByRole('link', { name: 'Completed (60)' }).click();
+  await settle(page);
   await expect(page).toHaveURL(/scope=verified&child=/);
   await expect(page.getByText('Showing 25 of 60 in this view.')).toBeVisible();
   await expect(page.getByText('Page 1 of 3').first()).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'History completed 060' })).toBeVisible();
   await page.screenshot({ path: testInfo.outputPath('chore-history-mobile.png'), fullPage: true });
   await page.getByRole('link', { name: 'Next page' }).first().click();
+  await settle(page);
   await expect(page.getByText('Page 2 of 3').first()).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'History completed 035' })).toBeVisible();
   await expect(page.getByRole('article').filter({ hasText: 'History completed 060' })).toHaveCount(0);
@@ -106,9 +112,11 @@ test('parent pages through bounded chore and payment history and corrects an old
   const siblingHistory = await page.getByRole('article', { name: 'Earnings for History Sibling' }).getByRole('link', { name: /payments/ }).getAttribute('href');
   const kidPayments = await page.getByRole('article', { name: 'Earnings for History Kid' }).getByRole('link', { name: 'View all 25 payments' }).getAttribute('href');
   await page.getByRole('article', { name: 'Earnings for History Kid' }).getByRole('link', { name: 'View all 25 payments' }).click();
+  await settle(page);
   await expect(page.getByRole('heading', { name: "History Kid's payments" })).toBeVisible();
   await expect(page.getByText('Showing 20 of 25 payments.')).toBeVisible();
   await page.getByRole('link', { name: 'Next page' }).first().click();
+  await settle(page);
   await expect(page.getByText('Page 2 of 2').first()).toBeVisible();
   const older = page.getByRole('article').filter({ hasText: 'Synthetic older payment' });
   await expect(older).toBeVisible();
@@ -154,10 +162,13 @@ test('parent pages through bounded chore and payment history and corrects an old
     const noScript = await context.newPage();
     await noScript.goto('/dashboard');
     await noScript.getByRole('link', { name: 'My chore history' }).click();
+    await settle(noScript);
     await expect(noScript.getByRole('heading', { name: 'My chore history' })).toBeVisible();
     await noScript.getByRole('link', { name: 'Completed (61)' }).click();
+    await settle(noScript);
     await expect(noScript.getByText('Page 1 of 3').first()).toBeVisible();
     await noScript.getByRole('link', { name: 'Next page' }).first().click();
+    await settle(noScript);
     await expect(noScript.getByText('Page 2 of 3').first()).toBeVisible();
     await expect(noScript.getByRole('article').filter({ hasText: 'History completed 036' })).toBeVisible();
   } finally { await context.close(); }
@@ -180,6 +191,7 @@ test('a parent review on a child-filtered history page keeps the child filter', 
   await signIn(page, 'history-parent@example.test', 'synthetic-history-parent-password', 'Hello, History Parent');
   await page.goto('/chores/history?scope=review');
   await page.getByRole('navigation', { name: 'Filter by child' }).getByRole('link', { name: 'History Kid', exact: true }).click();
+  await settle(page);
   await expect(page).toHaveURL(/[?&]child=/);
   const childId = new URL(page.url()).searchParams.get('child');
   const pending = page.getByRole('article').filter({ hasText: 'History pending 2' });
