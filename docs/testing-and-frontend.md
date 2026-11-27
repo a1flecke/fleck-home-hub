@@ -28,6 +28,20 @@ A test that intends to act during a navigation, such as one that holds a respons
 
 This was found from main CI run 45930899060. In that run `chore-reuse.spec.ts` typed into the search box while the "Clear search" navigation landed. The text was dropped, Search re-submitted the previous query, and the click target never appeared. The run reported a test timeout at the following click, 28 seconds after the real fault. Read the trace (action timeline, DOM snapshots with live input values, and network) before attributing a failure; `playwright.config.ts` sets a 10 s `actionTimeout` so that a stuck action fails as itself.
 
+## Repeatable browser tests
+
+A browser test should pass when it runs twice in the same server. Shared seeded households in `scripts/e2e-server.ts` break that in three ways, all measured with a whole-suite `--repeat-each=2` run (70 of 470 test runs failed across 21 spec files):
+
+- A reused record name matches two records on the second run.
+- An exact assertion over shared data, such as a balance or a session count, accumulates.
+- A one-time action on a shared account, such as disabling a member or redeeming an invitation, cannot happen twice.
+
+`freshHousehold()` in `e2e/support/households.ts` asks the browser-test seeding service (`scripts/e2e-seed-server.ts`, on `127.0.0.1:4175`) for a new household with its own members, optionally disabled, and its own chores, optionally verified with their earning. It returns generated emails, passwords and chore ids. `signInAs()` signs a context in through the real sign-in API and checks the response. Member names only need to be unique within a household, so assertions can keep readable names and exact totals.
+
+The service runs in the e2e server process and writes the same SQLite file as the app, which runs in another process. It hashes passwords with Better Auth's default hasher, then writes the user and credential rows, the household, memberships, chores and earnings in one `BEGIN IMMEDIATE` transaction. Calling Better Auth's sign-up from the second process failed with `database is locked`: its deferred transaction reads, then writes, and SQLite returns `SQLITE_BUSY` immediately, without waiting for the busy timeout, when a read transaction cannot upgrade to a write lock. An immediate transaction takes the write lock up front and waits for it.
+
+Mark a spec built this way `// e2e-isolation: fresh-households`. `mise run e2e-repeat` runs the marked specs twice, and CI runs it after the full suite. `tests/architecture/e2e-isolation.test.ts` rejects shared seeded accounts in marked specs, rejects new unmarked specs, and requires migrated specs to leave `LEGACY_SHARED_SPECS`, so the shared-household suite can only shrink.
+
 ## Migration upgrade fixtures
 
 Construct historical journals as a contiguous prefix before a named migration, rather than filtering out known later entries. The pinned Drizzle migrator uses migration timestamps, so admitting a future entry can hide missing migrations. Assert the target schema is absent before the upgrade and test that appending a synthetic future entry leaves the baseline unchanged. Check existing data and migration history after upgrading. A fixture reconstructed from current SQL does not establish compatibility with every previously released schema.

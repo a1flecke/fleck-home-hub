@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { freshHousehold, signInAs } from './support/households';
 import { settle } from './support/navigation';
 
 async function signInParent(page: Page) {
@@ -163,14 +164,13 @@ test('recovery keeps edits through delayed hydration and a rejected submission',
 });
 
 test('a rejected recovery draft keeps its stale reviewed token across concurrent edits', async ({ browser }, testInfo) => {
-  const origin = 'http://127.0.0.1:4173';
+  // Its own household, so the series and its late-chore pages are not shared with other specs.
+  const household = await freshHousehold({ members: [{ name: 'Reuse Parent', role: 'parent' }, { name: 'Reuse Parent Two', role: 'parent' }, { name: 'Reuse Kid One', role: 'kid' }] });
   const parentOne = await browser.newContext({ viewport: { width: 375, height: 812 } });
   const parentTwo = await browser.newContext({ viewport: { width: 375, height: 812 } });
   try {
-    const loginOne = await parentOne.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'reuse-parent@example.test', password: 'synthetic-reuse-parent-password' } });
-    expect(loginOne.status()).toBe(200);
-    const loginTwo = await parentTwo.request.post(`${origin}/api/auth/sign-in/email`, { headers: { origin }, data: { email: 'reuse-parent-two@example.test', password: 'synthetic-reuse-parent-two-password' } });
-    expect(loginTwo.status()).toBe(200);
+    await signInAs(parentOne, household.members['Reuse Parent']);
+    await signInAs(parentTwo, household.members['Reuse Parent Two']);
     const sessionOne = await (await parentOne.request.get('/api/auth/get-session')).json();
     const sessionTwo = await (await parentTwo.request.get('/api/auth/get-session')).json();
     expect(sessionOne.session.id).not.toBe(sessionTwo.session.id);

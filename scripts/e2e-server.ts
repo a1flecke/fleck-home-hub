@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
 import { bootstrap } from '../src/lib/server/bootstrap';
 import { createAuth } from '../src/lib/server/identity';
+import { startSeedServer } from './e2e-seed-server';
 
 // Synthetic fixtures only, isolated from developer databases and credentials.
 const directory = mkdtempSync(join(tmpdir(), 'fleck-e2e-'));
@@ -271,25 +272,10 @@ scheduleChore.run('sched-old-wed', scheduleKid.user.id, 'Schedule trash', '2099-
 scheduleOccurrence.run('2099-03-04', 'sched-old-wed');
 scheduleChore.run('sched-verified', scheduleKid.user.id, 'Schedule completed', '2099-02-25', 300, 'verified', seededAt, seededAt);
 db.prepare("INSERT INTO earning (id, chore_id, household_id, child_id, amount_cents, created_at) VALUES ('sched-verified-earning', 'sched-verified', 'synthetic-schedule-household', ?, 300, ?)").run(scheduleKid.user.id, seededAt);
-// Reuse journeys: one household with three children and several real source chores.
-const reuseParent = await auth.api.signUpEmail({ body: { name: 'Reuse Parent', email: 'reuse-parent@example.test', password: 'synthetic-reuse-parent-password' } });
-const reuseParentTwo = await auth.api.signUpEmail({ body: { name: 'Reuse Parent Two', email: 'reuse-parent-two@example.test', password: 'synthetic-reuse-parent-two-password' } });
-const reuseKidOne = await auth.api.signUpEmail({ body: { name: 'Reuse Kid One', email: 'reuse-kid-one@example.test', password: 'synthetic-reuse-kid-one-password' } });
-const reuseKidTwo = await auth.api.signUpEmail({ body: { name: 'Reuse Kid Two', email: 'reuse-kid-two@example.test', password: 'synthetic-reuse-kid-two-password' } });
-const reuseKidThree = await auth.api.signUpEmail({ body: { name: 'Reuse Kid Three', email: 'reuse-kid-three@example.test', password: 'synthetic-reuse-kid-three-password' } });
-db.prepare('INSERT INTO household (id, name) VALUES (?, ?)').run('synthetic-reuse-household', 'Reuse household');
-for (const [userId, role] of [[reuseParent.user.id, 'parent'], [reuseParentTwo.user.id, 'parent'], [reuseKidOne.user.id, 'kid'], [reuseKidTwo.user.id, 'kid'], [reuseKidThree.user.id, 'kid']] as const) {
-  db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run(userId, 'synthetic-reuse-household', role);
-}
-const reuseChore = db.prepare(`INSERT INTO chore (id, household_id, assignee_id, title, description, due_date, reward_cents, status, created_at, updated_at)
-  VALUES (?, 'synthetic-reuse-household', ?, ?, ?, ?, ?, ?, ?, ?)`);
-reuseChore.run('reuse-source-clean', reuseKidOne.user.id, 'Clean bedroom', 'Vacuum and dust', '2099-01-15', 200, 'verified', seededAt, seededAt);
-reuseChore.run('reuse-source-plants', reuseKidTwo.user.id, 'Water plants', 'Kitchen and porch', '2099-01-16', 100, 'todo', seededAt, seededAt);
-reuseChore.run('reuse-source-stale', reuseKidOne.user.id, 'Stale source chore', 'Changing source', '2099-01-17', 50, 'todo', seededAt, seededAt);
-reuseChore.run('reuse-source-native', reuseKidOne.user.id, 'Native reuse chore', 'Native description', '2099-01-18', 75, 'todo', seededAt, seededAt);
-reuseChore.run('reuse-source-hydration', reuseKidOne.user.id, 'Hydration reuse chore', 'Hydration description', '2099-01-19', 125, 'todo', seededAt, seededAt);
-db.prepare("INSERT INTO earning (id, chore_id, household_id, child_id, amount_cents, created_at) VALUES ('reuse-source-earning', 'reuse-source-clean', 'synthetic-reuse-household', ?, 200, ?)").run(reuseKidOne.user.id, seededAt);
+// Reuse journeys use per-test households from the seeding service (e2e/support/households.ts).
 db.close();
+// Per-test isolated households for specs that must be repeatable (e2e/support/households.ts).
+const seedServer = startSeedServer(config);
 const mockRecipeFetch = fileURLToPath(new URL('./mock-recipe-fetch.cjs', import.meta.url));
 const nodeOptions = [process.env.NODE_OPTIONS, '--require', mockRecipeFetch].filter(Boolean).join(' ');
 const child = spawn('pnpm', ['exec', 'vite', 'dev', '--host', '127.0.0.1', '--port', '4173', '--strictPort'], {
@@ -297,5 +283,5 @@ const child = spawn('pnpm', ['exec', 'vite', 'dev', '--host', '127.0.0.1', '--po
   stdio: 'inherit', env: { ...process.env, DATABASE_PATH: config.dbPath, AUTH_SECRET: config.secret, AUTH_ORIGIN: config.origin, WEATHER_LATITUDE: '', WEATHER_LONGITUDE: '', E2E_RECIPE_FIXTURE: '1', NODE_OPTIONS: nodeOptions }
 });
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => child.kill(signal));
-child.on('exit', (code) => { rmSync(directory, { recursive: true, force: true }); process.exit(code ?? 1); });
-child.on('error', () => { rmSync(directory, { recursive: true, force: true }); process.exit(1); });
+child.on('exit', (code) => { seedServer.close(); rmSync(directory, { recursive: true, force: true }); process.exit(code ?? 1); });
+child.on('error', () => { seedServer.close(); rmSync(directory, { recursive: true, force: true }); process.exit(1); });
