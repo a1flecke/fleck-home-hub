@@ -499,4 +499,55 @@ describe('display weather background refresh', () => {
     expect(calls).toHaveLength(3);
     source.stop();
   });
+
+  it('does not leak an orphaned refresh timer when stopped and restarted while a background tick is in flight', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-01T13:44:42Z'));
+    let releaseSecondHourly: (() => void) | null = null;
+    let hourlyCalls = 0;
+    const calls: string[] = [];
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith('/forecast/hourly')) {
+        hourlyCalls += 1;
+        if (hourlyCalls === 2) {
+          await new Promise<void>(resolve => { releaseSecondHourly = resolve; });
+        }
+        return jsonResponse({ body: hourly });
+      }
+      if (url.endsWith('/forecast')) return jsonResponse({ body: daily });
+      return jsonResponse({ body: points });
+    }) as typeof fetch;
+
+    const source = createDisplayWeatherSource({
+      env,
+      fetch: fetchImpl,
+      cacheTtlMs: 1_000,
+      refreshIntervalMs: 1_000,
+      retryDelaysMs: [],
+    });
+
+    await source.get();
+    expect(hourlyCalls).toBe(1);
+
+    // Trigger the first background tick and pause mid-fetch.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(hourlyCalls).toBe(2);
+    expect(releaseSecondHourly).not.toBeNull();
+
+    // Stop and restart while the previous tick is still in flight.
+    source.stop();
+    await source.get();
+    releaseSecondHourly!();
+    await vi.advanceTimersByTimeAsync(10);
+    // The superseded tick must NOT schedule a second concurrent timer.
+    expect(vi.getTimerCount()).toBe(1);
+
+    source.stop();
+    expect(vi.getTimerCount()).toBe(0);
+    const countAtStop = calls.length;
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls.length).toBe(countAtStop);
+  });
 });

@@ -284,6 +284,36 @@ describe('launcher (launch.sh)', () => {
     expect(statSync(join(work, 'logs/stdout.log.1')).size).toBe(500);
     expect(existsSync(join(work, 'logs/stderr.log.1'))).toBe(false);
   });
+  it('refuses CRLF config files with exit 78 to match envfile.mjs', () => {
+    const crlf = `AUTH_SECRET=${SECRET}\nDATABASE_PATH=/private/hub.sqlite\r\nAUTH_ORIGIN="https://hub.example.ts.net"\n`;
+    const result = setup(crlf)();
+    expect(result.status).toBe(78);
+    expect(existsSync(join(work, 'out'))).toBe(false);
+    expect(result.stderr).not.toContain(SECRET);
+  });
+  it('skips symlinked backup logs and continues startup if log rotation fails', () => {
+    const target = join(tmpdir(), `hub-symlink-target-${process.pid}-${Date.now()}`);
+    writeFileSync(target, 'untouched', { mode: 0o600 });
+    try {
+      const run = setup(good, 0o600, { HUB_LOG_MAX_BYTES: '10' });
+      writeFileSync(join(work, 'logs/stdout.log'), 'x'.repeat(100), { mode: 0o600 });
+      symlinkSync(target, join(work, 'logs/stdout.log.1'));
+      const res = run();
+      expect(res.status, res.stderr).toBe(0);
+      expect(readFileSync(target, 'utf8')).toBe('untouched');
+      expect(statSync(join(work, 'logs/stdout.log')).size).toBe(100);
+
+      // Even if backup log is unwritable (making cp fail), startup must continue rather than aborting under set -e.
+      rmSync(join(work, 'logs/stdout.log.1'));
+      writeFileSync(join(work, 'logs/stdout.log.1'), 'locked', { mode: 0o400 });
+      chmodSync(join(work, 'logs/stdout.log.1'), 0o400);
+      const res2 = run();
+      expect(res2.status, res2.stderr).toBe(0);
+      expect(existsSync(join(work, 'out'))).toBe(true);
+    } finally {
+      rmSync(target, { force: true });
+    }
+  });
 });
 
 describe('env parsing parity', () => {

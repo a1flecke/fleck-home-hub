@@ -25,8 +25,13 @@ export async function previewRecipe(rawUrl: string, fetchImpl: typeof fetch = fe
   }
 }
 
+async function discardBody(response: Response): Promise<void> {
+  try { await response.body?.cancel(); } catch { /* ignore cancellation errors */ }
+}
+
 async function fetchRecipeHtml(url: string, fetchImpl: typeof fetch): Promise<string> {
   let current = new URL(url);
+  const signal = AbortSignal.timeout(timeoutMs);
   for (let redirects = 0; redirects <= maxRedirects; redirects++) {
     const response = await fetchImpl(current, {
       method: 'GET',
@@ -34,21 +39,31 @@ async function fetchRecipeHtml(url: string, fetchImpl: typeof fetch): Promise<st
       credentials: 'omit',
       cache: 'no-store',
       headers: { accept: 'text/html,application/xhtml+xml', 'user-agent': userAgent },
-      signal: AbortSignal.timeout(timeoutMs)
+      signal
     });
     if (redirectStatuses.has(response.status)) {
       const location = response.headers.get('location');
+      await discardBody(response);
       if (!location || redirects === maxRedirects) throw new Error('Recipe redirect rejected');
       const next = parseRecipeLink(new URL(location, current).href);
       if (!next || next.provider?.id !== 'emeals') throw new Error('Recipe redirect rejected');
       current = new URL(next.url);
       continue;
     }
-    if (!response.ok) throw new Error('Recipe page unavailable');
+    if (!response.ok) {
+      await discardBody(response);
+      throw new Error('Recipe page unavailable');
+    }
     const type = response.headers.get('content-type')?.toLowerCase() ?? '';
-    if (!type.includes('text/html') && !type.includes('application/xhtml+xml')) throw new Error('Recipe page type');
+    if (!type.includes('text/html') && !type.includes('application/xhtml+xml')) {
+      await discardBody(response);
+      throw new Error('Recipe page type');
+    }
     const length = Number(response.headers.get('content-length') ?? '0');
-    if (Number.isFinite(length) && length > maxBytes) throw new Error('Recipe page too large');
+    if (Number.isFinite(length) && length > maxBytes) {
+      await discardBody(response);
+      throw new Error('Recipe page too large');
+    }
     return readLimited(response);
   }
   throw new Error('Recipe redirect rejected');

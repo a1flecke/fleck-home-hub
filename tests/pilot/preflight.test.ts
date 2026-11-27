@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -66,11 +66,15 @@ describe('configuration', () => {
     expect(formatReport(checks)).not.toContain(SECRET);
     expect(JSON.stringify(checks)).not.toContain(SECRET);
   });
-  it('fails a configuration file readable by others', () => {
+  it('fails a configuration file readable by others or unreadable (mode 000) without throwing', () => {
     const file = validEnvFile(); chmodSync(file, 0o644);
     const check = find(runPreflight(context({ envFile: file })), 'env-file');
     expect(check.status).toBe('FAIL');
     expect(check.message).not.toContain(SECRET);
+    chmodSync(file, 0o000);
+    const unreadable = runPreflight(context({ envFile: file }));
+    expect(find(unreadable, 'env-file').status).toBe('FAIL');
+    expect(find(unreadable, 'config').status).toBe('FAIL');
   });
   it('fails a missing configuration file and missing keys without leaking values', () => {
     expect(find(runPreflight(context({ envFile: join(dir, 'absent.conf') })), 'env-file').status).toBe('FAIL');
@@ -107,7 +111,7 @@ describe('origin and bind safety', () => {
     expect(validateOrigin(origin).ok).toBe(ok);
   });
   it('fails a non-loopback HOST', () => {
-    for (const host of ['0.0.0.0', '::', '192.168.1.5', 'hub.local']) {
+    for (const host of ['0.0.0.0', '::', '[::1]', '192.168.1.5', 'hub.local']) {
       expect(find(runPreflight(context({ envFile: validEnvFile(`HOST=${host}\n`) })), 'bind').status).toBe('FAIL');
       rmSync(join(dir, 'private'), { recursive: true, force: true });
     }
@@ -158,6 +162,21 @@ describe('database, build and toolchain', () => {
     expect(find(runPreflight(context({ envFile: file })), 'database').status).toBe('FAIL');
     chmodSync(join(dir, 'private', 'hub.sqlite'), 0o600);
     expect(find(runPreflight(context({ envFile: file })), 'database').status).toBe('PASS');
+
+    // Symlinked DB dir or wrong-uid DB dir/file or backup dir must fail.
+    const symlinkDbDir = join(dir, 'db-link');
+    symlinkSync(join(dir, 'private'), symlinkDbDir);
+    const linkConf = join(dir, 'link.conf');
+    write(linkConf, `AUTH_SECRET=${SECRET}\nDATABASE_PATH=${join(symlinkDbDir, 'hub.sqlite')}\nAUTH_ORIGIN=https://hub.example.ts.net\n`);
+    expect(find(runPreflight(context({ envFile: linkConf })), 'database').status).toBe('FAIL');
+
+    const wrongUid = (process.getuid?.() ?? 501) + 1;
+    const dbEnv = { AUTH_SECRET: SECRET, DATABASE_PATH: join(dir, 'private', 'hub.sqlite'), AUTH_ORIGIN: 'https://hub.example.ts.net' };
+    expect(find(runPreflight(context({ env: dbEnv, uid: wrongUid })), 'database').status).toBe('FAIL');
+    const goodBackup = join(dir, 'backups-uid'); mkdirSync(goodBackup, { mode: 0o700 }); chmodSync(goodBackup, 0o700);
+    const linkBackup = join(dir, 'backups-link'); symlinkSync(goodBackup, linkBackup);
+    expect(find(runPreflight(context({ envFile: file, backupDir: linkBackup })), 'backup').status).toBe('FAIL');
+    expect(find(runPreflight(context({ env: dbEnv, backupDir: goodBackup, uid: wrongUid })), 'backup').status).toBe('FAIL');
   });
   it('warns that a database not yet created needs bootstrap', () => {
     expect(find(runPreflight(context({ envFile: validEnvFile() })), 'database').status).toBe('WARN');

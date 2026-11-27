@@ -31,8 +31,10 @@ case $mise in /*) ;; *) fail 'HUB_MISE must be an absolute path' ;; esac
 mode=$(stat -c %a "$file" 2>/dev/null || stat -f %Lp "$file" 2>/dev/null || echo unknown)
 case $mode in *00) ;; *) fail 'configuration file must not be accessible by group or others (chmod 600)' ;; esac
 
+cr=$(printf '\r')
 seen=' '
 while IFS= read -r line || [ -n "$line" ]; do
+  case $line in *"$cr"*) fail 'configuration file must use LF line endings (no carriage returns)' ;; esac
   case $line in '' | '#'*) continue ;; esac
   key=${line%%=*}
   value=${line#*=}
@@ -73,12 +75,22 @@ fi
 # open, so the file is truncated in place rather than renamed.
 max=${HUB_LOG_MAX_BYTES:-5242880}
 case $max in '' | *[!0-9]*) fail 'HUB_LOG_MAX_BYTES must be a number' ;; esac
-if [ -n "$logdir" ] && [ -d "$logdir" ]; then
+if [ -n "$logdir" ] && [ ! -L "$logdir" ] && [ -d "$logdir" ] && [ -O "$logdir" ]; then
   for name in stdout stderr; do
     log="$logdir/$name.log"
-    if [ -f "$log" ] && [ -w "$log" ]; then
-      size=$(( $(wc -c < "$log") ))
-      if [ "$size" -gt "$max" ]; then cp -p "$log" "$log.1" && : > "$log"; fi
+    backup="$log.1"
+    if [ ! -L "$log" ] && [ -f "$log" ] && [ -O "$log" ] && [ -w "$log" ]; then
+      size=$(wc -c < "$log" 2>/dev/null || echo 0)
+      size=$(( size + 0 ))
+      if [ "$size" -gt "$max" ]; then
+        if [ -L "$backup" ]; then
+          printf 'fleck-home-hub launcher: warning: skipping log rotation because backup path is a symlink\n' >&2
+        elif cp -p "$log" "$backup" 2>/dev/null && : > "$log" 2>/dev/null; then
+          :
+        else
+          printf 'fleck-home-hub launcher: warning: log rotation failed; continuing startup\n' >&2
+        fi
+      fi
     fi
   done
 fi
