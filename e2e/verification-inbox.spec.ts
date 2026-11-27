@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 const origin = 'http://127.0.0.1:4173';
 
@@ -136,7 +137,7 @@ test('rework reason survives delayed hydration and appears in submitted data', a
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/verify/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await delayed.route(pageModule('verify'), async route => { blocked(); await gate; await route.continue(); });
     await delayed.goto(siblingLink!, { waitUntil: 'commit' });
     await requested;
     const article = delayed.getByRole('article', { name: 'Review Verification sibling 09' });

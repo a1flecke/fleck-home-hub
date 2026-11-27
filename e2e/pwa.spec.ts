@@ -20,9 +20,16 @@ test('manifest and every declared icon are served with installable metadata', as
   }
 
   await page.goto('/');
-  await expect(page.locator('link[rel="manifest"]')).toHaveAttribute('href', '/manifest.webmanifest');
-  await expect(page.locator('link[rel="apple-touch-icon"]')).toHaveAttribute('href', '/apple-touch-icon.png');
-  await expect(page.locator('link[rel="icon"][type="image/svg+xml"]')).toHaveAttribute('href', '/icon.svg');
+  // A build with paths.origin (as deployed) renders these links absolute; vite dev renders them
+  // relative. Either way each must resolve to this origin's path.
+  const resolvedHref = async (selector: string) => {
+    const href = await page.locator(selector).getAttribute('href');
+    const url = new URL(href ?? '', page.url());
+    return url.origin === new URL(page.url()).origin ? url.pathname : url.href;
+  };
+  expect(await resolvedHref('link[rel="manifest"]')).toBe('/manifest.webmanifest');
+  expect(await resolvedHref('link[rel="apple-touch-icon"]')).toBe('/apple-touch-icon.png');
+  expect(await resolvedHref('link[rel="icon"][type="image/svg+xml"]')).toBe('/icon.svg');
   await expect(page.locator('meta[name="theme-color"]')).toHaveAttribute('content', '#0f766e');
   const workerState = await page.evaluate(async () => {
     await navigator.serviceWorker.ready;

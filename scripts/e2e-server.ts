@@ -7,6 +7,7 @@ import Database from 'better-sqlite3';
 import { bootstrap } from '../src/lib/server/bootstrap';
 import { createAuth } from '../src/lib/server/identity';
 import { startSeedServer } from './e2e-seed-server';
+import { appCommand } from './e2e-app-command';
 
 // Synthetic fixtures only, isolated from developer databases and credentials.
 const directory = mkdtempSync(join(tmpdir(), 'fleck-e2e-'));
@@ -278,9 +279,10 @@ db.close();
 const seedServer = startSeedServer(config);
 const mockRecipeFetch = fileURLToPath(new URL('./mock-recipe-fetch.cjs', import.meta.url));
 const nodeOptions = [process.env.NODE_OPTIONS, '--require', mockRecipeFetch].filter(Boolean).join(' ');
-const child = spawn('pnpm', ['exec', 'vite', 'dev', '--host', '127.0.0.1', '--port', '4173', '--strictPort'], {
+const app = appCommand(4173, config.origin, 'main');
+const child = spawn(app.command, app.args, {
   // Keep browser tests deterministic and offline: they never contact NWS, eMeals or use private coordinates.
-  stdio: 'inherit', env: { ...process.env, DATABASE_PATH: config.dbPath, AUTH_SECRET: config.secret, AUTH_ORIGIN: config.origin, WEATHER_LATITUDE: '', WEATHER_LONGITUDE: '', E2E_RECIPE_FIXTURE: '1', NODE_OPTIONS: nodeOptions }
+  stdio: 'inherit', env: { ...process.env, ...app.env, DATABASE_PATH: config.dbPath, AUTH_SECRET: config.secret, AUTH_ORIGIN: config.origin, WEATHER_LATITUDE: '', WEATHER_LONGITUDE: '', E2E_RECIPE_FIXTURE: '1', NODE_OPTIONS: nodeOptions }
 });
 for (const signal of ['SIGTERM', 'SIGINT'] as const) process.on(signal, () => child.kill(signal));
 child.on('exit', (code) => { seedServer.close(); rmSync(directory, { recursive: true, force: true }); process.exit(code ?? 1); });

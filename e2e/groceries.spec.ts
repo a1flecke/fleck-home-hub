@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 async function signIn(page: Page, email = 'parent@example.test', password = 'synthetic-parent-password') {
   await page.goto('/sign-in');
@@ -201,7 +202,7 @@ test('review edits survive delayed hydration', async ({ page, browser }) => {
   let requests = 0;
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/meals/+page.svelte*', async route => {
+    await delayed.route(pageModule('meals'), async route => {
       requests += 1;
       if (requests === 1) firstRequest();
       if (requests === 2) secondRequest();
@@ -393,7 +394,7 @@ test('meal ingredient selections survive delayed hydration and submit the select
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/meals/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('meals'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/meals?date=2099-07-01', { waitUntil: 'commit' }); await blocked;
     await delayed.getByLabel('Jump to a date').fill('2099-07-02');
     const meal = delayed.getByRole('article').filter({ hasText: 'Synthetic early ingredient meal' });
@@ -428,7 +429,7 @@ test('grocery edits survive delayed hydration and are submitted', async ({ page,
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/groceries/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('groceries'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/groceries', { waitUntil: 'commit' });
     await blocked;
     const add = delayed.getByRole('form', { name: 'Add grocery item' });
@@ -460,7 +461,7 @@ test('a prefilled grocery edit and open disclosure survive delayed hydration', a
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/groceries/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('groceries'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/groceries', { waitUntil: 'commit' }); await blocked;
     const item = delayed.getByRole('article').filter({ hasText: 'Synthetic prefilled rice' });
     await item.getByText('Edit item', { exact: true }).click();
@@ -1705,7 +1706,7 @@ test('a Bought section opened before hydration stays usable', async ({ page, bro
   const blocked = new Promise<void>(resolve => { requested = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/groceries/+page.svelte*', async route => { requested(); await gate; await route.continue(); });
+    await delayed.route(pageModule('groceries'), async route => { requested(); await gate; await route.continue(); });
     await delayed.goto('/groceries', { waitUntil: 'commit' });
     await blocked;
     const bought = delayed.locator('details[data-grocery-group="bought"]');

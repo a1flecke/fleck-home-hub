@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
+import { pageModule } from './support/modules';
 
 async function signIn(page: Page, role: 'parent' | 'payout-kid') {
   await page.goto('/sign-in');
@@ -49,7 +50,7 @@ for (const javaScriptEnabled of [true, false]) test(`a stale payment form keeps 
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
     const stale = await context.newPage();
-    if (javaScriptEnabled) await stale.route('**/src/routes/dashboard/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    if (javaScriptEnabled) await stale.route(pageModule('dashboard'), async route => { blocked(); await gate; await route.continue(); });
     await stale.goto('/dashboard', { waitUntil: javaScriptEnabled ? 'commit' : 'load' });
     if (javaScriptEnabled) await requested;
     const earnings = stale.getByRole('article', { name: `Earnings for ${childAccount.name}` });
@@ -99,7 +100,7 @@ test('dashboard preserves form edits made before hydration', async ({ page, brow
   const requested = new Promise<void>(resolve => { blocked = resolve; });
   try {
     const delayed = await context.newPage();
-    await delayed.route('**/src/routes/dashboard/+page.svelte*', async route => { blocked(); await gate; await route.continue(); });
+    await delayed.route(pageModule('dashboard'), async route => { blocked(); await gate; await route.continue(); });
     await delayed.goto('/dashboard', { waitUntil: 'commit' });
     await requested;
     await delayed.getByText('Payday schedule', { exact: true }).click();
@@ -165,7 +166,7 @@ test('a verified chore can be partially paid and the child sees the remaining am
   const paymentRequested = new Promise<void>(resolve => { paymentBlocked = resolve; });
   try {
     const delayed = await delayedContext.newPage();
-    await delayed.route('**/src/routes/dashboard/+page.svelte*', async route => { paymentBlocked(); await paymentGate; await route.continue(); });
+    await delayed.route(pageModule('dashboard'), async route => { paymentBlocked(); await paymentGate; await route.continue(); });
     await delayed.goto('/dashboard', { waitUntil: 'commit' });
     await paymentRequested;
     const earnings = delayed.getByRole('article', { name: 'Earnings for Payout Kid' });
@@ -208,7 +209,7 @@ test('a verified chore can be partially paid and the child sees the remaining am
   const correctionRequested = new Promise<void>(resolve => { correctionBlocked = resolve; });
   try {
     const delayed = await correctionHydration.newPage();
-    await delayed.route('**/src/routes/dashboard/+page.svelte*', async route => { correctionBlocked(); await correctionGate; await route.continue(); });
+    await delayed.route(pageModule('dashboard'), async route => { correctionBlocked(); await correctionGate; await route.continue(); });
     await delayed.goto('/dashboard', { waitUntil: 'commit' });
     await correctionRequested;
     const entry = delayed.getByRole('article', { name: 'Earnings for Payout Kid' });

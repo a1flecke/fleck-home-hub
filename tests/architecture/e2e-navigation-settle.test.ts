@@ -53,6 +53,12 @@ export function navigationSettleFindings(specs: Record<string, string>, getButto
   return findings;
 }
 
+/** Browser tests run against a production build, which never serves src/routes modules. */
+export function devModuleFindings(specs: Record<string, string>): string[] {
+  return Object.entries(specs).flatMap(([file, source]) => source.split('\n').flatMap((line, index) =>
+    /src\/routes/.test(line) && !/^\s*(\/\/|\*)/.test(line) ? [`${file}:${index + 1} gate a page module with pageModule(...), not a dev-server src/routes URL`] : []));
+}
+
 export function networkIdleFindings(specs: Record<string, string>): string[] {
   return Object.entries(specs).flatMap(([file, source]) => source.split('\n').flatMap((line, index) =>
     /['"]networkidle['"]/.test(line) && !/^\s*(\/\/|\*)/.test(line) ? [`${file}:${index + 1} wait for hydration with hydrated(...), not networkidle`] : []));
@@ -82,6 +88,15 @@ it('waits for hydration with the readiness marker, not network idle', () => {
   expect(networkIdleFindings(sources)).toEqual([]);
   expect(networkIdleFindings({ 'fixture.spec.ts': "  release();\n  await delayed.waitForLoadState('networkidle');\n  // networkidle is not used\n" })).toEqual([
     'fixture.spec.ts:2 wait for hydration with hydrated(...), not networkidle'
+  ]);
+});
+
+it('gates page modules through pageModule(), which works in build and dev mode', () => {
+  const sources = Object.fromEntries(walk('e2e', '.ts').filter(file => !file.endsWith('support/modules.ts')).map(file => [file, readFileSync(file, 'utf8')]));
+  expect(devModuleFindings(sources)).toEqual([]);
+  expect(devModuleFindings({ 'fixture.spec.ts': "  await page.route('**/src/routes/expenses/+page.svelte*', delay);\n  const module = `**/src/routes${path}/+page.svelte*`;\n  await page.route(pageModule('expenses'), delay);\n" })).toEqual([
+    'fixture.spec.ts:1 gate a page module with pageModule(...), not a dev-server src/routes URL',
+    'fixture.spec.ts:2 gate a page module with pageModule(...), not a dev-server src/routes URL'
   ]);
 });
 
