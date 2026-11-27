@@ -2,7 +2,7 @@ import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { occurrenceDates } from '../chores/recurrence';
 import { addCalendarDays } from '../calendar/dates';
-import { listEvents, listUpcomingEvents } from './calendar';
+import { hasEventOccurrence, listEvents, listUpcomingEvents } from './calendar';
 
 type Input = { name: string; description: string; targetDate: string; shared?: boolean };
 type List = { id: string; name: string; description: string | null; targetDate: string | null; shared: boolean; archived: boolean; version: number };
@@ -326,7 +326,7 @@ function linkedOccurrence(db: Database.Database, household: string, id: string):
 }
 
 function isScheduled(db: Database.Database, actor: string, household: string, { eventId, date }: ChecklistOccurrence) {
-  return listEvents(db, actor, household, date, date).some(event => event.id === eventId);
+  return hasEventOccurrence(db, actor, household, eventId, date);
 }
 
 export function getChecklistEventLink(db: Database.Database, actor: string, household: string, id: string) {

@@ -6,7 +6,7 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { migrate } from '../src/lib/server/identity';
-import { createEvent, listEvents, cancelOccurrence, updateEvent, cancelEvent, addUnscheduled, updateUnscheduled, listUnscheduled, scheduleUnscheduled, archiveUnscheduled } from '../src/lib/server/calendar';
+import { createEvent, listEvents, listUpcomingEvents, hasEventOccurrence, findSavedEventElsewhere, cancelOccurrence, updateEvent, cancelEvent, addUnscheduled, updateUnscheduled, listUnscheduled, scheduleUnscheduled, archiveUnscheduled } from '../src/lib/server/calendar';
 
 it('limits calendar management and reads to household members and preserves local recurrence dates', async () => {
   const db = new Database(':memory:');
@@ -147,5 +147,86 @@ it('rejects cancelOccurrence on one-off events so they cannot become phantom unc
     // Cancelling the whole one-off event via cancelEvent still works cleanly.
     cancelEvent(db, 'parent', 'home', oneOffId);
     expect(listEvents(db, 'parent', 'home', '2026-11-05', '2026-11-05')).toEqual([]);
+  } finally { db.close(); }
+});
+
+it('bounds calendar queries without scanning historical one-off events or running N+1 lookups', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    for (const id of ['parent', 'kid']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+
+    // Seed 25 historical one-off events and 10 non-matching recurring events.
+    for (let day = 1; day <= 25; day += 1) {
+      const date = `2025-01-${String(day).padStart(2, '0')}`;
+      createEvent(db, 'parent', 'home', { title: `Past one-off ${day}`, date, allDay: true, participants: ['kid'] });
+    }
+    for (let i = 1; i <= 10; i += 1) {
+      createEvent(db, 'parent', 'home', { title: `Tuesday series ${i}`, date: '2025-01-07', allDay: true, weekdays: [2], participants: ['kid'] });
+    }
+    const matchingOneOff = createEvent(db, 'parent', 'home', { title: 'Monday dentist', date: '2026-11-23', startTime: '09:00', endTime: '10:00', allDay: false, participants: ['kid'] });
+    const matchingSeries = createEvent(db, 'parent', 'home', { title: 'Monday soccer', date: '2024-01-01', startTime: '16:00', endTime: '17:00', allDay: false, weekdays: [1], participants: ['parent', 'kid'] });
+
+    const originalPrepare = db.prepare.bind(db);
+    const statements: string[] = [];
+    db.prepare = ((sql: string) => {
+      statements.push(sql);
+      return originalPrepare(sql);
+    }) as typeof db.prepare;
+
+    statements.length = 0;
+    const listed = listEvents(db, 'parent', 'home', '2026-11-23', '2026-11-23');
+    expect(listed.map(item => item.id)).toEqual([matchingOneOff, matchingSeries]);
+    expect(listed[1].participants.sort()).toEqual(['kid', 'parent']);
+    expect(statements.length).toBeLessThanOrEqual(4);
+    expect(statements.filter(sql => /calendar_participant/i.test(sql)).length).toBeLessThanOrEqual(1);
+    expect(statements.filter(sql => /calendar_exception/i.test(sql)).length).toBeLessThanOrEqual(1);
+
+    statements.length = 0;
+    const upcoming = listUpcomingEvents(db, 'parent', 'home', '2026-11-23', '2026-11-23');
+    expect(upcoming.map(item => item.id)).toEqual([matchingOneOff, matchingSeries]);
+    expect(statements.length).toBeLessThanOrEqual(3);
+    expect(statements.filter(sql => /calendar_participant/i.test(sql))).toEqual([]);
+
+    statements.length = 0;
+    cancelOccurrence(db, 'parent', 'home', matchingSeries, '2026-11-23');
+    expect(statements.filter(sql => /calendar_participant/i.test(sql))).toEqual([]);
+    expect(statements.filter(sql => /SELECT \* FROM calendar_event/i.test(sql))).toEqual([]);
+    expect(listEvents(db, 'parent', 'home', '2026-11-23', '2026-11-23').map(item => item.id)).toEqual([matchingOneOff]);
+  } finally { db.close(); }
+});
+
+it('finds the nearest saved occurrence relative to the viewed range instead of jumping to seriesDate', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON'); await migrate(db);
+    for (const id of ['parent', 'outsider']) db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    for (const id of ['home', 'elsewhere']) db.prepare('INSERT INTO household VALUES (?, ?)').run(id, id);
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    db.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('outsider', 'elsewhere', 'parent');
+
+    // Weekly Tuesday series started in 2024.
+    const seriesId = createEvent(db, 'parent', 'home', { title: 'Weekly piano', date: '2024-01-01', allDay: true, weekdays: [2] });
+    // Viewed on Tuesday 2026-11-24: already in view -> null.
+    expect(findSavedEventElsewhere(db, 'parent', 'home', seriesId, { start: '2026-11-24', end: '2026-11-24' })).toBeNull();
+    // Viewed on Monday 2026-11-23: links to next upcoming Tuesday 2026-11-24 (not 2024-01-02).
+    expect(findSavedEventElsewhere(db, 'parent', 'home', seriesId, { start: '2026-11-23', end: '2026-11-23' })).toBe('2026-11-24');
+    // Cancel 2026-11-24 -> skips the cancelled occurrence and links to 2026-12-01.
+    cancelOccurrence(db, 'parent', 'home', seriesId, '2026-11-24');
+    expect(hasEventOccurrence(db, 'parent', 'home', seriesId, '2026-11-24')).toBe(false);
+    expect(hasEventOccurrence(db, 'parent', 'home', seriesId, '2026-12-01')).toBe(true);
+    expect(findSavedEventElsewhere(db, 'parent', 'home', seriesId, { start: '2026-11-23', end: '2026-11-23' })).toBe('2026-12-01');
+    // Series ended before the viewed date -> links to latest occurrence before the viewed date.
+    updateEvent(db, 'parent', 'home', seriesId, { title: 'Weekly piano', date: '2024-01-01', endDate: '2026-11-20', allDay: true, weekdays: [2] });
+    expect(findSavedEventElsewhere(db, 'parent', 'home', seriesId, { start: '2026-11-23', end: '2026-11-23' })).toBe('2026-11-17');
+    // Far-future one-off event links directly to its own date.
+    const futureId = createEvent(db, 'parent', 'home', { title: 'Future reunion', date: '2099-03-08', allDay: true });
+    expect(findSavedEventElsewhere(db, 'parent', 'home', futureId, { start: '2026-11-23', end: '2026-11-23' })).toBe('2099-03-08');
+    // Cross-household access is rejected.
+    expect(() => findSavedEventElsewhere(db, 'outsider', 'home', seriesId, null)).toThrow();
+    expect(() => hasEventOccurrence(db, 'outsider', 'home', seriesId, '2026-11-17')).toThrow();
   } finally { db.close(); }
 });

@@ -1,5 +1,5 @@
 import { expect, it } from 'vitest';
-import { checklistFilter, matchesChecklistFilter, summarizeReadiness } from '../src/lib/checklists/readiness';
+import { checklistFilter, matchesChecklistFilter, removedChecklistItemDraft, summarizeReadiness } from '../src/lib/checklists/readiness';
 
 it('filters the visible items without changing who owns them or whether they are ready', () => {
   const items = [
@@ -21,4 +21,11 @@ it('sums the progress on all visible preparation lists and only calls nonempty p
     .toEqual({ completed: 3, total: 4, outstanding: 1, ready: false });
   expect(summarizeReadiness([{ completed: 2, total: 2 }]).ready).toBe(true);
   expect(summarizeReadiness([{ completed: 0, total: 0 }]).ready).toBe(false);
+});
+
+it('surfaces an edited checklist draft when the item was concurrently removed from the list', () => {
+  const draft = { id: 'item-2', name: 'Solar lantern', version: 1, assignedTo: 'kid-1' };
+  expect(removedChecklistItemDraft([{ id: 'item-1' }], undefined)).toBeNull();
+  expect(removedChecklistItemDraft([{ id: 'item-1' }, { id: 'item-2' }], draft)).toBeNull();
+  expect(removedChecklistItemDraft([{ id: 'item-1' }], draft)).toEqual(draft);
 });

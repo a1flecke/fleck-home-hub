@@ -50,6 +50,32 @@ export function resolveEditFormVersion(
   return { version: item.version, completed: item.completed };
 }
 
+export function initialGroceryState(
+  serverItems: GroceryLiveItem[],
+  formEdit: GroceryLiveItem | undefined
+): {
+  items: GroceryLiveItem[];
+  openEdits: string[];
+  removedWhileEditing: string[];
+  pinnedGroups: Record<string, 'toBuy' | 'bought'>;
+  editSnapshots: Record<string, GroceryEditVersion>;
+} {
+  if (!formEdit) {
+    return { items: serverItems, openEdits: [], removedWhileEditing: [], pinnedGroups: {}, editSnapshots: {} };
+  }
+  const missing = !serverItems.some(item => item.id === formEdit.id);
+  const items = missing
+    ? [...serverItems, { id: formEdit.id, name: formEdit.name, quantity: formEdit.quantity, unit: formEdit.unit, completed: formEdit.completed, version: formEdit.version }]
+    : serverItems;
+  return {
+    items,
+    openEdits: [formEdit.id],
+    removedWhileEditing: missing ? [formEdit.id] : [],
+    pinnedGroups: { [formEdit.id]: formEdit.completed ? 'bought' : 'toBuy' },
+    editSnapshots: { [formEdit.id]: { version: formEdit.version, completed: formEdit.completed } }
+  };
+}
+
 export function shouldApplyGroceryRefresh(state: {
   disposed: boolean;
   authorizationLost: boolean;

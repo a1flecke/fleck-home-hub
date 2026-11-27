@@ -5,6 +5,7 @@ import {
   GROCERY_REFRESH_TIMEOUT_MS,
   groceryAddDraftExists,
   groceryDraftIsDirty,
+  initialGroceryState,
   parseGroceryItems,
   resolveEditFormVersion,
   shouldApplyGroceryRefresh
@@ -81,4 +82,33 @@ it('skips applying a refresh response once the page is disposed, unauthorized, o
   expect(shouldApplyGroceryRefresh({ ...base, disposed: true })).toBe(false);
   expect(shouldApplyGroceryRefresh({ ...base, authorizationLost: true })).toBe(false);
   expect(shouldApplyGroceryRefresh({ ...base, currentVersion: 2 })).toBe(false);
+});
+
+it('retains a concurrently removed grocery edit draft in initial SSR state with its version and group pinned', () => {
+  const existing = { id: 'a', name: 'Apples', quantity: '2', unit: 'lb', completed: false, version: 1 };
+  expect(initialGroceryState([existing], undefined)).toEqual({
+    items: [existing],
+    openEdits: [],
+    removedWhileEditing: [],
+    pinnedGroups: {},
+    editSnapshots: {}
+  });
+
+  const staleEdit = { id: 'a', name: 'Honeycrisp apples', quantity: '3', unit: 'lb', completed: false, version: 1 };
+  expect(initialGroceryState([existing], staleEdit)).toEqual({
+    items: [existing],
+    openEdits: ['a'],
+    removedWhileEditing: [],
+    pinnedGroups: { a: 'toBuy' },
+    editSnapshots: { a: { version: 1, completed: false } }
+  });
+
+  const deletedEdit = { id: 'b', name: 'Rosemary sourdough', quantity: '2', unit: '', completed: true, version: 4 };
+  expect(initialGroceryState([existing], deletedEdit)).toEqual({
+    items: [existing, deletedEdit],
+    openEdits: ['b'],
+    removedWhileEditing: ['b'],
+    pinnedGroups: { b: 'bought' },
+    editSnapshots: { b: { version: 4, completed: true } }
+  });
 });
