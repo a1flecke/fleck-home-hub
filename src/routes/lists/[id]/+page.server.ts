@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { error, fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { requestAccess } from '../../../lib/server/request-access';
-import { addChecklistItems, ChecklistConflict, getChecklist, removeChecklistItem, saveChecklistTemplate, setItemCompletion, updateChecklist, updateChecklistItem } from '../../../lib/server/checklists';
+import { addChecklistItems, ChecklistConflict, getChecklist, getChecklistEventLink, removeChecklistItem, saveChecklistTemplate, setItemCompletion, updateChecklist, updateChecklistItem } from '../../../lib/server/checklists';
 
 async function principal(request: Request) {
   const access = await requestAccess(request);
@@ -18,6 +18,7 @@ export const load: PageServerLoad = async ({ request, params }) => {
     const { items, ...list } = getChecklist(db, userId, householdId, params.id);
     return {
       role,
+      eventLink: role === 'parent' ? getChecklistEventLink(db, userId, householdId, params.id) : null,
       addRequestId: role === 'parent' ? randomUUID() : null,
       list: { ...list, items: items.map(({ id, name, completed, completedByName, completedAt, version }) => ({ id, name, completed, completedByName, completedAt, version })) }
     };

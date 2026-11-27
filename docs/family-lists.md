@@ -17,3 +17,11 @@ Open a list and choose **Save as template** to keep its description and ordered 
 Every new list starts with all items unchecked. It starts private unless you select **Share with family**. The new list is independent, so checking or changing its items leaves the source alone. If a parent changes or removes the source while you are previewing it, reload the preview before creating the list.
 
 Parents can rename a template, edit or reorder the lines in its item box, and remove templates they no longer use. Previously created lists stay available after template removal.
+
+## Prepare for a calendar event
+
+Open a calendar event in the day or week view. Under **Preparation**, choose **Add preparation checklist** or **Attach existing checklist**. Use a separate list for packing, food, or things to do before leaving. Each event card links to its checklists and shows how many items are ready.
+
+To link a list from Family lists, open it and choose **Link to calendar event**. The picker shows two weeks beginning on the selected date. A checklist links to one occurrence, and an event can have several checklists. Parents can move or remove a link from the checklist.
+
+Repeating events have a separate link for each date. If the linked date is cancelled or moved, the checklist stays in Family lists. Open it to choose a new date or remove the old link. Children see linked lists that the household has shared with them. Linking keeps the list's existing visibility, and preparations stay off paired displays.

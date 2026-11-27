@@ -13,9 +13,10 @@ it('adds calendar import tables to the latest journal prefix without changing ho
     db.pragma('foreign_keys = ON');
     db.exec(readFileSync('drizzle/auth/0001_better_auth.sql', 'utf8'));
     const journal = JSON.parse(readFileSync('drizzle/meta/_journal.json', 'utf8')) as { entries: { tag: string; idx: number; when: number }[] };
-    const prefix = (entries: typeof journal.entries) => entries.slice(0, entries.findIndex(entry => entry.tag === '0025_checklist_templates') + 1);
+    const boundary = '0026_checklist_event_links';
+    const prefix = (entries: typeof journal.entries) => entries.slice(0, entries.findIndex(entry => entry.tag === boundary) + 1);
     const previous = prefix(journal.entries);
-    expect(previous.at(-1)?.tag).toBe('0025_checklist_templates');
+    expect(previous.at(-1)?.tag).toBe(boundary);
     expect(prefix([...journal.entries, { tag: 'future', idx: 999, when: 9999999999999 }])).toEqual(previous);
     // Ensure consecutive indexes and strictly increasing timestamps across the journal
     for (let i = 0; i < journal.entries.length; i += 1) {
@@ -41,9 +42,17 @@ it('adds calendar import tables to the latest journal prefix without changing ho
       INSERT INTO earning (id, chore_id, household_id, child_id, amount_cents, created_at) VALUES ('earn-1', 'chore-1', 'home', 'child', 500, 'now');
       INSERT INTO calendar_event (id, household_id, creator_id, title, start_date, all_day, created_at, updated_at) VALUES ('event-1', 'home', 'parent', 'Existing family dinner', '2099-10-25', 1, 'now', 'now');
       INSERT INTO calendar_participant (event_id, household_id, user_id) VALUES ('event-1', 'home', 'child');
+      INSERT INTO family_checklist (id, household_id, name, target_date, shared, created_by, create_request_id, created_at, updated_at)
+        VALUES ('prep-1', 'home', 'Dinner preparation', '2099-10-25', 1, 'parent', 'create-prep-1', 'now', 'now');
+      INSERT INTO family_checklist_item VALUES ('prep-item-1', 'prep-1', 'Pack napkins', 1, 'child', 'now', 3, 1);
+      INSERT INTO family_checklist_event VALUES ('prep-1', 'home', 'event-1', '2099-10-25', 'prep-link-token');
     `);
 
-    const rows = () => ['user', 'household', 'membership', 'chore', 'earning', 'calendar_event', 'calendar_participant'].map(table => db.prepare(`SELECT * FROM ${table}`).all());
+    const preservedTables = [
+      'user', 'household', 'membership', 'chore', 'earning', 'calendar_event', 'calendar_participant',
+      'family_checklist', 'family_checklist_item', 'family_checklist_event'
+    ];
+    const rows = () => preservedTables.map(table => db.prepare(`SELECT * FROM ${table}`).all());
     const before = rows();
 
     migrate(drizzle(db), { migrationsFolder: 'drizzle' });

@@ -1,4 +1,5 @@
 import { error, fail, redirect } from '@sveltejs/kit';
+import { listCalendarPreparation } from '../../lib/server/checklists';
 import type { Actions, PageServerLoad } from './$types';
 import { getIdentityServices } from '../../lib/server/runtime';
 import { localDate, occurrenceDates } from '../../lib/chores/recurrence';
@@ -53,7 +54,7 @@ export const load: PageServerLoad = async ({ request, url }) => {
   try { occurrenceDates(date, date, [0]); } catch { error(400, 'Invalid calendar date'); }
   const view = parseView(url.searchParams.get('view'));
   const { start, end } = viewRange(date, view);
-  const events = listEvents(db, actor, householdId, start, end);
+  const events = listCalendarPreparation(db, actor, householdId, start, end);
   const members = db.prepare('SELECT u.id, u.name FROM active_membership m JOIN user u ON u.id = m.user_id WHERE m.household_id = ? ORDER BY u.name').all(householdId) as { id: string; name: string }[];
   return { date, view, start, end, heading: viewHeading(date, view), today, timezone, role, events, members, inbox: listUnscheduled(db, actor, householdId), importSummary: readImportSummary(url) };
 };

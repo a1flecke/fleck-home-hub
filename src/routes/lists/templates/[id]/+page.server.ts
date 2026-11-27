@@ -1,16 +1,16 @@
 import { fail, redirect } from '@sveltejs/kit';
 import type { Actions, PageServerLoad } from './$types';
 import { ChecklistConflict, getChecklistTemplate, removeChecklistTemplate, updateChecklistTemplate } from '../../../../lib/server/checklists';
-import { templateParent } from '../../template-access.server';
+import { checklistParent } from '../../parent-access.server';
 
 export const load: PageServerLoad = async ({ request, params }) => {
-  const { db, userId, householdId } = await templateParent(request);
+  const { db, userId, householdId } = await checklistParent(request);
   return { template: getChecklistTemplate(db, userId, householdId, params.id) };
 };
 
 export const actions = {
   update: async ({ request, params }) => {
-    const { db, userId, householdId } = await templateParent(request);
+    const { db, userId, householdId } = await checklistParent(request);
     const fields = await request.formData();
     const draft = {
       name: String(fields.get('name') ?? ''),
@@ -31,7 +31,7 @@ export const actions = {
     redirect(303, '/lists/templates');
   },
   remove: async ({ request, params }) => {
-    const { db, userId, householdId } = await templateParent(request);
+    const { db, userId, householdId } = await checklistParent(request);
     const fields = await request.formData();
     const removeVersion = Number(fields.get('version'));
     try {
