@@ -1,11 +1,15 @@
 import type Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { occurrenceDates } from '../chores/recurrence';
-import { listEvents } from './calendar';
+import { addCalendarDays } from '../calendar/dates';
+import { listEvents, listUpcomingEvents } from './calendar';
 
 type Input = { name: string; description: string; targetDate: string; shared?: boolean };
 type List = { id: string; name: string; description: string | null; targetDate: string | null; shared: boolean; archived: boolean; version: number };
-type Item = { id: string; name: string; completed: boolean; completedBy: string | null; completedByName: string | null; completedAt: string | null; version: number };
+type Item = {
+  id: string; name: string; completed: boolean; completedBy: string | null; completedByName: string | null;
+  completedAt: string | null; version: number; assignedTo: string | null; assigneeName: string | null; assigneeActive: boolean;
+};
 
 type ListRow = Omit<List, 'shared' | 'archived'> & { shared: number; archived: number };
 const listFields = 'id, name, description, target_date AS targetDate, shared, archived, version';
@@ -83,7 +87,18 @@ export function getChecklist(db: Database.Database, actor: string, household: st
   return db.transaction(() => {
     const role = member(db, actor, household);
     const list = readList(db, household, id, role);
-    const items = db.prepare('SELECT i.id, i.name, i.completed, i.completed_by AS completedBy, u.name AS completedByName, i.completed_at AS completedAt, i.version FROM family_checklist_item i LEFT JOIN user u ON u.id = i.completed_by WHERE i.checklist_id = ? ORDER BY i.position, i.id').all(id) as (Omit<Item, 'completed'> & { completed: number })[];
+    const items = db.prepare(`
+      SELECT i.id, i.name, i.completed, i.completed_by AS completedBy, u.name AS completedByName,
+        i.completed_at AS completedAt, i.version, a.member_id AS assignedTo, owner.name AS assigneeName,
+        m.user_id IS NOT NULL AS assigneeActive
+      FROM family_checklist_item i
+      LEFT JOIN user u ON u.id = i.completed_by
+      LEFT JOIN family_checklist_item_assignment a ON a.item_id = i.id
+      LEFT JOIN user owner ON owner.id = a.member_id
+      LEFT JOIN active_membership m ON m.user_id = a.member_id AND m.household_id = a.household_id
+      WHERE i.checklist_id = ?
+      ORDER BY i.position, i.id
+    `).all(id) as (Omit<Item, 'completed' | 'assigneeActive'> & { completed: number; assigneeActive: number })[];
     return {
       ...list,
       items: items.map(item => {
@@ -91,12 +106,23 @@ export function getChecklist(db: Database.Database, actor: string, household: st
         return {
           ...item,
           completed,
+          assigneeActive: !!item.assigneeActive,
           completedBy: completed ? item.completedBy : null,
           completedByName: completed ? item.completedByName : null,
           completedAt: completed ? item.completedAt : null
         };
       })
     };
+  })();
+}
+
+export function listChecklistAssignees(db: Database.Database, actor: string, household: string) {
+  return db.transaction(() => {
+    member(db, actor, household, true);
+    return db.prepare(`
+      SELECT u.id, u.name FROM active_membership m JOIN user u ON u.id = m.user_id
+      WHERE m.household_id = ? ORDER BY u.name COLLATE NOCASE, u.id
+    `).all(household) as { id: string; name: string }[];
   })();
 }
 
@@ -122,7 +148,13 @@ export function setItemCompletion(db: Database.Database, actor: string, househol
     if (list.archived) throw new Error('Checklist archived');
     const completedBy = completed ? actor : null;
     const completedAt = completed ? new Date().toISOString() : null;
-    const result = db.prepare('UPDATE family_checklist_item SET completed = ?, completed_by = ?, completed_at = ?, version = version + 1 WHERE id = ? AND checklist_id = ? AND version = ?').run(Number(completed), completedBy, completedAt, itemId, listId, version);
+    const result = db.prepare(`
+      UPDATE family_checklist_item SET completed = ?, completed_by = ?, completed_at = ?, version = version + 1
+      WHERE id = ? AND checklist_id = ? AND version = ?
+        AND (? = 'parent' OR NOT EXISTS (
+          SELECT 1 FROM family_checklist_item_assignment a WHERE a.item_id = family_checklist_item.id AND a.member_id <> ?
+        ))
+    `).run(Number(completed), completedBy, completedAt, itemId, listId, version, role, actor);
     if (!result.changes) throw new ChecklistConflict('Item changed');
   }).immediate();
 }
@@ -137,7 +169,10 @@ export function updateChecklist(db: Database.Database, actor: string, household:
   }).immediate();
 }
 
-export function updateChecklistItem(db: Database.Database, actor: string, household: string, listId: string, id: string, version: number, name: string): void {
+export function updateChecklistItem(
+  db: Database.Database, actor: string, household: string, listId: string, id: string, version: number, name: string,
+  assignedTo?: string | null
+): void {
   name = name.trim();
   if (!name || name.length > 120 || !Number.isSafeInteger(version) || version < 1) throw new Error('Invalid item');
   db.transaction(() => {
@@ -145,6 +180,20 @@ export function updateChecklistItem(db: Database.Database, actor: string, househ
     if (list.archived) throw new Error('Checklist archived');
     const result = db.prepare('UPDATE family_checklist_item SET name = ?, version = version + 1 WHERE id = ? AND checklist_id = ? AND version = ?').run(name, id, listId, version);
     if (!result.changes) throw new ChecklistConflict('Item changed');
+    if (assignedTo === undefined) return;
+    const previous = db.prepare('SELECT member_id FROM family_checklist_item_assignment WHERE item_id = ?').pluck().get(id) ?? null;
+    if (assignedTo === previous) return;
+    if (assignedTo === null) {
+      db.prepare('DELETE FROM family_checklist_item_assignment WHERE item_id = ?').run(id);
+      return;
+    }
+    if (!db.prepare('SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ?').get(assignedTo, household)) {
+      throw new Error('Choose an active household member');
+    }
+    db.prepare(`
+      INSERT INTO family_checklist_item_assignment (item_id, checklist_id, household_id, member_id) VALUES (?, ?, ?, ?)
+      ON CONFLICT(item_id) DO UPDATE SET member_id = excluded.member_id
+    `).run(id, listId, household, assignedTo);
   }).immediate();
 }
 
@@ -367,5 +416,68 @@ export function listCalendarPreparation(db: Database.Database, actor: string, ho
       else byOccurrence.set(key, [progress]);
     }
     return events.map(event => ({ ...event, checklists: byOccurrence.get(`${event.id}/${event.date}`) ?? [] }));
+  })();
+}
+
+type PreparationPreview = {
+  id: string; name: string; date: string; eventTitle: string | null;
+  progress: { completed: number; total: number } | null; outstanding: number; items: string[];
+};
+
+const myDayListLimit = 5;
+const myDayItemLimit = 3;
+
+export function loadChecklistReadiness(db: Database.Database, actor: string, household: string, today: string) {
+  return db.transaction(() => {
+    const parent = Number(member(db, actor, household) === 'parent');
+    const through = addCalendarDays(today, 6);
+    const upcomingEvents = listUpcomingEvents(db, actor, household, today, through);
+    const occurrences = JSON.stringify(upcomingEvents);
+    const params = { household, actor, parent, today, through, occurrences, limit: myDayListLimit + 1 };
+    const candidates = db.prepare(`
+      WITH scheduled AS (
+        SELECT json_extract(value, '$.id') AS event_id, json_extract(value, '$.date') AS date,
+          json_extract(value, '$.title') AS title
+        FROM json_each(@occurrences)
+      ), dates AS (
+        SELECT a.checklist_id AS id, a.occurrence_date AS date, e.title AS eventTitle
+        FROM family_checklist_event a
+        JOIN scheduled e ON e.event_id = a.event_id AND e.date = a.occurrence_date
+        WHERE a.household_id = @household AND a.occurrence_date BETWEEN @today AND @through
+        UNION ALL
+        SELECT c.id, c.target_date, NULL
+        FROM family_checklist c
+        WHERE c.household_id = @household AND c.archived = 0 AND c.target_date BETWEEN @today AND @through
+          AND NOT EXISTS (SELECT 1 FROM family_checklist_event a WHERE a.checklist_id = c.id)
+      )
+      SELECT c.id, c.name, dates.date, dates.eventTitle
+      FROM dates JOIN family_checklist c ON c.id = dates.id AND c.household_id = @household
+      WHERE c.archived = 0 AND (@parent = 1 OR (c.shared = 1 AND EXISTS (
+        SELECT 1 FROM family_checklist_item i LEFT JOIN family_checklist_item_assignment a ON a.item_id = i.id
+        WHERE i.checklist_id = c.id AND i.completed = 0 AND (a.member_id IS NULL OR a.member_id = @actor)
+      )))
+      ORDER BY dates.date, c.name COLLATE NOCASE, c.id LIMIT @limit
+    `).all(params) as Pick<PreparationPreview, 'id' | 'name' | 'date' | 'eventTitle'>[];
+    const counts = db.prepare(`
+      SELECT COUNT(*) AS total, COALESCE(SUM(i.completed), 0) AS completed
+      FROM family_checklist_item i LEFT JOIN family_checklist_item_assignment a ON a.item_id = i.id
+      WHERE i.checklist_id = @id AND (@parent = 1 OR (i.completed = 0 AND (a.member_id IS NULL OR a.member_id = @actor)))
+    `);
+    const outstandingItems = db.prepare(`
+      SELECT i.name FROM family_checklist_item i LEFT JOIN family_checklist_item_assignment a ON a.item_id = i.id
+      WHERE i.checklist_id = @id AND i.completed = 0 AND (@parent = 1 OR a.member_id IS NULL OR a.member_id = @actor)
+      ORDER BY i.position, i.id LIMIT @limit
+    `).pluck();
+    const lists: PreparationPreview[] = candidates.slice(0, myDayListLimit).map(row => {
+      const args = { id: row.id, parent, actor };
+      const progress = counts.get(args) as { completed: number; total: number };
+      return {
+        ...row,
+        progress: parent ? progress : null,
+        outstanding: progress.total - progress.completed,
+        items: outstandingItems.all({ ...args, limit: myDayItemLimit }) as string[]
+      };
+    });
+    return { upcomingEvents, preparations: { lists, more: candidates.length > myDayListLimit } };
   })();
 }

@@ -2,11 +2,15 @@
 
 Open **Family lists** from My Day to get ready for a trip or activity. A parent can create a list with a name, an optional description, and a target date. For example, make **Weekend Trip Packing** and paste your packing items one per line. The same field also accepts a single item.
 
-New lists are visible to active parents in your household. Select **Share with family** if you want children in the household to see the list and mark items ready or not ready. Changing a list back to parents only removes it from children’s view. Lists stay off paired displays.
+New lists are visible to active parents in your household. Select **Share with family** if you want children in the household to see the list. Children can mark their own assigned items and any unassigned items ready or not ready. Changing a list back to parents only removes it from children’s view. Lists stay off paired displays.
 
 The list shows how many items are ready and what is **Still to do**. Open **Done** to see completed items or move one back. Completed items show who marked them ready and when. Checklist progress has no effect on chores or earnings.
 
-Parents can edit list details and item names, and remove an unfinished item. Archive a list in **List details** when you want to take it out of use. Parents can still open it and clear **Archive this list** to restore it with its items and completion state intact.
+Open **Edit item** to change its name or choose who it is **Assigned to**. Each item can have one owner or be left unassigned. Parents can update any item. If a household member is disabled, their items keep their name and show **Inactive** until a parent reassigns them or chooses **Unassigned**.
+
+Use **All items**, **My items**, **Unassigned**, **Still to do**, or **Completed** to find the items you need. **My items** shows items specifically assigned to you.
+
+Parents can edit list details and remove an unfinished item. Archive a list in **List details** when you want to take it out of use. Parents can still open it and clear **Archive this list** to restore it with its items and completion state intact.
 
 If somebody else saves an edit while you are editing, your changes stay in the rejected form. Copy any text you want to keep, then reload the list to review the latest version before making another edit.
 
@@ -14,14 +18,20 @@ If somebody else saves an edit while you are editing, your changes stay in the r
 
 Open a list and choose **Save as template** to keep its description and ordered items for future trips. On the next trip, go to **Family lists → Choose a template**, find your packing template, and select **Use this template**. The preview shows the items in order. Give the new list a name, choose a target date if you need one, and select **Create list**. Use **Use this list again** from an existing list to preview a copy directly.
 
-Every new list starts with all items unchecked. It starts private unless you select **Share with family**. The new list is independent, so checking or changing its items leaves the source alone. If a parent changes or removes the source while you are previewing it, reload the preview before creating the list.
+Every new list starts with all items unchecked and unassigned. It starts private unless you select **Share with family**. The new list is independent, so checking or changing its items leaves the source alone. If a parent changes or removes the source while you are previewing it, reload the preview before creating the list.
 
 Parents can rename a template, edit or reorder the lines in its item box, and remove templates they no longer use. Previously created lists stay available after template removal.
 
 ## Prepare for a calendar event
 
-Open a calendar event in the day or week view. Under **Preparation**, choose **Add preparation checklist** or **Attach existing checklist**. Use a separate list for packing, food, or things to do before leaving. Each event card links to its checklists and shows how many items are ready.
+Open a calendar event in the day or week view. Under **Preparation**, choose **Add preparation checklist** or **Attach existing checklist**. Use a separate list for packing, food, or things to do before leaving. Each event card links to its checklists and shows how many items are ready across the lists you can see. When all visible items are checked, it shows **Everything is ready!**.
 
 To link a list from Family lists, open it and choose **Link to calendar event**. The picker shows two weeks beginning on the selected date. A checklist links to one occurrence, and an event can have several checklists. Parents can move or remove a link from the checklist.
 
 Repeating events have a separate link for each date. If the linked date is cancelled or moved, the checklist stays in Family lists. Open it to choose a new date or remove the old link. Children see linked lists that the household has shared with them. Linking keeps the list's existing visibility, and preparations stay off paired displays.
+
+## Check what’s left on My Day
+
+**Getting ready** shows upcoming preparations for today and the next six days, using your household’s time zone. A linked list follows its calendar date. An unlinked list appears if it has a target date in that window. Use the checklist link to see every item or continue preparing.
+
+Parents see the completion count and a preview of what still needs doing. Children see shared lists with outstanding items assigned to them or available for anyone to do. If a linked event is moved or cancelled, its old attachment leaves My Day and the checklist stays in Family lists.

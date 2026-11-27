@@ -3,6 +3,7 @@
   import { viewHeading } from '../../lib/calendar/navigation';
   import { addCalendarDays } from '../../lib/calendar/dates';
   import { eventTimeLabel, groupByDate, sortOccurrences } from '../../lib/calendar/presentation';
+  import GettingReady from './GettingReady.svelte';
   import type { PageData } from './$types';
   type FormResult = { message: string };
   type Chore = PageData['sections']['today']['items'][number];
@@ -34,6 +35,7 @@
   </header>
   {#if form?.message}<p role="status" class="mt-4 rounded-2xl bg-teal-50 p-4 text-teal-900">{form.message}</p>{/if}
 
+  <GettingReady preparations={data.preparations} />
   <section aria-labelledby="family-dinners-heading" class="mt-6 rounded-3xl bg-white p-5 shadow-sm">
     <div class="flex flex-wrap items-baseline justify-between gap-2">
       <h2 id="family-dinners-heading" class="text-2xl font-bold">Family dinners</h2>
