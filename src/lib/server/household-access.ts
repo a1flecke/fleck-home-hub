@@ -37,6 +37,8 @@ export async function disableMember(db: Database.Database, config: { secret: str
     const worker = new Worker(workerSource, {
       eval: true, env: {}, workerData: { path: db.name, config: { secret: config.secret, origin: config.origin }, actorId, householdId, targetId }, stdout: true, stderr: true
     });
+    worker.stdout.resume();
+    worker.stderr.resume();
     let result: unknown;
     worker.on('message', (message: unknown) => { result = message; });
     const failed = () => reject(new Error('Member access could not be disabled'));

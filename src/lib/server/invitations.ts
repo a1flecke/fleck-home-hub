@@ -2,6 +2,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import type Database from 'better-sqlite3';
 import { Worker } from 'node:worker_threads';
 import { listMembers } from './household-access';
+import { isManagedEmail } from './managed-children';
 import workerSource from './invitation-worker.js?raw';
 
 type Role = 'parent' | 'kid';
@@ -36,7 +37,16 @@ export function createInvitation(db: Database.Database, actorId: string, househo
 // A worker owns the async authentication transaction so synchronous SQLite waits
 // on the HTTP event loop cannot prevent that transaction from committing.
 export async function redeemInvitation(db: Database.Database, config: Config, token: string, input: Input): Promise<string> {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(token) || !input.name.trim() || input.password.length < 12) throw new Error('Invalid invitation or input');
+  const name = input.name.trim();
+  const email = input.email.trim();
+  const { password } = input;
+  if (
+    !/^[A-Za-z0-9_-]{43}$/.test(token) ||
+    !name || name.length > 100 ||
+    !email || email.length > 254 || isManagedEmail(email) ||
+    password.length < 12 || password.length > 128
+  ) throw new Error('Invalid invitation or input');
+  if (db.memory || db.inTransaction) throw new Error('Invitation redemption requires a file-backed database outside an open transaction');
   // Reject unusable bearer tokens before spawning auth work or requesting a
   // writer lock. Redemption still rechecks authorization inside its transaction.
   const usable = db.prepare("SELECT 1 FROM household_invitation i JOIN active_membership m ON m.user_id = i.created_by AND m.household_id = i.household_id AND m.role = 'parent' WHERE i.token_hash = ? AND i.consumed_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?").get(digest(token), Date.now());
@@ -44,7 +54,20 @@ export async function redeemInvitation(db: Database.Database, config: Config, to
   if (activeRedemptions >= 2) throw new Error('Too many invitation attempts');
   activeRedemptions++;
   try { return await new Promise((resolve, reject) => {
-    const worker = new Worker(workerSource, { eval: true, workerData: { path: db.name, config, token, input }, stdout: true, stderr: true });
+    const worker = new Worker(workerSource, {
+      eval: true,
+      env: {},
+      workerData: {
+        path: db.name,
+        config: { secret: config.secret, origin: config.origin },
+        token,
+        input: { name, email, password }
+      },
+      stdout: true,
+      stderr: true
+    });
+    worker.stdout.resume();
+    worker.stderr.resume();
     let result: string | undefined;
     worker.on('message', (message) => { if (typeof message === 'string') result = message; });
     worker.on('error', () => reject(new Error('Invitation could not be accepted')));

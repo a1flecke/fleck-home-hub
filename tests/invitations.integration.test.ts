@@ -225,3 +225,38 @@ it('upgrades the current main migration history without skipping invitations', a
   expect(db.prepare("SELECT name FROM sqlite_master WHERE name = 'household_invitation'").get()).toEqual({ name: 'household_invitation' });
   expect(db.prepare('SELECT count(*) AS n FROM __drizzle_migrations').get()).toEqual({ n: fullJournal.entries.length });
 });
+
+it('rejects oversized, blank, or managed inputs before competing for the SQLite writer and trims valid inputs', async () => {
+  const { db, parent } = await fixture();
+  const token = createInvitation(db, parent, 'house-a', 'kid');
+  const writer = new Database(db.name);
+  writer.exec('BEGIN IMMEDIATE');
+  try {
+    const badInputs = [
+      { name: '   ', email: 'valid@example.test', password: 'synthetic-password-123' },
+      { name: 'a'.repeat(101), email: 'valid@example.test', password: 'synthetic-password-123' },
+      { name: 'Valid', email: '   ', password: 'synthetic-password-123' },
+      { name: 'Valid', email: `${'a'.repeat(245)}@example.test`, password: 'synthetic-password-123' },
+      { name: 'Valid', email: 'managed@children.fleck.invalid', password: 'synthetic-password-123' },
+      { name: 'Valid', email: 'valid@example.test', password: 'p'.repeat(129) }
+    ];
+    for (const bad of badInputs) {
+      await expect(redeemInvitation(db, config, token, bad)).rejects.toThrow('Invalid invitation or input');
+    }
+    expect(db.prepare('SELECT count(*) AS n FROM user').get()).toEqual({ n: 1 });
+  } finally { writer.exec('ROLLBACK'); writer.close(); }
+
+  const memoryDb = new Database(':memory:');
+  dbs.push(memoryDb);
+  await expect(redeemInvitation(memoryDb, config, token, { name: 'Valid', email: 'valid@example.test', password: 'synthetic-password-123' })).rejects.toThrow(/file-backed/);
+
+  const userId = await redeemInvitation(db, config, token, {
+    name: '  Trimmed Child  ',
+    email: '  trimmed-child@example.test  ',
+    password: 'synthetic-password-123'
+  });
+  expect(db.prepare('SELECT name, email FROM user WHERE id = ?').get(userId)).toEqual({
+    name: 'Trimmed Child',
+    email: 'trimmed-child@example.test'
+  });
+});
