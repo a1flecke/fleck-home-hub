@@ -211,3 +211,38 @@ it('cancels unstarted occurrences from today onward when ending an active or pau
     expect(db.prepare('SELECT amount_cents FROM earning WHERE chore_id = ?').get(activeSubmitted)).toEqual({ amount_cents: 200 });
   } finally { vi.useRealTimers(); db.close(); }
 });
+
+it('skips acquiring BEGIN IMMEDIATE on read paths when recurring occurrences already exist', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'hub-recurring-read-only-'));
+  const path = join(dir, 'synthetic.sqlite');
+  const writer = new Database(path);
+  const reader = new Database(path, { fileMustExist: true });
+  try {
+    writer.pragma('foreign_keys = ON');
+    writer.pragma('journal_mode = WAL');
+    reader.pragma('foreign_keys = ON');
+    reader.pragma('busy_timeout = 0');
+    await migrate(writer);
+    for (const id of ['parent', 'kid', 'outsider']) writer.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, id, `${id}@example.test`);
+    writer.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    writer.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('parent', 'home', 'parent');
+    writer.prepare('INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, ?)').run('kid', 'home', 'kid');
+    createSeries(writer, 'parent', 'home', { title: 'Daily dishes', assigneeId: 'kid', startDate: '2026-03-01', weekdays: [0, 1, 2, 3, 4, 5, 6] });
+    generateOccurrences(writer, 'parent', 'home', '2026-03-01', '2026-03-07');
+
+    // Hold the SQLite writer lock on another connection: a read-only generateOccurrences call
+    // with nothing left to create must succeed without contending for BEGIN IMMEDIATE.
+    writer.exec('BEGIN IMMEDIATE');
+    try {
+      expect(() => generateOccurrences(reader, 'parent', 'home', '2026-03-01', '2026-03-07')).not.toThrow();
+      expect(() => generateOccurrences(reader, 'kid', 'home', '2026-03-01', '2026-03-07')).not.toThrow();
+      expect(() => generateOccurrences(reader, 'outsider', 'home', '2026-03-01', '2026-03-07')).toThrow('Not authorized');
+    } finally {
+      writer.exec('ROLLBACK');
+    }
+  } finally {
+    reader.close();
+    writer.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

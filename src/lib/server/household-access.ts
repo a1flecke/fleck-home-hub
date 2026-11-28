@@ -9,6 +9,8 @@ export class MemberDisableError extends Error {
   constructor(readonly code: 'not-authorized' | 'self' | 'unavailable' | 'last-parent') { super(code); }
 }
 
+let activeDisables = 0;
+
 /** The caller's active membership in one household, or null. A valid session alone never authorizes. */
 export function activeMembership(db: Database.Database, userId: string, householdId: string) {
   return db.prepare('SELECT household_id AS householdId, role FROM active_membership WHERE user_id = ? AND household_id = ?').get(userId, householdId) as { householdId: string; role: HouseholdRole } | undefined ?? null;
@@ -33,23 +35,29 @@ export function listMembers(db: Database.Database, actorId: string, householdId:
  */
 export async function disableMember(db: Database.Database, config: { secret: string; origin: string }, actorId: string, householdId: string, targetId: string): Promise<{ changed: boolean }> {
   if (db.memory || db.inTransaction) throw new Error('Member disabling requires a file-backed database outside an open transaction');
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(workerSource, {
-      eval: true, env: {}, workerData: { path: db.name, config: { secret: config.secret, origin: config.origin }, actorId, householdId, targetId }, stdout: true, stderr: true
+  if (activeDisables >= 2) throw new Error('Too many member disable attempts');
+  activeDisables++;
+  try {
+    return await new Promise((resolve, reject) => {
+      const worker = new Worker(workerSource, {
+        eval: true, env: {}, workerData: { path: db.name, config: { secret: config.secret, origin: config.origin }, actorId, householdId, targetId }, stdout: true, stderr: true
+      });
+      worker.stdout.resume();
+      worker.stderr.resume();
+      let result: unknown;
+      worker.on('message', (message: unknown) => { result = message; });
+      const failed = () => reject(new Error('Member access could not be disabled'));
+      worker.on('error', failed);
+      worker.on('exit', (code) => {
+        if (code !== 0) return failed();
+        if (result === 'changed' || result === 'unchanged') return resolve({ changed: result === 'changed' });
+        if (result === 'not-authorized' || result === 'self' || result === 'unavailable' || result === 'last-parent') {
+          return reject(new MemberDisableError(result));
+        }
+        failed();
+      });
     });
-    worker.stdout.resume();
-    worker.stderr.resume();
-    let result: unknown;
-    worker.on('message', (message: unknown) => { result = message; });
-    const failed = () => reject(new Error('Member access could not be disabled'));
-    worker.on('error', failed);
-    worker.on('exit', (code) => {
-      if (code !== 0) return failed();
-      if (result === 'changed' || result === 'unchanged') return resolve({ changed: result === 'changed' });
-      if (result === 'not-authorized' || result === 'self' || result === 'unavailable' || result === 'last-parent') {
-        return reject(new MemberDisableError(result));
-      }
-      failed();
-    });
-  });
+  } finally {
+    activeDisables--;
+  }
 }

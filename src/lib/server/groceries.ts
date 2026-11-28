@@ -133,14 +133,18 @@ export function clearBoughtGroceries(db: Database.Database, actor: string, house
   }).immediate();
 }
 
+function ingredientRefsFromMeal(ingredients: string, details: ReturnType<typeof recipeDetailsForMeal>): MealIngredientRef[] {
+  const refs: MealIngredientRef[] = [];
+  ingredientLines(ingredients).forEach((line, index) => refs.push({ key: familyIngredientKey(index), line, source: 'family', group: null }));
+  details?.groups.forEach((group, groupIndex) => group.lines.forEach((line, lineIndex) => refs.push({ key: providerIngredientKey(groupIndex, lineIndex), line, source: 'provider', group: group.name })));
+  return refs;
+}
+
 function mealIngredientRefs(db: Database.Database, household: string, mealId: string): { title: string; refs: MealIngredientRef[] } {
   const meal = db.prepare('SELECT title, ingredients, recipe_url AS recipeUrl, recipe_details AS recipeDetailsJson FROM meal WHERE id = ? AND household_id = ?').get(mealId, household) as { title: string; ingredients: string; recipeUrl: string | null; recipeDetailsJson: string | null } | undefined;
   if (!meal) throw new Error('Meal not found');
   const details = recipeDetailsForMeal(parseRecipeDetailsJson(meal.recipeDetailsJson), meal.recipeUrl);
-  const refs: MealIngredientRef[] = [];
-  ingredientLines(meal.ingredients).forEach((line, index) => refs.push({ key: familyIngredientKey(index), line, source: 'family', group: null }));
-  details?.groups.forEach((group, groupIndex) => group.lines.forEach((line, lineIndex) => refs.push({ key: providerIngredientKey(groupIndex, lineIndex), line, source: 'provider', group: group.name })));
-  return { title: meal.title, refs };
+  return { title: meal.title, refs: ingredientRefsFromMeal(meal.ingredients, details) };
 }
 
 function mealIngredients(db: Database.Database, actor: string, household: string, mealId: string): { title: string; refs: MealIngredientRef[] } {
@@ -238,7 +242,7 @@ export function confirmMealIngredients(db: Database.Database, actor: string, hou
 
 function weekIngredientRefs(db: Database.Database, actor: string, household: string, start: string, end: string) {
   const meals = listMealWeek(db, actor, household, start, end);
-  const refs: WeekIngredientRef[] = meals.flatMap(meal => mealIngredientRefs(db, household, meal.id).refs.map(ref => ({
+  const refs: WeekIngredientRef[] = meals.flatMap(meal => ingredientRefsFromMeal(meal.ingredients, meal.recipeDetails).map(ref => ({
     ...ref,
     key: `${meal.id}:${ref.key}`,
     mealId: meal.id,

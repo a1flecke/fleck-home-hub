@@ -8,6 +8,7 @@ export function getIdentityServices() {
     const config = readIdentityConfig(process.env);
     const db = new Database(config.dbPath, { fileMustExist: true });
     db.pragma('foreign_keys = ON');
+    db.pragma('journal_mode = WAL');
     services = { db, auth: createAuth(db, config), origin: config.origin };
   }
   return services;
