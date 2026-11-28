@@ -569,4 +569,23 @@ describe('migration and recovery', () => {
     expect(restored.pragma('foreign_key_check')).toEqual([]);
     expect(restored.pragma('integrity_check', { simple: true })).toBe('ok');
   }, 15000);
+
+  it('caps concurrent disableMember workers and releases slots once in-flight work finishes', async () => {
+    const f = await fixture();
+    const blocker = new Database(f.path, { fileMustExist: true }); dbs.push(blocker);
+    blocker.pragma('foreign_keys = ON');
+    blocker.exec('BEGIN IMMEDIATE');
+    let first: Promise<{ changed: boolean }> | undefined;
+    let second: Promise<{ changed: boolean }> | undefined;
+    try {
+      first = disableMember(f.db, config, f.parentA, 'house-a', f.kid);
+      second = disableMember(f.db, config, f.parentA, 'house-a', f.kid2);
+      await expect(disableMember(f.db, config, f.parentA, 'house-a', f.parentB)).rejects.toThrow('Too many member disable attempts');
+    } finally {
+      blocker.exec('ROLLBACK');
+    }
+    await expect(first).resolves.toEqual({ changed: true });
+    await expect(second).resolves.toEqual({ changed: true });
+    await expect(disableMember(f.db, config, f.parentA, 'house-a', f.parentB)).resolves.toEqual({ changed: true });
+  }, 15000);
 });

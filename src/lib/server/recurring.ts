@@ -69,6 +69,102 @@ export function createSeries(db: Database.Database, actor: string, household: st
   }).immediate();
 }
 
+const QUERY_CHUNK_SIZE = 500;
+
+function batchSeriesVersions(db: Database.Database, series: Series[]): Map<string, SeriesVersion[]> {
+  const bySeries = new Map<string, SeriesVersion[]>();
+  const ids = series.map(item => item.id);
+  for (let offset = 0; offset < ids.length; offset += QUERY_CHUNK_SIZE) {
+    const chunk = ids.slice(offset, offset + QUERY_CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(', ');
+    const rows = db.prepare(`SELECT series_id AS seriesId, effective_date AS effectiveDate, assignee_id AS assigneeId, title, description,
+      reward_cents AS rewardCents, end_date AS endDate, weekdays
+      FROM recurring_series_version WHERE series_id IN (${placeholders}) ORDER BY series_id, effective_date ASC`).all(...chunk) as {
+        seriesId: string; effectiveDate: string; assigneeId: string; title: string; description: string | null; rewardCents: number | null; endDate: string | null; weekdays: string;
+      }[];
+    for (const { seriesId, ...row } of rows) {
+      let list = bySeries.get(seriesId);
+      if (!list) { list = []; bySeries.set(seriesId, list); }
+      list.push({ ...row, weekdays: JSON.parse(row.weekdays) as number[] });
+    }
+  }
+  for (const item of series) {
+    if (!bySeries.has(item.id)) {
+      bySeries.set(item.id, [{
+        effectiveDate: item.start_date,
+        assigneeId: item.assignee_id,
+        title: item.title,
+        description: item.description,
+        rewardCents: item.reward_cents,
+        endDate: item.end_date,
+        weekdays: JSON.parse(item.weekdays) as number[]
+      }]);
+    }
+  }
+  return bySeries;
+}
+
+function batchExistingDates(db: Database.Database, ids: string[], from: string, through: string): { active: Map<string, Set<string>>; skipped: Map<string, Set<string>> } {
+  const active = new Map<string, Set<string>>();
+  const skipped = new Map<string, Set<string>>();
+  for (let offset = 0; offset < ids.length; offset += QUERY_CHUNK_SIZE) {
+    const chunk = ids.slice(offset, offset + QUERY_CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(', ');
+    const occRows = db.prepare(`SELECT o.series_id AS seriesId, o.scheduled_date AS date
+      FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id
+      WHERE o.series_id IN (${placeholders}) AND o.scheduled_date BETWEEN ? AND ?
+        AND o.archived_at IS NULL AND c.cancelled_at IS NULL`).all(...chunk, from, through) as { seriesId: string; date: string }[];
+    for (const row of occRows) {
+      let dates = active.get(row.seriesId);
+      if (!dates) { dates = new Set(); active.set(row.seriesId, dates); }
+      dates.add(row.date);
+    }
+    const skipRows = db.prepare(`SELECT series_id AS seriesId, scheduled_date AS date
+      FROM recurring_skip WHERE series_id IN (${placeholders}) AND scheduled_date BETWEEN ? AND ?`).all(...chunk, from, through) as { seriesId: string; date: string }[];
+    for (const row of skipRows) {
+      let dates = skipped.get(row.seriesId);
+      if (!dates) { dates = new Set(); skipped.set(row.seriesId, dates); }
+      dates.add(row.date);
+    }
+  }
+  return { active, skipped };
+}
+
+type PendingOccurrence = { seriesId: string; creatorId: string; date: string; version: SeriesVersion };
+
+function findPendingOccurrences(db: Database.Database, household: string, from: string, through: string, onlyAssigneeId?: string): PendingOccurrence[] {
+  const series = db.prepare(`SELECT s.* FROM recurring_series s
+    JOIN active_membership creator ON creator.household_id = s.household_id AND creator.user_id = s.creator_id AND creator.role = 'parent'
+    WHERE s.household_id = ? AND s.state = 'active'`).all(household) as Series[];
+  if (!series.length) return [];
+
+  const activeKids = new Set(
+    db.prepare("SELECT user_id FROM active_membership WHERE household_id = ? AND role = 'kid'").pluck().all(household) as string[]
+  );
+  if (!activeKids.size) return [];
+
+  const versionsBySeries = batchSeriesVersions(db, series);
+  const { active, skipped } = batchExistingDates(db, series.map(item => item.id), from, through);
+
+  const pending: PendingOccurrence[] = [];
+  for (const item of series) {
+    const existingDates = active.get(item.id);
+    const skippedDates = skipped.get(item.id);
+    for (const segment of scheduleSegments(versionsBySeries.get(item.id) ?? [])) {
+      if (onlyAssigneeId && segment.version.assigneeId !== onlyAssigneeId) continue;
+      if (!activeKids.has(segment.version.assigneeId)) continue;
+      const start = from > segment.startDate ? from : segment.startDate;
+      const end = segment.endDate && segment.endDate < through ? segment.endDate : through;
+      if (start > end) continue;
+      for (const date of occurrenceDates(start, end, segment.version.weekdays)) {
+        if (existingDates?.has(date) || skippedDates?.has(date)) continue;
+        pending.push({ seriesId: item.id, creatorId: item.creator_id, date, version: segment.version });
+      }
+    }
+  }
+  return pending;
+}
+
 function generateOccurrencesForSeries(db: Database.Database, actor: string, household: string, item: Series, from: string, through: string, onlyAssigneeId?: string): string[] {
   const created: string[] = [];
   for (const segment of scheduleSegments(loadSeriesVersions(db, item))) {
@@ -88,14 +184,17 @@ function generateOccurrencesForSeries(db: Database.Database, actor: string, hous
 }
 
 export function generateOccurrences(db: Database.Database, actor: string, household: string, from: string, through: string): void {
+  occurrenceDates(from, through, [0]);
+  const initialMember = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
+  if (!initialMember) throw new Error('Not authorized');
+  if (!findPendingOccurrences(db, household, from, through, initialMember.role === 'kid' ? actor : undefined).length) return;
   db.transaction(() => {
     const member = db.prepare('SELECT role FROM active_membership WHERE user_id = ? AND household_id = ?').get(actor, household) as { role: string } | undefined;
     if (!member) throw new Error('Not authorized');
-    occurrenceDates(from, through, [0]);
-    const series = db.prepare(`SELECT s.* FROM recurring_series s
-      JOIN active_membership creator ON creator.household_id = s.household_id AND creator.user_id = s.creator_id AND creator.role = 'parent'
-      WHERE s.household_id = ? AND s.state = 'active'`).all(household) as Series[];
-    for (const item of series) generateOccurrencesForSeries(db, item.creator_id, household, item, from, through, member.role === 'kid' ? actor : undefined);
+    for (const item of findPendingOccurrences(db, household, from, through, member.role === 'kid' ? actor : undefined)) {
+      const chore = createChore(db, item.creatorId, household, { title: item.version.title, description: item.version.description ?? undefined, assigneeId: item.version.assigneeId, dueDate: item.date, rewardCents: item.version.rewardCents });
+      db.prepare('INSERT INTO recurring_occurrence (series_id, household_id, scheduled_date, chore_id) VALUES (?, ?, ?, ?)').run(item.seriesId, household, item.date, chore);
+    }
   }).immediate();
 }
 
@@ -197,17 +296,42 @@ export function listSeriesPage(db: Database.Database, actor: string, household: 
     s.end_date AS endDate, s.weekdays, s.state, s.updated_at AS updatedAt
     FROM recurring_series s JOIN user u ON u.id = s.assignee_id
     WHERE s.household_id = ? ORDER BY s.created_at DESC, s.id DESC LIMIT ? OFFSET ?`).all(household, size, (current - 1) * size) as Omit<SeriesPageItem, 'next' | 'skips' | 'skipCount'>[];
-  const items = rows.map(item => {
-    const next = item.state === 'active'
-      ? (db.prepare(`SELECT o.scheduled_date AS date FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id
-        WHERE o.series_id = ? AND o.archived_at IS NULL AND o.scheduled_date >= ? AND c.status = 'todo' AND c.cancelled_at IS NULL
+  if (!rows.length) return { items: [], total, page: current, pageSize: size, pageCount, today };
+  const ids = rows.map(row => row.id);
+  const placeholders = ids.map(() => '?').join(', ');
+  const activeIds = rows.filter(row => row.state === 'active').map(row => row.id);
+  const nextBySeries = new Map<string, string>();
+  if (activeIds.length) {
+    const activePlaceholders = activeIds.map(() => '?').join(', ');
+    const nextRows = db.prepare(`SELECT o.series_id AS seriesId, MIN(o.scheduled_date) AS date
+      FROM recurring_occurrence o JOIN chore c ON c.id = o.chore_id
+      WHERE o.series_id IN (${activePlaceholders}) AND o.archived_at IS NULL AND o.scheduled_date >= ?
+        AND c.status = 'todo' AND c.cancelled_at IS NULL
         AND NOT EXISTS (SELECT 1 FROM recurring_skip s WHERE s.series_id = o.series_id AND s.scheduled_date = o.scheduled_date)
-        ORDER BY o.scheduled_date LIMIT 1`).get(item.id, today) as { date: string } | undefined)?.date
-      : undefined;
-    const skips = (db.prepare('SELECT scheduled_date AS date FROM recurring_skip WHERE series_id = ? ORDER BY scheduled_date DESC LIMIT 5').all(item.id) as { date: string }[]).map(skip => skip.date);
-    const skipCount = (db.prepare('SELECT COUNT(*) AS count FROM recurring_skip WHERE series_id = ?').get(item.id) as { count: number }).count;
-    return { ...item, next, skips, skipCount };
-  });
+      GROUP BY o.series_id`).all(...activeIds, today) as { seriesId: string; date: string }[];
+    for (const row of nextRows) nextBySeries.set(row.seriesId, row.date);
+  }
+  const skipCounts = new Map<string, number>();
+  for (const row of db.prepare(`SELECT series_id AS seriesId, COUNT(*) AS count FROM recurring_skip WHERE series_id IN (${placeholders}) GROUP BY series_id`).all(...ids) as { seriesId: string; count: number }[]) {
+    skipCounts.set(row.seriesId, row.count);
+  }
+  const recentSkips = new Map<string, string[]>();
+  const skipRows = db.prepare(`SELECT seriesId, date FROM (
+    SELECT series_id AS seriesId, scheduled_date AS date,
+      ROW_NUMBER() OVER (PARTITION BY series_id ORDER BY scheduled_date DESC) AS rn
+    FROM recurring_skip WHERE series_id IN (${placeholders})
+  ) WHERE rn <= 5 ORDER BY seriesId, date DESC`).all(...ids) as { seriesId: string; date: string }[];
+  for (const row of skipRows) {
+    let list = recentSkips.get(row.seriesId);
+    if (!list) { list = []; recentSkips.set(row.seriesId, list); }
+    list.push(row.date);
+  }
+  const items = rows.map(item => ({
+    ...item,
+    next: item.state === 'active' ? nextBySeries.get(item.id) : undefined,
+    skips: recentSkips.get(item.id) ?? [],
+    skipCount: skipCounts.get(item.id) ?? 0
+  }));
   return { items, total, page: current, pageSize: size, pageCount, today };
 }
 
