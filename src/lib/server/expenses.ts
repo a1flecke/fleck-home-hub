@@ -6,8 +6,10 @@ import { expenseDates, type ExpenseCadence } from '../expenses/recurrence';
 type ExpenseInput = { title: string; amountCents: number; dueDate: string; cadence: ExpenseCadence; payee: string; category: string; notes: string };
 type Expense = { id: string; due_date: string; cadence: ExpenseCadence; state: 'active' | 'paused' | 'ended'; ended_on: string | null };
 const BASE_VERSION_DATE = '0000-01-01';
+const QUERY_CHUNK_SIZE = 500;
 
 type Version = { title: string; amount_cents: number; payee: string | null; category: string | null; notes: string | null };
+export type ExpenseOccurrence = { id: string; date: string; title: string; amountCents: number; payee: string | null; category: string | null; notes: string | null };
 
 function requireParent(db: Database.Database, actor: string, household: string): void {
   if (!db.prepare("SELECT 1 FROM active_membership WHERE user_id = ? AND household_id = ? AND role = 'parent'").get(actor, household)) throw new Error('Not authorized');
@@ -77,6 +79,20 @@ export function setExpenseState(db: Database.Database, actor: string, household:
   }).immediate();
 }
 
+/** Single-expense occurrence check by primary key, safe for use inside write transactions. */
+export function findExpenseOccurrence(db: Database.Database, household: string, id: string, date: string): ExpenseOccurrence | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+  const item = db.prepare('SELECT id, due_date, cadence, state, ended_on FROM expense WHERE id = ? AND household_id = ?').get(id, household) as Expense | undefined;
+  if (!item) return null;
+  if (item.ended_on && date >= item.ended_on) return null;
+  if (!expenseDates(item.due_date, item.cadence, date, date).includes(date)) return null;
+  if (db.prepare('SELECT 1 FROM expense_skip WHERE expense_id = ? AND scheduled_date = ?').get(item.id, date)) return null;
+  if (db.prepare('SELECT 1 FROM expense_pause WHERE expense_id = ? AND start_date <= ? AND (end_date IS NULL OR end_date > ?)').get(item.id, date, date)) return null;
+  const version = db.prepare('SELECT title, amount_cents, payee, category, notes FROM expense_version WHERE expense_id = ? AND effective_date <= ? ORDER BY effective_date DESC LIMIT 1').get(item.id, date) as Version | undefined;
+  if (!version) return null;
+  return { id: item.id, date, title: version.title, amountCents: version.amount_cents, payee: version.payee, category: version.category, notes: version.notes };
+}
+
 export function skipExpense(db: Database.Database, actor: string, household: string, id: string, date: string): void {
   db.transaction(() => {
     requireParent(db, actor, household);
@@ -86,21 +102,57 @@ export function skipExpense(db: Database.Database, actor: string, household: str
     // anchor, or one that was ended, does not leave unpaid dates that only a false payment could clear.
     // The date must currently be projected: scheduled, not already skipped, paused or after the end.
     if (item.cadence === 'once' || (date > expenseToday(db, household) && item.state !== 'active')) throw new Error('Invalid occurrence');
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !listExpenses(db, actor, household, date, date).some(occurrence => occurrence.id === id)) throw new Error('Invalid occurrence');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !findExpenseOccurrence(db, household, id, date)) throw new Error('Invalid occurrence');
     if (db.prepare('SELECT 1 FROM expense_payment WHERE expense_id = ? AND scheduled_date = ?').get(id, date)) throw new Error('Payment history exists');
     db.prepare('INSERT INTO expense_skip VALUES (?, ?, ?, ?)').run(id, date, actor, new Date().toISOString());
   }).immediate();
 }
 
-export function listExpenses(db: Database.Database, actor: string, household: string, from: string, through: string) {
+export function listExpenses(db: Database.Database, actor: string, household: string, from: string, through: string): ExpenseOccurrence[] {
   requireParent(db, actor, household);
   expenseDates(from, 'once', from, through);
   const items = db.prepare('SELECT id, due_date, cadence, state, ended_on FROM expense WHERE household_id = ?').all(household) as Expense[];
-  const result: { id: string; date: string; title: string; amountCents: number; payee: string | null; category: string | null; notes: string | null }[] = [];
-  for (const item of items) {
-    for (const date of expenseDates(item.due_date, item.cadence, from, through)) {
-      if ((item.ended_on && date >= item.ended_on) || db.prepare('SELECT 1 FROM expense_skip WHERE expense_id = ? AND scheduled_date = ?').get(item.id, date) || db.prepare('SELECT 1 FROM expense_pause WHERE expense_id = ? AND start_date <= ? AND (end_date IS NULL OR end_date > ?)').get(item.id, date, date)) continue;
-      const version = db.prepare('SELECT title, amount_cents, payee, category, notes FROM expense_version WHERE expense_id = ? AND effective_date <= ? ORDER BY effective_date DESC LIMIT 1').get(item.id, date) as Version;
+  const candidates = items.flatMap(item => {
+    const dates = expenseDates(item.due_date, item.cadence, from, through).filter(date => !item.ended_on || date < item.ended_on);
+    return dates.length ? [{ item, dates }] : [];
+  });
+  if (!candidates.length) return [];
+
+  const ids = candidates.map(entry => entry.item.id);
+  const skipsByExpense = new Map<string, Set<string>>();
+  const pausesByExpense = new Map<string, { start_date: string; end_date: string | null }[]>();
+  const versionsByExpense = new Map<string, (Version & { effective_date: string })[]>();
+
+  for (let offset = 0; offset < ids.length; offset += QUERY_CHUNK_SIZE) {
+    const chunk = ids.slice(offset, offset + QUERY_CHUNK_SIZE);
+    const placeholders = chunk.map(() => '?').join(', ');
+    for (const row of db.prepare(`SELECT expense_id, scheduled_date FROM expense_skip WHERE scheduled_date BETWEEN ? AND ? AND expense_id IN (${placeholders})`).all(from, through, ...chunk) as { expense_id: string; scheduled_date: string }[]) {
+      let set = skipsByExpense.get(row.expense_id);
+      if (!set) { set = new Set(); skipsByExpense.set(row.expense_id, set); }
+      set.add(row.scheduled_date);
+    }
+    for (const row of db.prepare(`SELECT expense_id, start_date, end_date FROM expense_pause WHERE start_date <= ? AND (end_date IS NULL OR end_date > ?) AND expense_id IN (${placeholders})`).all(through, from, ...chunk) as { expense_id: string; start_date: string; end_date: string | null }[]) {
+      let list = pausesByExpense.get(row.expense_id);
+      if (!list) { list = []; pausesByExpense.set(row.expense_id, list); }
+      list.push({ start_date: row.start_date, end_date: row.end_date });
+    }
+    for (const row of db.prepare(`SELECT expense_id, effective_date, title, amount_cents, payee, category, notes FROM expense_version WHERE effective_date <= ? AND expense_id IN (${placeholders}) ORDER BY expense_id, effective_date DESC`).all(through, ...chunk) as (Version & { expense_id: string; effective_date: string })[]) {
+      let list = versionsByExpense.get(row.expense_id);
+      if (!list) { list = []; versionsByExpense.set(row.expense_id, list); }
+      list.push(row);
+    }
+  }
+
+  const result: ExpenseOccurrence[] = [];
+  for (const { item, dates } of candidates) {
+    const skips = skipsByExpense.get(item.id);
+    const pauses = pausesByExpense.get(item.id);
+    const versions = versionsByExpense.get(item.id) ?? [];
+    for (const date of dates) {
+      if (skips?.has(date)) continue;
+      if (pauses?.some(pause => pause.start_date <= date && (pause.end_date === null || pause.end_date > date))) continue;
+      const version = versions.find(entry => entry.effective_date <= date);
+      if (!version) continue;
       result.push({ id: item.id, date, title: version.title, amountCents: version.amount_cents, payee: version.payee, category: version.category, notes: version.notes });
     }
   }

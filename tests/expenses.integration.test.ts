@@ -150,3 +150,46 @@ it('lets a parent dismiss overdue recurring occurrences that were never owed', a
     expect(() => skipExpense(db, 'parent', 'home', once, '2026-11-02')).toThrow('Invalid occurrence');
   } finally { vi.useRealTimers(); db.close(); }
 });
+
+it('batches expense skip, pause, and version lookups without N+1 queries', async () => {
+  const db = new Database(':memory:');
+  try {
+    db.pragma('foreign_keys = ON');
+    await migrate(db);
+    db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run('parent', 'Parent', 'parent@example.test');
+    db.prepare('INSERT INTO household VALUES (?, ?)').run('home', 'Synthetic');
+    db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, ?, 'parent')").run('parent', 'home');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-01T18:00:00Z'));
+
+    const ids: string[] = [];
+    for (let i = 0; i < 12; i += 1) {
+      ids.push(createExpense(db, 'parent', 'home', {
+        title: `Weekly bill ${i}`,
+        amountCents: 1000 + i * 100,
+        dueDate: `2026-11-${String((i % 7) + 1).padStart(2, '0')}`,
+        cadence: 'weekly',
+        payee: '',
+        category: '',
+        notes: ''
+      }));
+    }
+    skipExpense(db, 'parent', 'home', ids[0], '2026-11-08');
+
+    const originalPrepare = db.prepare.bind(db);
+    const statements: string[] = [];
+    db.prepare = ((sql: string) => {
+      statements.push(sql);
+      return originalPrepare(sql);
+    }) as typeof db.prepare;
+
+    const occurrences = listExpenses(db, 'parent', 'home', '2026-11-01', '2026-12-31');
+    expect(occurrences.length).toBeGreaterThan(90);
+    expect(occurrences.some(item => item.id === ids[0] && item.date === '2026-11-08')).toBe(false);
+    expect(statements.length).toBeLessThanOrEqual(6);
+
+    statements.length = 0;
+    skipExpense(db, 'parent', 'home', ids[1], '2026-11-09');
+    expect(statements.some(sql => /SELECT id, due_date, cadence, state, ended_on FROM expense WHERE household_id = \?/i.test(sql))).toBe(false);
+  } finally { vi.useRealTimers(); db.close(); }
+});

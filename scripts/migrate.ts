@@ -4,7 +4,7 @@ import { migrate } from '../src/lib/server/identity';
 try {
   const config = readIdentityConfig(process.env);
   const db = new Database(config.dbPath, { fileMustExist: true });
-  try { db.pragma('foreign_keys = ON'); await migrate(db); }
+  try { db.pragma('foreign_keys = ON'); db.pragma('journal_mode = WAL'); await migrate(db); }
   finally { db.close(); }
   console.log('Migrations completed.');
 } catch {

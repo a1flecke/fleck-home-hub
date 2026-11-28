@@ -160,3 +160,30 @@ it('paginates payout history with reversals while keeping balances complete', as
   expect(first.balance).toEqual({ earned: 5000, paid: 4400, owed: 600 });
   expect(third.items.find(item => item.id === 'payout-00')?.reversalReason).toBe('Synthetic correction');
 });
+
+it('loads payout history for a single child without querying every other child in the household', async () => {
+  const db = await fixture();
+  for (let i = 1; i <= 6; i += 1) {
+    const id = `extra-kid-${i}`;
+    db.prepare('INSERT INTO user (id, name, email, emailVerified, createdAt, updatedAt) VALUES (?, ?, ?, 0, 0, 0)').run(id, `Extra Kid ${i}`, `${id}@example.test`);
+    db.prepare("INSERT INTO membership (user_id, household_id, role) VALUES (?, 'home', 'kid')").run(id);
+  }
+  insertChore(db, { id: 'pending-kid', status: 'pending_verification', due: '2026-11-16', reward: 250 });
+  insertChore(db, { id: 'paid-kid', status: 'verified', due: '2026-11-15', reward: 500 });
+  earn(db, 'earning-kid', 'paid-kid', 500);
+  db.prepare("INSERT INTO payout (id, household_id, child_id, actor_id, amount_cents, paid_date, note, request_id, created_at) VALUES ('p1', 'home', 'kid', 'parent', 200, '2026-11-15', NULL, 'r1', '2026-11-15T00:00:00Z')").run();
+
+  const originalPrepare = db.prepare.bind(db);
+  const statements: string[] = [];
+  db.prepare = ((sql: string) => {
+    statements.push(sql);
+    return originalPrepare(sql);
+  }) as typeof db.prepare;
+
+  const history = listPayoutHistory(db, { ...audience, childId: 'kid', page: 1 });
+  expect(history.balance).toEqual({ earned: 500, paid: 200, owed: 300 });
+  expect(history.pendingCount).toBe(1);
+  expect(history.pendingCents).toBe(250);
+  expect(history.total).toBe(1);
+  expect(statements.length).toBeLessThanOrEqual(8);
+});

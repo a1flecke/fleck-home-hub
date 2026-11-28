@@ -54,3 +54,31 @@ it('paginates recurring schedules and bounds next occurrences and skips', async 
   vi.setSystemTime(new Date(`${nextDate}T18:00:00Z`).getTime() + 86_400_000);
   expect(listSeriesPage(db, 'parent', 'home', 1, 10).items[0].next).toBeUndefined();
 });
+
+it('batches next-occurrence and skip queries across a page of recurring series', async () => {
+  const db = await fixture();
+  vi.useFakeTimers();
+  vi.setSystemTime(new Date('2026-11-16T18:00:00Z'));
+  const insert = db.prepare(`INSERT INTO recurring_series (id, household_id, creator_id, assignee_id, title, start_date, weekdays, state, created_at, updated_at)
+    VALUES (?, 'home', 'parent', 'kid', ?, '2026-01-01', '[0,1,2,3,4,5,6]', 'active', ?, ?)`);
+  for (let i = 0; i < 15; i += 1) {
+    const id = `series-${String(i).padStart(2, '0')}`;
+    const stamp = new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString();
+    insert.run(id, `Series ${i}`, stamp, stamp);
+    db.prepare("INSERT INTO chore (id, household_id, assignee_id, title, due_date, reward_cents, status, created_at, updated_at) VALUES (?, 'home', 'kid', ?, '2026-11-18', 100, 'todo', '2026-11-16', '2026-11-16')").run(`chore-${i}`, `Series ${i}`);
+    db.prepare("INSERT INTO recurring_occurrence (series_id, household_id, scheduled_date, chore_id) VALUES (?, 'home', '2026-11-18', ?)").run(id, `chore-${i}`);
+    db.prepare("INSERT INTO recurring_skip (series_id, scheduled_date) VALUES (?, '2026-10-01')").run(id);
+  }
+
+  const originalPrepare = db.prepare.bind(db);
+  const statements: string[] = [];
+  db.prepare = ((sql: string) => {
+    statements.push(sql);
+    return originalPrepare(sql);
+  }) as typeof db.prepare;
+
+  const page = listSeriesPage(db, 'parent', 'home', 1, 15);
+  expect(page.items).toHaveLength(15);
+  expect(page.items.every(item => item.next === '2026-11-18' && item.skipCount === 1)).toBe(true);
+  expect(statements.length).toBeLessThanOrEqual(10);
+});

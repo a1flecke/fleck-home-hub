@@ -1,7 +1,7 @@
 import type Database from 'better-sqlite3';
 import { randomUUID } from 'node:crypto';
 import { expenseDates } from '../expenses/recurrence';
-import { expenseToday, listExpenses } from './expenses';
+import { expenseToday, findExpenseOccurrence } from './expenses';
 
 type PaymentInput = { expenseId: string; scheduledDate: string; paidDate: string; amountCents: number; note: string; requestId: string };
 type PreviousPayment = { id: string; actor_id: string; expense_id: string; scheduled_date: string; paid_date: string; amount_cents: number; note: string | null };
@@ -22,7 +22,7 @@ export function recordExpensePayment(db: Database.Database, actor: string, house
       return previous.id;
     }
     if (input.paidDate > expenseToday(db, household)) throw new Error('Payment date cannot be in the future');
-    const occurrence = listExpenses(db, actor, household, input.scheduledDate, input.scheduledDate).find(item => item.id === input.expenseId);
+    const occurrence = findExpenseOccurrence(db, household, input.expenseId, input.scheduledDate);
     const original = db.prepare('SELECT planned_title, planned_amount_cents, planned_payee, planned_category, planned_notes FROM expense_payment WHERE household_id = ? AND expense_id = ? AND scheduled_date = ? ORDER BY rowid LIMIT 1').get(household, input.expenseId, input.scheduledDate) as { planned_title: string; planned_amount_cents: number; planned_payee: string | null; planned_category: string | null; planned_notes: string | null } | undefined;
     if (!occurrence && !original) throw new Error('Expense unavailable');
     const plannedTitle = original?.planned_title ?? occurrence?.title;
