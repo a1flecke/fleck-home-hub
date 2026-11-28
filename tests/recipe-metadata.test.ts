@@ -133,4 +133,37 @@ describe('recipe preview fetch', () => {
     expect(extractRecipeDetails('<script type="application/ld+json">'.repeat(15_000), sourceUrl)).toBeNull();
     expect(performance.now() - start).toBeLessThan(200);
   });
+
+  it('cancels unread bodies on redirects and rejections and shares one timeout signal across redirect hops', async () => {
+    function trackedResponse(status: number, headers: Record<string, string>) {
+      const cancel = vi.fn();
+      const body = new ReadableStream({
+        start(controller) { controller.enqueue(new TextEncoder().encode('ignored body')); },
+        cancel
+      });
+      return { response: new Response(body, { status, headers }), cancel };
+    }
+
+    const signals: Array<AbortSignal | null | undefined> = [];
+    const hop1 = trackedResponse(302, { location: 'https://www.emeals.com/recipes/redirected' });
+    const redirectFetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      signals.push(init?.signal);
+      return String(input) === sourceUrl ? hop1.response : htmlResponse();
+    });
+    expect((await previewRecipe(sourceUrl, redirectFetch)).status).toBe('ok');
+    expect(hop1.cancel).toHaveBeenCalledOnce();
+    expect(signals).toHaveLength(2);
+    expect(signals[0]).toBeDefined();
+    expect(signals[0]).toBe(signals[1]);
+
+    for (const bad of [
+      trackedResponse(302, { location: 'https://example.test/off-host' }),
+      trackedResponse(500, { 'content-type': 'text/html' }),
+      trackedResponse(200, { 'content-type': 'application/json' }),
+      trackedResponse(200, { 'content-type': 'text/html', 'content-length': '2000000' })
+    ]) {
+      expect(await previewRecipe(sourceUrl, vi.fn(async () => bad.response))).toEqual({ status: 'failed' });
+      expect(bad.cancel).toHaveBeenCalledOnce();
+    }
+  });
 });

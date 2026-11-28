@@ -2,7 +2,7 @@
 // Read-only deployment preflight. It inspects the host and the configured
 // paths and prints PASS / WARN / FAIL / UNKNOWN lines. It changes nothing,
 // never runs launchctl or tailscale, and never prints AUTH_SECRET.
-import { accessSync, constants, existsSync, lstatSync, readFileSync, statfsSync, statSync } from 'node:fs';
+import { accessSync, constants, existsSync, lstatSync, readFileSync, statfsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -13,7 +13,7 @@ import { parseEnvFile } from './envfile.mjs';
 /** @typedef {(command: string, args: string[]) => ({ status: number | null, stdout: string } | null)} Exec */
 
 export const LABEL_DEFAULT_PORT = 3000;
-const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '::1', '[::1]'];
+const LOOPBACK_HOSTS = ['127.0.0.1', 'localhost', '::1'];
 const MIN_FREE_BYTES = 1024 ** 3;
 
 /** @param {string} platform @param {string} arch */
@@ -101,10 +101,15 @@ export function runPreflight(ctx) {
     else if (stat.uid !== ctx.uid) add('env-file', 'FAIL', 'configuration file is not owned by the current user');
     else if (isInside(file, repoRoot)) add('env-file', 'FAIL', 'configuration file must live outside the repository');
     else {
-      add('env-file', 'PASS', 'configuration file is a private regular file owned by the current user');
-      const parsed = parseEnvFile(readFileSync(file, 'utf8'));
-      config = parsed.values; configLoaded = true;
-      if (parsed.errors.length) { add('env-syntax', 'FAIL', parsed.errors.join('; ')); configLoaded = false; }
+      const raw = attempt(file, () => readFileSync(file, 'utf8'));
+      if (raw === undefined) {
+        add('env-file', 'FAIL', 'configuration file is not readable by the current user');
+      } else {
+        add('env-file', 'PASS', 'configuration file is a private regular file owned by the current user');
+        const parsed = parseEnvFile(raw);
+        config = parsed.values; configLoaded = true;
+        if (parsed.errors.length) { add('env-syntax', 'FAIL', parsed.errors.join('; ')); configLoaded = false; }
+      }
     }
   } else {
     config = { AUTH_SECRET: ctx.env.AUTH_SECRET, DATABASE_PATH: ctx.env.DATABASE_PATH, AUTH_ORIGIN: ctx.env.AUTH_ORIGIN, HOST: ctx.env.HOST, PORT: ctx.env.PORT };
@@ -161,14 +166,16 @@ export function runPreflight(ctx) {
     if (!isAbsolute(db) || hasDotDot(db) || normalize(db) !== db) add('database', 'FAIL', 'DATABASE_PATH must be a normalized absolute path without ".." segments');
     else if (isInside(db, repoRoot)) add('database', 'FAIL', 'DATABASE_PATH must be outside the repository');
     else {
-      const dirStat = attempt(dbDir, () => statSync(dbDir));
+      const dirStat = attempt(dbDir, () => lstatSync(dbDir));
       const fileStat = attempt(db, () => lstatSync(db));
       if (!dirStat) add('database', 'FAIL', 'database directory does not exist; create a private (chmod 700) directory');
+      else if (!dirStat.isDirectory()) add('database', 'FAIL', 'database directory path is not a regular directory (symlinks are refused)');
+      else if (dirStat.uid !== ctx.uid) add('database', 'FAIL', 'database directory is not owned by the current user');
       else if ((dirStat.mode & 0o077) !== 0) add('database', 'FAIL', `database directory mode is ${(dirStat.mode & 0o777).toString(8)}; run chmod 700`);
-      else if (fileStat && (!fileStat.isFile() || (fileStat.mode & 0o077) !== 0)) add('database', 'FAIL', 'existing database must be a regular file with mode 600');
+      else if (fileStat && (!fileStat.isFile() || fileStat.uid !== ctx.uid || (fileStat.mode & 0o077) !== 0)) add('database', 'FAIL', 'existing database must be a regular file owned by the current user with mode 600');
       else if (fileStat) add('database', 'PASS', 'database file exists in a private directory with owner-only mode');
       else add('database', 'WARN', 'database does not exist yet; prepare it with mise run setup-code');
-      if (dirStat) {
+      if (dirStat && dirStat.isDirectory()) {
         const free = attempt(dbDir, () => { const s = statfsSync(dbDir); return s.bavail * s.bsize; });
         if (typeof free !== 'number') add('disk', 'UNKNOWN', 'free disk space could not be determined');
         else add('disk', free >= MIN_FREE_BYTES ? 'PASS' : 'WARN', `${Math.floor(free / 1024 ** 2)} MiB free on the database volume`);
@@ -193,14 +200,15 @@ export function runPreflight(ctx) {
   // Backup destination
   if (ctx.backupDir) {
     const dir = ctx.backupDir;
-    const stat = attempt(dir, () => statSync(dir));
+    const stat = attempt(dir, () => lstatSync(dir));
     if (!isAbsolute(dir) || hasDotDot(dir)) add('backup', 'FAIL', 'backup directory must be absolute without ".." segments');
     else if (isInside(dir, repoRoot)) add('backup', 'FAIL', 'backup directory must be outside the repository');
-    else if (!stat || !stat.isDirectory()) add('backup', 'FAIL', 'backup directory does not exist');
+    else if (!stat || !stat.isDirectory()) add('backup', 'FAIL', 'backup directory does not exist or is not a regular directory (symlinks are refused)');
+    else if (stat.uid !== ctx.uid) add('backup', 'FAIL', 'backup directory is not owned by the current user');
     else if ((stat.mode & 0o077) !== 0) add('backup', 'FAIL', `backup directory mode is ${(stat.mode & 0o777).toString(8)}; run chmod 700`);
     else if (!attempt(dir, () => { accessSync(dir, constants.W_OK); return true; })) add('backup', 'FAIL', 'backup directory is not writable');
     else {
-      const dbDir = db ? attempt(dirname(db), () => statSync(dirname(db))) : undefined;
+      const dbDir = db ? attempt(dirname(db), () => lstatSync(dirname(db))) : undefined;
       const same = dbDir && dbDir.dev === stat.dev;
       add('backup', 'WARN', same
         ? 'backup directory is private and writable but on the same volume as the database; it does not protect against disk or host loss. Off-host copy requires operator validation.'

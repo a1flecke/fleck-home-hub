@@ -102,14 +102,29 @@ describe('health states', () => {
   });
   it('recovers: the state follows the service from failure back to healthy', async () => {
     let identity = 503;
-    const port = await serve(url => url === '/api/auth/ok' ? { status: identity } : { status: 200 });
+    const port = await serve(url => url === '/api/auth/ok' ? { status: identity, body: identity === 200 ? '{"ok":true}' : '' } : { status: 200 });
     const config = env(port, makeDb());
     expect((await diagnose({ env: config })).state).toBe('RUNTIME_UNAVAILABLE');
     identity = 200;
     expect((await diagnose({ env: config })).state).toBe('HEALTHY');
   });
+  it('requires /api/auth/ok to return JSON { ok: true } both locally and on HTTPS probe', async () => {
+    const htmlPort = await serve(url => url === '/api/auth/ok' ? { status: 200, body: '<html>not auth</html>' } : { status: 200 });
+    expect((await diagnose({ env: env(htmlPort, makeDb()) })).state).toBe('RUNTIME_UNAVAILABLE');
+
+    const falsePort = await serve(url => url === '/api/auth/ok' ? { status: 200, body: '{"ok":false}' } : { status: 200 });
+    expect((await diagnose({ env: env(falsePort, makeDb()) })).state).toBe('RUNTIME_UNAVAILABLE');
+
+    const okPort = await serve(url => url === '/api/auth/ok' ? { status: 200, body: '{"ok":true}' } : { status: 200 });
+    const badHttps = await diagnose({
+      env: env(okPort, makeDb()),
+      probeHttps: true,
+      fetchImpl: async (input) => String(input).startsWith(origin) ? new Response('<html>proxy page</html>', { status: 200 }) : fetch(input)
+    });
+    expect(badHttps.state).toBe('HTTPS_PROBE_FAILED');
+  });
   it('probes the private HTTPS origin only on request and says what that proves', async () => {
-    const port = await serve(url => url === '/api/auth/ok' ? { status: 200 } : { status: 200 });
+    const port = await serve(url => url === '/api/auth/ok' ? { status: 200, body: '{"ok":true}' } : { status: 200 });
     const calls: string[] = [];
     const ok = await diagnose({ env: env(port, makeDb()), probeHttps: true, fetchImpl: async (input) => { calls.push(String(input)); return String(input).startsWith(origin) ? new Response('{"ok":true}', { status: 200 }) : fetch(input); } });
     expect(ok.state).toBe('HEALTHY');
@@ -151,7 +166,7 @@ describe('safety of the diagnostic', () => {
 
 describe('command line', () => {
   it('exits 0 and prints the state when healthy; non-zero with a distinct code otherwise', async () => {
-    const port = await serve(() => ({ status: 200 }));
+    const port = await serve(url => url === '/api/auth/ok' ? { status: 200, body: '{"ok":true}' } : { status: 200 });
     const cfg = join(dir, 'hub.conf');
     writeFileSync(cfg, `AUTH_SECRET=${SECRET}\nDATABASE_PATH=${makeDb()}\nAUTH_ORIGIN=${origin}\nPORT=${port}\n`, { mode: 0o600 });
     // Async on purpose: the fake server lives in this process and must keep serving.
@@ -165,5 +180,21 @@ describe('command line', () => {
     const down = await run(['--config-file', cfg]);
     expect(down.stdout).toContain('NOT_LISTENING');
     expect(down.status).toBe(EXIT_CODES.NOT_LISTENING);
+
+    const missingPath = join(dir, 'secret-missing-name.conf');
+    const missing = await run(['--config-file', missingPath]);
+    expect(missing.status).toBe(EXIT_CODES.CONFIG_INVALID);
+    expect(missing.stdout).toContain('CONFIG_INVALID');
+    expect(missing.stdout + missing.stderr).not.toContain('secret-missing-name');
+    expect(missing.stdout + missing.stderr).not.toContain('ENOENT');
+
+    const unreadable = join(dir, 'secret-mode-zero.conf');
+    writeFileSync(unreadable, `AUTH_SECRET=${SECRET}\n`, { mode: 0o000 });
+    chmodSync(unreadable, 0o000);
+    const denied = await run(['--config-file', unreadable]);
+    expect(denied.status).toBe(EXIT_CODES.CONFIG_INVALID);
+    expect(denied.stdout).toContain('CONFIG_INVALID');
+    expect(denied.stdout + denied.stderr).not.toContain('secret-mode-zero');
+    expect(denied.stdout + denied.stderr).not.toContain('EACCES');
   });
 });

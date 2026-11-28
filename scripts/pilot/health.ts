@@ -14,6 +14,44 @@ export interface Diagnosis { state: State; details: string[] }
 interface Options { env: Record<string, string | undefined>; timeoutMs?: number; probeHttps?: boolean; fetchImpl?: typeof fetch }
 
 const LOOPBACK = ['127.0.0.1', 'localhost', '::1'];
+const MAX_AUTH_OK_BYTES = 4096;
+
+async function isAuthOkResponse(response: Response): Promise<boolean> {
+  if (response.status !== 200) {
+    try { await response.body?.cancel(); } catch { /* ignore */ }
+    return false;
+  }
+  const reader = response.body?.getReader();
+  if (!reader) return false;
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > MAX_AUTH_OK_BYTES) {
+        await reader.cancel();
+        return false;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return false;
+  } finally {
+    reader.releaseLock();
+  }
+  const merged = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { merged.set(chunk, offset); offset += chunk.byteLength; }
+  try {
+    const parsed = JSON.parse(new TextDecoder('utf-8').decode(merged)) as unknown;
+    return !!parsed && typeof parsed === 'object' && !Array.isArray(parsed) && (parsed as { ok?: unknown }).ok === true;
+  } catch {
+    return false;
+  }
+}
 
 function databaseOk(path: string | undefined): boolean {
   if (!path) return false;
@@ -51,16 +89,19 @@ export async function diagnose({ env, timeoutMs = 3000, probeHttps = false, fetc
   details.push('HTTP listener responded.');
 
   let identity: number;
+  let authOkBody = false;
   try {
     const response = await get(`${base}/api/auth/ok`);
-    await response.body?.cancel();
     identity = response.status;
+    if (identity === 200) authOkBody = await isAuthOkResponse(response);
+    else await response.body?.cancel();
   } catch { return { state: 'RUNTIME_UNAVAILABLE', details: [...details, 'The authentication runtime did not answer.'] }; }
 
   if (identity !== 200 && identity !== 503) return { state: 'RUNTIME_UNAVAILABLE', details: [...details, 'The authentication runtime returned an unexpected response.'] };
   if (!configValid) return { state: 'CONFIG_INVALID', details: [...details, 'Required settings (AUTH_SECRET of 32+ characters, DATABASE_PATH, and an HTTPS or localhost AUTH_ORIGIN) are missing or invalid in the environment you supplied.'] };
   if (!databaseOk(env.DATABASE_PATH)) return { state: 'DATABASE_UNAVAILABLE', details: [...details, 'The configured database could not be opened read-only or failed SQLite quick_check.'] };
   if (identity === 503) return { state: 'RUNTIME_UNAVAILABLE', details: [...details, 'The identity service reports unavailable although configuration and database look valid; inspect the service logs.'] };
+  if (!authOkBody) return { state: 'RUNTIME_UNAVAILABLE', details: [...details, 'The authentication runtime did not return the expected JSON health payload.'] };
   details.push('Authentication runtime and database responded; SQLite quick_check passed.');
 
   if (probeHttps) {
@@ -69,8 +110,10 @@ export async function diagnose({ env, timeoutMs = 3000, probeHttps = false, fetc
     } else {
       try {
         const response = await fetchImpl(`${origin}/api/auth/ok`, { method: 'GET', redirect: 'manual', signal: AbortSignal.timeout(timeoutMs * 3) });
-        await response.body?.cancel();
-        if (response.status !== 200) return { state: 'HTTPS_PROBE_FAILED', details: [...details, `The private HTTPS origin answered with status ${response.status}; investigate Tailscale Serve manually.`] };
+        const status = response.status;
+        const okBody = await isAuthOkResponse(response);
+        if (status !== 200) return { state: 'HTTPS_PROBE_FAILED', details: [...details, `The private HTTPS origin answered with status ${status}; investigate Tailscale Serve manually.`] };
+        if (!okBody) return { state: 'HTTPS_PROBE_FAILED', details: [...details, 'The private HTTPS origin answered with status 200 but did not return the expected authentication health JSON; investigate Tailscale Serve manually.'] };
         details.push('The private HTTPS origin answered from this Mac. This does not prove other devices, ACLs, certificates or cookies work.');
       } catch {
         return { state: 'HTTPS_PROBE_FAILED', details: [...details, 'The private HTTPS origin could not be reached from this Mac; investigate Tailscale Serve, DNS and certificates manually.'] };
@@ -90,8 +133,14 @@ async function main() {
   }
   let env: Record<string, string | undefined> = process.env;
   if (file) {
-    const parsed = parseEnvFile(readFileSync(file, 'utf8'));
-    if (parsed.errors.length) { console.log('CONFIG_INVALID\nThe configuration file has syntax errors; run the preflight for details.'); process.exit(EXIT_CODES.CONFIG_INVALID); }
+    let raw: string;
+    try { raw = readFileSync(file, 'utf8'); }
+    catch {
+      console.log('CONFIG_INVALID\n  The configuration file could not be read; check its path and permissions.');
+      process.exit(EXIT_CODES.CONFIG_INVALID);
+    }
+    const parsed = parseEnvFile(raw);
+    if (parsed.errors.length) { console.log('CONFIG_INVALID\n  The configuration file has syntax errors; run the preflight for details.'); process.exit(EXIT_CODES.CONFIG_INVALID); }
     env = parsed.values;
   }
   const result = await diagnose({ env, probeHttps });

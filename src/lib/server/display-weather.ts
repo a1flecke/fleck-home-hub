@@ -70,15 +70,17 @@ export function createDisplayWeatherSource(options: DisplayWeatherSourceOptions)
   const backgroundRefresh = options.backgroundRefresh !== false;
   const refreshIntervalMs = options.refreshIntervalMs ?? DEFAULT_REFRESH_INTERVAL_MS;
   let started = false;
+  let generation = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  function schedule(): void {
-    if (!started || !service) return;
+  function schedule(runId: number): void {
+    if (!started || !service || runId !== generation) return;
+    if (timer !== undefined) clearTimeout(timer);
     timer = setTimeout(() => {
       timer = undefined;
-      if (!started || !service) return;
+      if (!started || !service || runId !== generation) return;
       void service.backgroundTick().catch(() => null).finally(() => {
-        schedule();
+        schedule(runId);
       });
     }, refreshIntervalMs);
     timer.unref();
@@ -87,11 +89,13 @@ export function createDisplayWeatherSource(options: DisplayWeatherSourceOptions)
   function start(): void {
     if (started || !service || !backgroundRefresh) return;
     started = true;
-    schedule();
+    generation += 1;
+    schedule(generation);
   }
 
   function stop(): void {
     started = false;
+    generation += 1;
     if (timer !== undefined) {
       clearTimeout(timer);
       timer = undefined;
