@@ -1,15 +1,31 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { hydrated, settle } from './support/navigation';
 import { e2eServerMode, pageModule } from './support/modules';
+import { freshHousehold, type SeededMember } from './support/households';
+
+// e2e-isolation: fresh-households
+// Every test plans meals in its own household, so dinners, shares and drafts never collide with
+// another test or a repetition of this one.
+
+/** A parent and a child; member names match the headings the tests assert. */
+function mealHousehold() {
+  return freshHousehold({ members: [{ name: 'Sample Parent', role: 'parent' }, { name: 'Sample Kid', role: 'kid' }] });
+}
+
+/** Signs in through the form, as a family member would. */
+async function signIn(page: Page, member: SeededMember) {
+  await page.goto('/sign-in');
+  await page.getByLabel('Email').fill(member.email);
+  await page.getByLabel('Password').fill(member.password);
+  await page.getByRole('button', { name: 'Sign in' }).click();
+}
 
 test('parent dashboard shows today’s meals and child dashboard does not expose them', async ({ page, browser }, testInfo) => {
+  const household = await mealHousehold();
   const linked = `Family supper linked ${testInfo.repeatEachIndex}`;
   const unlinked = `Family supper unlinked ${testInfo.repeatEachIndex}`;
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const display = await page.request.get('/display/data');
   expect(display.status()).toBe(200);
@@ -50,10 +66,7 @@ test('parent dashboard shows today’s meals and child dashboard does not expose
   const context = await browser.newContext({ viewport: { width: 375, height: 812 } });
   try {
     const kid = await context.newPage();
-    await kid.goto('/sign-in');
-    await kid.getByLabel('Email').fill('kid@example.test');
-    await kid.getByLabel('Password').fill('synthetic-kid-password');
-    await kid.getByRole('button', { name: 'Sign in' }).click();
+    await signIn(kid, household.members['Sample Kid']);
     await expect(kid.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
     await expect(kid.getByRole('region', { name: "Tonight's meal" })).toHaveCount(0);
     expect(await kid.content()).not.toContain(linked);
@@ -62,10 +75,8 @@ test('parent dashboard shows today’s meals and child dashboard does not expose
   const otherContext = await browser.newContext({ viewport: { width: 375, height: 812 } });
   try {
     const other = await otherContext.newPage();
-    await other.goto('/sign-in');
-    await other.getByLabel('Email').fill('other-parent@example.test');
-    await other.getByLabel('Password').fill('synthetic-other-parent-password');
-    await other.getByRole('button', { name: 'Sign in' }).click();
+    const elsewhere = await freshHousehold({ members: [{ name: 'Other Parent', role: 'parent' }] });
+    await signIn(other, elsewhere.members['Other Parent']);
     await expect(other.getByRole('heading', { name: 'Hello, Other Parent' })).toBeVisible();
     await expect(other.getByRole('region', { name: "Tonight's meal" })).toContainText('No meals planned for today.');
     expect(await other.content()).not.toContain(linked);
@@ -74,14 +85,12 @@ test('parent dashboard shows today’s meals and child dashboard does not expose
 });
 
 test('a parent plans a meal and explicitly shares its ingredients on the display', async ({ page }, testInfo) => {
+  const household = await mealHousehold();
   const title = `Synthetic dinner ${testInfo.repeatEachIndex}`;
   await page.setViewportSize({ width: 375, height: 812 });
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   expect((await page.request.get('/meals', { maxRedirects: 0 })).status()).toBe(303);
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto(`/meals?date=${today}`);
   await page.getByText('Add a meal', { exact: true }).click();
@@ -120,10 +129,8 @@ test('a parent plans a meal and explicitly shares its ingredients on the display
 });
 
 for (const javaScriptEnabled of [true, false]) test(`invalid meals retain entered details for correction (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState() });
   try {
@@ -145,10 +152,8 @@ for (const javaScriptEnabled of [true, false]) test(`invalid meals retain entere
 });
 
 test('child and cross-origin meal mutations are rejected at the server', async ({ page }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('kid@example.test');
-  await page.getByLabel('Password').fill('synthetic-kid-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Kid']);
   await expect(page.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
   const response = await page.request.post('/meals?/save', { form: { title: 'Forbidden meal', date: '2099-01-01', ingredients: 'Synthetic', shared: 'on' }, headers: { origin: 'http://127.0.0.1:4173' } });
   expect(await response.json()).toMatchObject({ type: 'failure', status: 403 });
@@ -164,10 +169,8 @@ test('child and cross-origin meal mutations are rejected at the server', async (
 });
 
 test('editing a meal to another date shows the saved meal at its new date', async ({ page }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/meals?date=2099-02-01');
   await page.getByText('Add a meal', { exact: true }).click();
@@ -189,10 +192,8 @@ test('editing a meal to another date shows the saved meal at its new date', asyn
 });
 
 test('meal form edits and disclosure survive delayed hydration', async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const context = await browser.newContext({ storageState: await page.context().storageState() });
   let release!: () => void, requested!: () => void;
@@ -221,6 +222,7 @@ test('meal form edits and disclosure survive delayed hydration', async ({ page, 
 });
 
 test('parent saves a private eMeals draft, renames it, shares it and unshares it', async ({ page, browser }, testInfo) => {
+  const household = await mealHousehold();
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const stamp = Date.now();
   const recipeUrl = 'https://emeals.com/recipes/644ab3a45f696470b084b00f/62a077a0/synthetic-lemon-chickpea-bowls?plan=synthetic';
@@ -230,10 +232,7 @@ test('parent saves a private eMeals draft, renames it, shares it and unshares it
   const outbound: string[] = [];
   page.on('request', request => { if (request.url().startsWith('https://emeals.com')) outbound.push(request.url()); });
   await page.setViewportSize({ width: 375, height: 812 });
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto(`/meals?date=${today}`);
   await page.getByText('Add meal from recipe link', { exact: true }).click();
@@ -266,10 +265,7 @@ test('parent saves a private eMeals draft, renames it, shares it and unshares it
   const childContext = await browser.newContext({ viewport: { width: 375, height: 812 } });
   try {
     const child = await childContext.newPage();
-    await child.goto('/sign-in');
-    await child.getByLabel('Email').fill('kid@example.test');
-    await child.getByLabel('Password').fill('synthetic-kid-password');
-    await child.getByRole('button', { name: 'Sign in' }).click();
+    await signIn(child, household.members['Sample Kid']);
     await expect(child.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
     await child.goto(`/meals?date=${today}`);
     expect(await child.content()).not.toContain(renamed);
@@ -303,10 +299,8 @@ test('parent saves a private eMeals draft, renames it, shares it and unshares it
 });
 
 for (const javaScriptEnabled of [true, false]) test(`recipe link drafts retain entered details for correction (JavaScript ${javaScriptEnabled ? 'on' : 'off'})`, async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const context = await browser.newContext({ javaScriptEnabled, storageState: await page.context().storageState() });
   try {
@@ -348,10 +342,8 @@ for (const javaScriptEnabled of [true, false]) test(`recipe link drafts retain e
 });
 
 test('recipe link paste form preserves edits through delayed hydration', async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const recipeUrl = 'https://emeals.com/recipes/synthetic-shared-bowls';
   const context = await browser.newContext({ storageState: await page.context().storageState() });
@@ -373,10 +365,8 @@ test('recipe link paste form preserves edits through delayed hydration', async (
 });
 
 test('shared recipe draft form preserves edits through delayed hydration', async ({ page }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const recipeUrl = 'https://emeals.com/recipes/synthetic-shared-bowls';
   await page.goto('/meals');
@@ -418,6 +408,7 @@ test('shared recipe draft form preserves edits through delayed hydration', async
 });
 
 test('share target requires a parent and never writes a meal before confirmation', async ({ page, browser, request }) => {
+  const household = await mealHousehold();
   const recipeUrl = 'https://emeals.com/recipes/synthetic-shared-target';
   const title = `Synthetic shared target ${Date.now()}`;
   // A share from the installed app is a same-origin POST, so send the app's origin.
@@ -433,10 +424,7 @@ test('share target requires a parent and never writes a meal before confirmation
   if (anonymous.status() === 303) expect(anonymous.headers()['location']).toMatch(/\/sign-in$/);
   else expect(JSON.parse(anonymousBody)).toMatchObject({ type: 'redirect', status: 303, location: '/sign-in' });
 
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
 
   const accepted = await page.request.post('/meals/share', { form: { url: recipeUrl, title }, headers: { origin: 'http://127.0.0.1:4173' } });
@@ -457,10 +445,7 @@ test('share target requires a parent and never writes a meal before confirmation
   const kidContext = await browser.newContext();
   try {
     const kid = await kidContext.newPage();
-    await kid.goto('/sign-in');
-    await kid.getByLabel('Email').fill('kid@example.test');
-    await kid.getByLabel('Password').fill('synthetic-kid-password');
-    await kid.getByRole('button', { name: 'Sign in' }).click();
+    await signIn(kid, household.members['Sample Kid']);
     await expect(kid.getByRole('heading', { name: "Sample Kid's My Day" })).toBeVisible();
     const rejected = await kid.request.post('/meals/share', { form: { url: recipeUrl, title }, headers: { origin: 'http://127.0.0.1:4173' } });
     expect(rejected.status()).toBe(403);
@@ -469,6 +454,7 @@ test('share target requires a parent and never writes a meal before confirmation
 });
 
 test('parent previews eMeals recipe details, saves them and adds a provider ingredient', async ({ page }, testInfo) => {
+  const household = await mealHousehold();
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const stamp = Date.now();
   const recipeUrl = 'https://emeals.com/recipes/synthetic-preview';
@@ -476,10 +462,7 @@ test('parent previews eMeals recipe details, saves them and adds a provider ingr
   const note = `Private preview note ${stamp}`;
   const outbound: string[] = [];
   page.on('request', request => { if (request.url().startsWith('https://emeals.com')) outbound.push(request.url()); });
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto(`/meals?date=${today}`);
   await page.getByText('Add meal from recipe link', { exact: true }).click();
@@ -561,10 +544,8 @@ test('parent previews eMeals recipe details, saves them and adds a provider ingr
 });
 
 test('preview failure keeps the link-only draft usable', async ({ page }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const date = '2099-08-01';
   await page.goto(`/meals?date=${date}`);
@@ -587,10 +568,8 @@ test('preview failure keeps the link-only draft usable', async ({ page }) => {
 });
 
 test('unrelated links have no recipe preview control', async ({ page }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   await page.goto('/meals?date=2099-08-02');
   await page.getByText('Add meal from recipe link', { exact: true }).click();
@@ -602,10 +581,8 @@ test('unrelated links have no recipe preview control', async ({ page }) => {
 });
 
 test('recipe preview works without JavaScript', async ({ page, browser }) => {
-  await page.goto('/sign-in');
-  await page.getByLabel('Email').fill('parent@example.test');
-  await page.getByLabel('Password').fill('synthetic-parent-password');
-  await page.getByRole('button', { name: 'Sign in' }).click();
+  const household = await mealHousehold();
+  await signIn(page, household.members['Sample Parent']);
   await expect(page.getByRole('heading', { name: 'Hello, Sample Parent' })).toBeVisible();
   const context = await browser.newContext({ javaScriptEnabled: false, storageState: await page.context().storageState() });
   try {
